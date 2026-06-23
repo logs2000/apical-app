@@ -2,31 +2,37 @@
 
 import { cn } from "@/lib/utils";
 
-/** Apical mark — an upward apical meristem / growth tip, doubling as a stylized "A". */
+/**
+ * Apical mark — a large triangle with a smaller triangle nested inside,
+ * evoking the "apex" / growth-tip concept. Derived from the official logo.
+ *
+ * Uses `currentColor` so it inherits the text color: black on light backgrounds,
+ * white on dark backgrounds. No gradient (the official logo is solid black).
+ *
+ * `withGlow` adds a subtle blurred duplicate behind the mark (used on auth
+ * pages + the landing hero) for a soft halo effect.
+ */
 export function ApicalMark({ className, withGlow = false }: { className?: string; withGlow?: boolean }) {
   return (
     <svg
-      viewBox="0 0 32 32"
+      viewBox="0 0 180 180"
       fill="none"
-      className={cn("h-7 w-7", className)}
+      className={cn("h-7 w-7 text-foreground", className)}
       aria-hidden="true"
     >
-      <defs>
-        <linearGradient id="apicalGrad" x1="0" y1="32" x2="32" y2="0" gradientUnits="userSpaceOnUse">
-          <stop stopColor="oklch(0.62 0.15 158)" />
-          <stop offset="1" stopColor="oklch(0.78 0.16 170)" />
-        </linearGradient>
-      </defs>
       {withGlow && (
-        <path
-          d="M16 2 L29 28 L22.5 28 L16 14 L9.5 28 L3 28 Z"
-          fill="url(#apicalGrad)"
-          opacity={0.25}
-          className="blur-md"
-        />
+        <g className="blur-md" opacity={0.3}>
+          <polygon points="90,20 160,150 20,150" fill="currentColor" />
+          <polygon points="90,70 125,140 55,140" fill="oklch(0.99 0 0)" />
+          <polygon points="90,95 105,135 75,135" fill="currentColor" />
+        </g>
       )}
-      <path d="M16 2 L29 28 L22.5 28 L16 14 L9.5 28 L3 28 Z" fill="url(#apicalGrad)" />
-      <circle cx="16" cy="6.5" r="2.1" fill="oklch(0.95 0.05 160)" />
+      {/* Outer triangle (large) */}
+      <polygon points="90,20 160,150 20,150" fill="currentColor" />
+      {/* Inner triangle (nested, creates the layered apex effect) */}
+      <polygon points="90,70 125,140 55,140" fill="oklch(0.99 0 0)" />
+      {/* Innermost triangle (the apex tip) */}
+      <polygon points="90,95 105,135 75,135" fill="currentColor" />
     </svg>
   );
 }
@@ -36,8 +42,8 @@ export function ApicalWordmark({ className, compact = false }: { className?: str
     <div className={cn("flex items-center gap-2", className)}>
       <ApicalMark className="h-6 w-6" />
       {!compact && (
-        <span className="font-semibold tracking-tight text-[14px]">
-          Apical<span className="text-primary">.</span>
+        <span className="font-semibold tracking-tight text-[14px] lowercase">
+          apical
         </span>
       )}
     </div>

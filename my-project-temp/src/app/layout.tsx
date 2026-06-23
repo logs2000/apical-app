@@ -21,6 +21,17 @@ export const metadata: Metadata = {
     "Tell Apical what needs doing. An AI agent figures out the steps, does the busywork, and hands you the result. You decide. It does.",
   keywords: ["Apical", "AI agents", "automation", "MCP", "task runner"],
   authors: [{ name: "Apical" }],
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon-16.png", sizes: "16x16", type: "image/png" },
+      { url: "/icon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icon-48.png", sizes: "48x48", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
   openGraph: {
     title: "Apical — Consider it Done.",
     description: "AI agents that actually do the work.",

@@ -1052,3 +1052,36 @@ Stage Summary:
 - KEY SAFETY: the LLM NEVER sees raw secrets. The agent tools (http_request, web_read) accept a `credentialId` parameter; the server resolves it from the vault + injects the secret into headers server-side. Auth-shaped headers the LLM tries to set directly are STRIPPED. This is the proxy/insulation model the user asked about — confirmed safe + hardened.
 - LEARN-FIRST-CONTINUOUS-IMPROVEMENT: the agent engine now drives the user's exact flow — try → need tool → configure tool → repeat → freeze workflow from real trace → monitor → improve. 5 new tools (credential_list, tool_configure, workflow_freeze, workflow_monitor, workflow_improve). System prompt rewritten. chat-tab sendDo() now invokes the real autonomous loop via SSE.
 - The "do once" mode is no longer a one-shot demo — it's an ongoing improvement process. The agent freezes the workflow from observed reality, then monitors + improves it over time.
+
+---
+Task ID: LOGO-1
+Agent: Main (orchestrator)
+Task: Integrate the user's uploaded Apical logo — crop, generate favicons, rewrite ApicalMark component, update metadata.
+
+Work Log:
+- ANALYZED the uploaded logo (apical logo.png, 1254x1254 RGB): combination mark — black triangle-within-triangle pictogram on the left + "apical" wordmark on the right, solid white background. The triangle evokes the "apex" concept.
+- CROPPED + GENERATED assets (.zscripts/process-logo.py, using PIL):
+  - Identified content bbox via numpy (cols 139-1123, rows 535-726). Triangle pictogram bbox: cols 139-269, rows 535-700. Text bbox: cols 270-1123.
+  - Cropped a 180x180 square centered on the triangle, made the white background transparent (apical-mark.png).
+  - Generated favicon PNG sizes: 16, 32, 48, 180 (apple-touch-icon), 192, 512.
+  - Generated multi-resolution favicon.ico (16+32+48 embedded).
+  - Created a white-on-transparent version for dark mode (apical-mark-white.png).
+  - Cropped the full combination mark (triangle + wordmark) as apical-full.png (1050x230) for auth pages / emails.
+- CREATED apical-mark.svg: a clean SVG version of the triangle mark (large outer triangle + nested inner triangle + apex tip). Uses currentColor so it inherits the text color (black on light, white on dark — theme-aware). No gradient (the official logo is solid).
+- REWROTE src/components/apical/logo.tsx:
+  - ApicalMark: replaced the old green-gradient triangle+circle SVG with the new triangle-within-triangle design (viewBox 0 0 180 180, three polygons). Uses text-foreground + currentColor for theme awareness. withGlow adds a blurred duplicate behind for the halo effect (auth pages + landing hero).
+  - ApicalWordmark: wordmark text changed from "Apical." (with green dot) to lowercase "apical" (matching the official logo's lowercase wordmark).
+- UPDATED src/app/layout.tsx metadata.icons: favicon.ico (any size) + icon-16/32/48.png + apple-touch-icon.png (180x180). Next.js auto-generates the <link> tags.
+- VERIFICATION:
+  - bun run lint → 0 errors, 0 warnings.
+  - bunx tsc --noEmit → 0 errors in logo.tsx / layout.tsx.
+  - All favicon assets serve correctly: favicon.ico (200, 5742 bytes), icon-32.png (200), apple-touch-icon.png (200).
+  - Landing page HTML contains the new polygon points="90,20..." + text-foreground class.
+  - <link rel="icon"> + <link rel="apple-touch-icon"> tags present in HTML head.
+  - VLM confirmed the 512px favicon clearly shows the triangle-within-triangle "A" mark.
+
+Stage Summary:
+- Official Apical logo integrated: triangle-within-triangle mark replaces the old green-gradient SVG. Theme-aware (currentColor → black on light, white on dark). Wordmark is lowercase "apical" per the official design.
+- Full favicon set generated: .ico (16+32+48), PNG sizes 16/32/48/180/192/512, apple-touch-icon.
+- metadata.icons wired in layout.tsx — Next.js auto-emits the <link> tags.
+- All assets in /public/, all serving correctly, lint+types clean.
