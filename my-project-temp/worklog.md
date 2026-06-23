@@ -1085,3 +1085,48 @@ Stage Summary:
 - Full favicon set generated: .ico (16+32+48), PNG sizes 16/32/48/180/192/512, apple-touch-icon.
 - metadata.icons wired in layout.tsx — Next.js auto-emits the <link> tags.
 - All assets in /public/, all serving correctly, lint+types clean.
+
+---
+Task ID: MERGE-1
+Agent: Main (orchestrator)
+Task: Merge Chat + Agents tabs into one "Agents" tab with three-pane layout (left navigator, center chat/dashboard/workflow/config, right inspector). Add Orchestrator chat. Fix login bug.
+
+Work Log:
+- LOGIN BUG FIX (src/components/auth/AuthDialog.tsx):
+  - Root cause: after signIn("credentials"), the local `user` state was set by onSuccess but never synced with the NextAuth session. On page reload, `user` reset to null even though the session cookie was still valid — so the app "forgot" the user was logged in.
+  - Fix: added useSession() in AuthProvider. A useEffect watches the session status: when authenticated, derives user from session.user + sets appOpen true (auto-launch). When unauthenticated, clears user. This makes the login persist across reloads.
+  - signOut now calls next-auth signOut() to clear the session cookie (otherwise the useEffect would re-set the user).
+  - launch() now checks `status === "authenticated"` in addition to `user`, so it works even before the useEffect runs.
+- STORE CHANGES (src/lib/apical/store.ts):
+  - Removed "chat" from Mode union (merged into "agents").
+  - Added AgentCenterMode type: "chat" | "dashboard" | "workflow" | "config".
+  - Added agentCenterMode + setAgentCenterMode to state.
+  - Added inspectorOpen + setInspectorOpen + toggleInspector to state.
+  - Default mode changed from "chat" to "agents". Default activeConversationId changed from "c1" to "orchestrator". Default inspectorOpen = true.
+- APP-SHELL CHANGES (src/components/apical/app-shell.tsx):
+  - Removed "chat" from TABS. Now 3 primary tabs: Agents (Boxes), Vault (KeyRound), Data (Database).
+  - Removed ChatTab + AgentsTab imports. Added AgentsView import.
+  - Removed MessageSquare from lucide imports (no longer used).
+  - Back button now goes to "agents" instead of "chat".
+  - main renders AgentsView for mode === "agents".
+- DEMO DATA (src/lib/apical/index.ts):
+  - Added Orchestrator conversation: { id: "orchestrator", title: "Orchestrator", pinned: true, workflowId: undefined }. Pinned at top of the left rail. General context, aware of all agents. Has no workflowId (it's not an agent itself).
+- NEW: AgentsView (src/components/apical/agents-view.tsx, ~700 lines) — the three-pane layout:
+  - LEFT RAIL (AgentNavigator, w-56): search bar + "Hire an agent" button. Orchestrator section (pinned top, distinct Sparkles icon + "General · all agents" subtitle + pin indicator). Agents section (avatar with status dot + flagged badge count + department). Clean rail, not crowded.
+  - CENTER (CenterPane): sub-header with agent identity (avatar + name + RuntimeBadge + department/title). Mode tabs (Chat / Dashboard / Workflow / Config) — only for real agents (Orchestrator is always chat). Inspector toggle button (PanelRightOpen/Close icons). Content area renders ChatPane / AgentDashboard / AgentWorkflow / AgentConfig based on the mode.
+  - RIGHT (InspectorPane, w-72, collapsible, hidden for Orchestrator): status + schedule card, LOUD "N flagged → review" button (border-2 border-gate/50, bg-gate/10, bold text-gate — the human-in-the-loop moments made to shout), workflow steps summary (first 5 + "+N more"), stats grid (processed/automatic/flagged/runs), recent runs list, links to full dashboard + edit config.
+  - ChatPane: each chat correlates to its own conversation (useEffect resets messages when agent/orchestrator changes). Orchestrator gets a fresh greeting explaining its role. Agent chats get DEMO_MESSAGES. Plan/Do mode toggle (hidden for Orchestrator). sendDo() runs a simulated trace (real SSE call would go to /api/agent/think). MessageBubble with RichText + executionTrace rendering. EmptyState with DEFAULT_PROMPTS.
+  - AgentDashboard / AgentWorkflow / AgentConfig: reused from the old agents-tab, adapted for the center pane. Config has full-featured editing (name, title, department, description, runtime toggle local/hosted, trigger, schedule, model pref, confidence threshold, auto-harden) + PATCH /api/workflows/[id].
+- VERIFICATION:
+  - bun run lint → 0 errors, 0 warnings.
+  - bunx tsc --noEmit → 0 errors in any new/edited file.
+  - Server renders HTTP 200. Landing page HTML contains "Orchestrator".
+  - All references to setMode("chat") updated to setMode("agents") (settings-view, app-shell).
+
+Stage Summary:
+- Chat + Agents merged into one "Agents" tab (Boxes icon). Three-pane layout: left navigator (Orchestrator pinned top + agents with status/flagged), center (Chat/Dashboard/Workflow/Config modes), right collapsible inspector.
+- Orchestrator chat added: general context, aware of all agents, pinned top of left rail with distinct Sparkles treatment.
+- Right inspector has the LOUD "N flagged → review" button (border-gate, bold text-gate) — the human-in-the-loop moments made to shout. Plus status/schedule, workflow steps, stats, recent runs, links to full views.
+- Each chat correlates to its own agent (workflowId linkage). Orchestrator chat = general context.
+- Login bug fixed: useSession() syncs user state with NextAuth session, auto-launches on reload when authenticated, signOut clears the cookie.
+- Lint clean, types clean, server stable.

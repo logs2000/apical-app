@@ -187,7 +187,7 @@ export function SettingsView() {
 
         {/* Save bar */}
         <div className="mt-6 flex items-center justify-between border-t border-border pt-4">
-          <Button variant="ghost" size="sm" onClick={() => setMode("chat")}>
+          <Button variant="ghost" size="sm" onClick={() => setMode("agents")}>
             Cancel
           </Button>
           <Button size="sm">Save changes</Button>

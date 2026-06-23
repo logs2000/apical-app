@@ -208,6 +208,9 @@ const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
 const daysAgo = (d: number) => new Date(now - d * 86_400_000).toISOString();
 
 export const DEMO_CONVERSATIONS: Conversation[] = [
+  // The Orchestrator — pinned at the top of the left rail. General context,
+  // aware of all agents. Has no workflowId (it's not an agent itself).
+  { id: "orchestrator", title: "Orchestrator", pinned: true, workflowId: undefined, createdAt: daysAgo(30), updatedAt: hoursAgo(0.05) },
   { id: "c1", title: "Compass", pinned: true, workflowId: "w1", createdAt: hoursAgo(2), updatedAt: hoursAgo(0.1) },
   { id: "c2", title: "Atlas", pinned: true, workflowId: "w2", createdAt: daysAgo(1), updatedAt: hoursAgo(3) },
   { id: "c3", title: "Sentinel", pinned: false, workflowId: "w3", createdAt: daysAgo(2), updatedAt: hoursAgo(8) },

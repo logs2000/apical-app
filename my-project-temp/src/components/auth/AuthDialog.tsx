@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,6 +47,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<{ email: string; name: string } | null>(null);
   const [appOpen, setAppOpen] = React.useState(false);
 
+  // Sync with the NextAuth session. This fixes the "sometimes logging in
+  // doesn't actually take me in" bug: after a successful signIn(), the
+  // session is set in the cookie, but the local `user` state was only set
+  // by the onSuccess callback. On a page reload, `user` reset to null even
+  // though the session was still valid. Now we derive `user` from the
+  // session, so it persists across reloads.
+  const { data: session, status } = useSession();
+  React.useEffect(() => {
+    if (status === "authenticated" && session?.user) {
+      const email = session.user.email ?? "";
+      const name = session.user.name ?? email.split("@")[0];
+      setUser({ email, name });
+      // Auto-open the app if the session is authenticated + the user hasn't
+      // explicitly closed it. This makes "launch" work even after a reload
+      // (the user clicks Open App → we set appOpen true → if they reload,
+      // the session is still valid so we re-open).
+      setAppOpen((prev) => prev || true);
+    } else if (status === "unauthenticated") {
+      setUser(null);
+    }
+  }, [status, session]);
+
   const openAuth = React.useCallback((m: Mode = "signin") => {
     setMode(m);
     setOpen(true);
@@ -55,17 +77,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const close = React.useCallback(() => setOpen(false), []);
 
   const launch = React.useCallback(() => {
-    if (user) {
+    if (user || status === "authenticated") {
       setAppOpen(true);
     } else {
       setMode("signin");
       setOpen(true);
     }
-  }, [user]);
+  }, [user, status]);
 
   const signOut = React.useCallback(() => {
     setUser(null);
     setAppOpen(false);
+    // Also sign out of NextAuth so the session cookie is cleared (otherwise
+    // the useEffect above would re-set the user on the next render).
+    void import("next-auth/react").then((m) => m.signOut({ redirect: false }));
   }, []);
 
   const closeApp = React.useCallback(() => setAppOpen(false), []);

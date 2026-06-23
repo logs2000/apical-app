@@ -4,7 +4,6 @@
 import { create } from "zustand";
 
 export type Mode =
-  | "chat"
   | "agents"
   | "vault"
   | "data"
@@ -13,6 +12,9 @@ export type Mode =
   | "templates"
   | "activity"
   | "memory";
+
+/** The center-pane mode within the Agents view. */
+export type AgentCenterMode = "chat" | "dashboard" | "workflow" | "config";
 export type VaultSection = "connections" | "tokens" | "integrations" | "desktop";
 
 /** A template the user has installed (one-click from the Templates gallery). */
@@ -30,6 +32,13 @@ interface AppState {
   setActiveConversation: (id: string | null) => void;
   selectedWorkflowId: string | null;
   selectWorkflow: (id: string | null) => void;
+  /** The center-pane mode within the Agents view (Chat / Dashboard / Workflow / Config). */
+  agentCenterMode: AgentCenterMode;
+  setAgentCenterMode: (m: AgentCenterMode) => void;
+  /** Whether the right-hand inspector panel is open. */
+  inspectorOpen: boolean;
+  setInspectorOpen: (v: boolean) => void;
+  toggleInspector: () => void;
   vaultSection: VaultSection;
   setVaultSection: (s: VaultSection) => void;
   /** Templates the user has installed from the gallery (demo-only, no backend). */
@@ -42,12 +51,17 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  mode: "chat",
+  mode: "agents",
   setMode: (m) => set({ mode: m }),
-  activeConversationId: "c1",
+  activeConversationId: "orchestrator",
   setActiveConversation: (id) => set({ activeConversationId: id }),
   selectedWorkflowId: null,
   selectWorkflow: (id) => set({ selectedWorkflowId: id }),
+  agentCenterMode: "chat",
+  setAgentCenterMode: (m) => set({ agentCenterMode: m }),
+  inspectorOpen: true,
+  setInspectorOpen: (v) => set({ inspectorOpen: v }),
+  toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
   vaultSection: "connections",
   setVaultSection: (s) => set({ vaultSection: s }),
   installedTemplates: [],

@@ -3,8 +3,7 @@
 import * as React from "react";
 import { useAppStore, type Mode } from "@/lib/apical/store";
 import { ApicalWordmark } from "./logo";
-import { ChatTab } from "./chat-tab";
-import { AgentsTab } from "./agents-tab";
+import { AgentsView } from "./agents-view";
 import { VaultTab } from "./vault-tab";
 import { DataTab } from "./data-tab";
 import { BillingTab } from "./billing-tab";
@@ -15,7 +14,6 @@ import { MemoryView } from "./memory-view";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
-  MessageSquare,
   Boxes,
   KeyRound,
   Settings,
@@ -44,7 +42,6 @@ import { useAuth } from "@/components/auth/AuthDialog";
 
 /** Primary tabs always visible in the top bar. */
 const TABS: { key: Mode; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { key: "chat", label: "Chat", icon: MessageSquare },
   { key: "agents", label: "Agents", icon: Boxes },
   { key: "vault", label: "Vault", icon: KeyRound },
   { key: "data", label: "Data", icon: Database },
@@ -75,7 +72,7 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
 
         {isMenuView ? (
           <button
-            onClick={() => setMode("chat")}
+            onClick={() => setMode("agents")}
             className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
@@ -180,8 +177,7 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
 
       {/* Main content area */}
       <main className="min-h-0 flex-1 overflow-hidden">
-        {mode === "chat" && <ChatTab />}
-        {mode === "agents" && <AgentsTab />}
+        {mode === "agents" && <AgentsView />}
         {mode === "vault" && <VaultTab />}
         {mode === "data" && <DataTab />}
         {mode === "billing" && <BillingTab />}
