@@ -7,6 +7,8 @@ import {
   DEMO_MESSAGES,
   DEMO_WORKFLOWS,
   DEFAULT_PROMPTS,
+  messagesForAgent,
+  apicalWelcomeMessage,
   agentInitials,
   agentAvatarLightness,
   relativeTime,
@@ -152,7 +154,7 @@ function AgentNavigator({
         {/* Orchestrator — pinned at top, distinct treatment */}
         <div>
           <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Orchestrator
+            Apical
           </div>
           <OrchestratorRow
             convo={orchestrator}
@@ -295,7 +297,7 @@ function CenterPane({
               <Sparkles className="h-4 w-4" />
             </div>
             <div>
-              <div className="text-sm font-semibold">Orchestrator</div>
+              <div className="text-sm font-semibold">Apical</div>
               <div className="text-[10px] text-muted-foreground">General · context to all agents</div>
             </div>
           </div>
@@ -365,9 +367,10 @@ function CenterPane({
 
 // ─── Chat pane (center) ────────────────────────────────────────────────────
 
-const ORCHESTRATOR_REPLY = `I'm the Orchestrator — I have context on all your agents (Compass, Atlas, Sentinel, Tally, Beacon, Scout).
-
-Ask me anything about your workspace: "what's flagged?", "what did Compass do today?", "set up a new agent to chase invoices". I'll route to the right agent or coordinate across them.`;
+// The Apical (orchestrator) chat no longer uses a static greeting — it uses
+// apicalWelcomeMessage() which generates a time-of-day greeting + a live
+// summary of what's flagged, what ran while away, and any paused agents.
+const AGENT_LIMIT = 5  // free-plan limit; gracefully handled when branching.
 
 const AGENT_REPLY = `Here's the plan I'm proposing:
 
@@ -383,7 +386,7 @@ Want me to run this every 15 minutes?
 This is a live preview. **Download to try Free** to run real agents, save versions, and restore them from any point in this conversation.`;
 
 function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOrchestrator: boolean }) {
-  const [messages, setMessages] = React.useState<ChatMessage[]>(DEMO_MESSAGES);
+  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [isThinking, setIsThinking] = React.useState(false);
   const [mode, setMode] = React.useState<"plan" | "do">("plan");
@@ -393,56 +396,114 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, isThinking]);
 
-  // Reset messages when the agent/orchestrator changes — each chat correlates
-  // to its own conversation. The Orchestrator gets a fresh greeting; agent
-  // chats get the demo messages.
+  // Each chat correlates to its own conversation. Apical gets a live welcome
+  // summary; each agent gets a role-specific thread from messagesForAgent().
+  // This fixes the "all agent chats show the same messages" bug.
   React.useEffect(() => {
     if (isOrchestrator) {
       setMessages([
-        {
-          id: "orch-greet",
-          role: "agent",
-          content: ORCHESTRATOR_REPLY,
-          createdAt: new Date().toISOString(),
-        },
+        apicalWelcomeMessage({
+          user: { name: "Jordan" },
+          agents: DEMO_WORKFLOWS,
+          lastSeenAgoHours: 6,
+        }),
       ]);
+    } else if (agent) {
+      setMessages(messagesForAgent(agent));
     } else {
-      setMessages(DEMO_MESSAGES);
+      setMessages([]);
     }
   }, [isOrchestrator, agent?.id]);
 
-  function sendPlan(text: string) {
-    setIsThinking(true);
-    window.setTimeout(() => {
+  // Branch a new agent from the Apical chat. The user asks for a new task;
+  // Apical proposes an agent + switches the conversation to it. Handles the
+  // agent limit gracefully (free plan = 5 agents).
+  function branchNewAgent(name: string, department: string, description: string) {
+    if (DEMO_WORKFLOWS.length >= AGENT_LIMIT) {
       setMessages((m) => [
         ...m,
         {
           id: Math.random().toString(36).slice(2),
           role: "agent",
-          content: isOrchestrator
-            ? `Coordinating across your agents for: "${text}". Here's what I'd do:\n\n1. Check which agents are relevant\n2. Route the task to the best one\n3. Report back with results`
-            : AGENT_REPLY,
-          ...(isOrchestrator
-            ? {}
-            : {
-                workflowProposal: {
-                  name: agent?.name ?? "Agent",
-                  description: "Auto-generated workflow.",
-                  department: agent?.department ?? "General",
-                  steps: {
-                    version: 1,
-                    steps: [
-                      { id: "s1", kind: "tool" as const, label: "List inbox", tool: "files.list" },
-                      { id: "s2", kind: "reason" as const, label: "Identify client", prompt: "OCR + match" },
-                      { id: "s3", kind: "gate" as const, label: "Approve move" },
-                      { id: "s4", kind: "tool" as const, label: "Move file", tool: "files.move" },
-                    ],
-                  },
-                },
-              }),
+          content: `I'd normally spin up a new agent ("${name}") for this, but you're at the free-plan limit of ${AGENT_LIMIT} agents. You can either upgrade to Pro (unlimited agents) or pause an existing one to make room. Want me to show you which agents are using the fewest cycles?`,
           createdAt: new Date().toISOString(),
         },
       ]);
+      return;
+    }
+    setMessages((m) => [
+      ...m,
+      {
+        id: Math.random().toString(36).slice(2),
+        role: "agent",
+        content: `I'll set up a new agent — **${name}** in ${department}. ${description}\n\nI've created the agent and started a chat with it. You can switch to it from the left rail. It'll begin working once you approve its first workflow.`,
+        workflowProposal: {
+          name,
+          description,
+          department,
+          steps: {
+            version: 1,
+            steps: [
+              { id: "s1", kind: "tool", label: "Gather input", tool: "http.request" },
+              { id: "s2", kind: "reason", label: "Process + decide", prompt: "Analyze the input and decide the action." },
+              { id: "s3", kind: "gate", label: "Approve before acting" },
+              { id: "s4", kind: "tool", label: "Execute", tool: "http.request" },
+            ],
+          },
+        },
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+  }
+
+  function sendPlan(text: string) {
+    setIsThinking(true);
+    window.setTimeout(() => {
+      if (isOrchestrator) {
+        // Apical chat: detect if the user is asking for a new task/agent.
+        // If so, propose branching into a new agent. Otherwise, coordinate.
+        const lower = text.toLowerCase();
+        const wantsNewAgent = /new agent|set up|create|hire|spin up|branch|automate this|do this every|track|monitor|watch|chase|sort|audit|find|draft/.test(lower);
+        if (wantsNewAgent) {
+          // Propose a new agent based on the request.
+          const nameGuess = text.split(" ").slice(0, 2).join(" ").replace(/[^a-zA-Z ]/g, "").trim() || "New Agent";
+          branchNewAgent(nameGuess, "General", `Automates: ${text.slice(0, 100)}`);
+        } else {
+          setMessages((m) => [
+            ...m,
+            {
+              id: Math.random().toString(36).slice(2),
+              role: "agent",
+              content: `I can coordinate across your agents for that. Here's what I'd do:\n\n1. Check which agents are relevant\n2. Route the task to the best one (or set up a new one if needed)\n3. Report back with results\n\nWant me to proceed, or would you rather I set up a new dedicated agent for this?`,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }
+      } else {
+        setMessages((m) => [
+          ...m,
+          {
+            id: Math.random().toString(36).slice(2),
+            role: "agent",
+            content: AGENT_REPLY,
+            workflowProposal: {
+              name: agent?.name ?? "Agent",
+              description: "Auto-generated workflow.",
+              department: agent?.department ?? "General",
+              steps: {
+                version: 1,
+                steps: [
+                  { id: "s1", kind: "tool" as const, label: "List inbox", tool: "files.list" },
+                  { id: "s2", kind: "reason" as const, label: "Identify client", prompt: "OCR + match" },
+                  { id: "s3", kind: "gate" as const, label: "Approve move" },
+                  { id: "s4", kind: "tool" as const, label: "Move file", tool: "files.move" },
+                ],
+              },
+            },
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
       setIsThinking(false);
     }, 900 + Math.random() * 400);
   }
@@ -603,35 +664,49 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
 
 function MessageBubble({ message, agentName }: { message: ChatMessage; agentName: string }) {
   const isUser = message.role === "user";
-  return (
-    <div className={cn("flex gap-3", isUser && "flex-row-reverse")}>
-      <div
-        className={cn(
-          "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold",
-          isUser ? "bg-muted text-muted-foreground" : "bg-primary/15 text-primary",
-        )}
-      >
-        {isUser ? "Y" : agentInitials(agentName)}
-      </div>
-      <div className={cn("max-w-[80%] space-y-2", isUser && "items-end")}>
-        <div
-          className={cn(
-            "rounded-lg px-3 py-2 text-sm",
-            isUser ? "bg-primary text-primary-foreground" : "bg-card border border-border",
-          )}
-        >
-          <RichText text={message.content} isUser={isUser} />
-        </div>
-        {message.executionTrace && message.executionTrace.length > 0 && (
-          <div className="space-y-1 rounded-lg border border-border bg-muted/30 p-2">
-            {message.executionTrace.map((step, i) => (
-              <TraceStep key={step.id} step={step} index={i} />
-            ))}
+  // Flat block style — no bubbles.
+  // User messages: a neutral slate-gray block (bg-muted), left-aligned, full-width-ish.
+  // Agent messages: no bubble at all — plain text on the page background, with a
+  // small agent-name label above for context.
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] space-y-1">
+          <div className="rounded-md bg-muted px-3 py-2 text-sm text-foreground">
+            <RichText text={message.content} isUser />
           </div>
-        )}
-        <div className={cn("text-[10px] text-muted-foreground", isUser && "text-right")}>
-          {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          <div className="text-right text-[10px] text-muted-foreground">
+            {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </div>
         </div>
+      </div>
+    );
+  }
+  // Agent — no bubble, plain text. Name label for context (which agent is talking).
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+        <span>{agentName}</span>
+      </div>
+      <div className="text-sm text-foreground">
+        <RichText text={message.content} isUser={false} />
+      </div>
+      {message.executionTrace && message.executionTrace.length > 0 && (
+        <div className="mt-2 space-y-1 rounded-md border border-border bg-muted/30 p-2">
+          {message.executionTrace.map((step, i) => (
+            <TraceStep key={step.id} step={step} index={i} />
+          ))}
+        </div>
+      )}
+      {message.workflowProposal && (
+        <div className="mt-2 rounded-md border border-primary/30 bg-primary/5 p-2.5 text-xs">
+          <div className="mb-1 font-semibold text-primary">Proposed workflow: {message.workflowProposal.name}</div>
+          <div className="text-muted-foreground">{message.workflowProposal.description}</div>
+          <div className="mt-1.5 text-[10px] text-muted-foreground">{message.workflowProposal.steps.steps.length} steps · {message.workflowProposal.department}</div>
+        </div>
+      )}
+      <div className="text-[10px] text-muted-foreground">
+        {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
       </div>
     </div>
   );

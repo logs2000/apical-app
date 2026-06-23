@@ -431,3 +431,177 @@ export const DEMO_MESSAGES: ChatMessage[] = [
     createdAt: hoursAgo(0.2),
   },
 ];
+
+// ─── Per-agent message generators ───────────────────────────────────────────
+//
+// Each agent gets its own conversation tailored to its role. This fixes the
+// "all agent chats show the same DEMO_MESSAGES" bug — switching agents now
+// loads a role-specific thread.
+
+export function messagesForAgent(agent: Workflow): ChatMessage[] {
+  const now = Date.now()
+  const ago = (h: number) => new Date(now - h * 3600_000).toISOString()
+
+  // Role-specific openers + threads.
+  const roleThreads: Record<string, ChatMessage[]> = {
+    Compass: [
+      {
+        id: 'cm1',
+        role: 'agent',
+        content: `Hi Jordan — I'm Compass, your filing agent. I've sorted 32 invoices into client folders this morning. 2 needed your attention (new client: Acme Corp, missing date on a receipt). Want me to handle them?`,
+        createdAt: ago(2),
+      },
+      {
+        id: 'cm2',
+        role: 'user',
+        content: `Yes — create a folder for Acme Corp and file the one without a date under 'Unsorted' for now.`,
+        createdAt: ago(1.9),
+      },
+      {
+        id: 'cm3',
+        role: 'agent',
+        content: `Done. Created \`/Clients/Acme Corp/\` and filed 1 invoice there. The undated one is in \`/Clients/_Unsorted/\`. I'll OCR it again tonight to try to recover the date.`,
+        createdAt: ago(1.8),
+      },
+    ],
+    Atlas: [
+      {
+        id: 'am1',
+        role: 'agent',
+        content: `Morning Jordan — Atlas here. I drafted 12 onboarding emails yesterday (4 welcome, 4 day-3, 4 day-7). All personalized from the CRM data. 3 are ready to send; the other 9 are queued for their scheduled days. Want to review the 3 ready ones?`,
+        createdAt: ago(3),
+      },
+      {
+        id: 'am2',
+        role: 'user',
+        content: `Yes, show me the ready ones.`,
+        createdAt: ago(2.8),
+      },
+      {
+        id: 'am3',
+        role: 'agent',
+        content: `Here are the 3 ready drafts:\n\n1. **Sarah Chen** (signed up Tue) — welcome email referencing her fintech background\n2. **Marcus Webb** (signed up Wed) — welcome + a case study from a similar-size company\n3. **Priya Patel** (signed up Thu) — welcome + invite to a product webinar next week\n\nAll three are in Gmail drafts. Approve to schedule?`,
+        createdAt: ago(2.7),
+      },
+    ],
+    Sentinel: [
+      {
+        id: 'sm1',
+        role: 'agent',
+        content: `Jordan — Sentinel here. Two competitor changes since you last checked:\n\n1. **Acme Co** dropped their Pro tier price from $49 → $39 (−20%)\n2. **Globex** launched a new "Teams" feature\n\nI posted both to #competitors. The Acme price drop is significant — want me to draft a counter-positioning doc?`,
+        createdAt: ago(8),
+      },
+      {
+        id: 'sm2',
+        role: 'user',
+        content: `Yes, draft the doc. Focus on value vs price.`,
+        createdAt: ago(7.5),
+      },
+      {
+        id: 'sm3',
+        role: 'agent',
+        content: `Drafting now. I'll pull our feature comparison + 3 case studies showing ROI. Should be ready in ~10 min.`,
+        createdAt: ago(7.4),
+      },
+    ],
+    Tally: [
+      {
+        id: 'tm1',
+        role: 'agent',
+        content: `Jordan — Tally here. I audited 23 expense reports this week. 18 auto-approved (within policy), 5 flagged for your review:\n\n1. $640 dinner (over $500 limit) — Marcus\n2. Missing receipt — Priya\n3. $1,200 software (unusual category) — David\n4. Personal charge on corp card — Sarah\n5. Duplicate submission — Tom\n\nWant to handle them one by one or batch-approve/reject?`,
+        createdAt: ago(24),
+      },
+      {
+        id: 'tm2',
+        role: 'user',
+        content: `One by one. Start with Marcus.`,
+        createdAt: ago(23.5),
+      },
+    ],
+    Beacon: [
+      {
+        id: 'bm1',
+        role: 'agent',
+        content: `Jordan — Beacon here. No urgent expiries this week. Next up: your SSL cert renews in 18 days (auto-renewed — just a heads up). The Acme contract expires in 47 days — I'll remind you 2 weeks out.`,
+        createdAt: ago(20),
+      },
+    ],
+    Scout: [
+      {
+        id: 'scm1',
+        role: 'agent',
+        content: `Jordan — Scout here, currently paused. Last run found 14 prospects matching your ICP (fintech, 50-200 employees, US). 8 were enriched with Clearbit data and added to HubSpot. 6 are awaiting your review before adding. Want me to resume?`,
+        createdAt: ago(72),
+      },
+    ],
+  }
+
+  return roleThreads[agent.name] ?? [
+    {
+      id: 'dm1',
+      role: 'agent' as const,
+      content: `Hi Jordan — I'm ${agent.name}, your ${agent.title ?? 'agent'} in ${agent.department}. I've been running ${agent.runsCount} times and processed ${agent.itemsProcessed.toLocaleString()} items. ${agent.flaggedCount > 0 ? `${agent.flaggedCount} items need your review.` : 'Nothing flagged right now.'} What do you need?`,
+      createdAt: ago(1),
+    },
+  ]
+}
+
+// ─── Apical (orchestrator) welcome message ──────────────────────────────────
+//
+// Generates a time-of-day greeting + a summary of what's changed, needs
+// review, and any updates since the user was last gone. Pulled from the
+// live agent roster so it stays accurate.
+
+export function apicalWelcomeMessage(opts: {
+  user: { name: string } | null
+  agents: Workflow[]
+  lastSeenAgoHours: number
+}): ChatMessage {
+  const now = new Date()
+  const hour = now.getHours()
+  let greeting = 'Welcome back'
+  if (hour < 12) greeting = 'Good morning'
+  else if (hour < 18) greeting = 'Good afternoon'
+  else greeting = 'Good evening'
+
+  const name = opts.user?.name?.split(' ')[0] ?? 'Jordan'
+
+  // Summarize: total flagged across all agents, agents that ran, anything new.
+  const totalFlagged = opts.agents.reduce((s, a) => s + a.flaggedCount, 0)
+  const activeAgents = opts.agents.filter((a) => a.status === 'active')
+  const pausedAgents = opts.agents.filter((a) => a.status === 'paused')
+  const ranWhileGone = opts.agents.filter((a) => a.runsCount > 0)
+
+  const lines: string[] = []
+  lines.push(`${greeting}, ${name}.`)
+
+  if (totalFlagged > 0) {
+    lines.push(`\n**${totalFlagged} item${totalFlagged === 1 ? '' : 's'} need your review** across your agents:`)
+    for (const a of opts.agents.filter((a) => a.flaggedCount > 0)) {
+      lines.push(`• ${a.name} (${a.department}) — ${a.flaggedCount} flagged`)
+    }
+  } else {
+    lines.push(`\nNothing needs your review right now. All clear.`)
+  }
+
+  if (ranWhileGone.length > 0) {
+    lines.push(`\nWhile you were gone (${opts.lastSeenAgoHours}h), ${ranWhileGone.length} agent${ranWhileGone.length === 1 ? '' : 's'} ran:`)
+    for (const a of ranWhileGone.slice(0, 4)) {
+      lines.push(`• ${a.name} — ${a.itemsProcessed.toLocaleString()} items processed`)
+    }
+    if (ranWhileGone.length > 4) lines.push(`• and ${ranWhileGone.length - 4} more…`)
+  }
+
+  if (pausedAgents.length > 0) {
+    lines.push(`\n${pausedAgents.length} agent${pausedAgents.length === 1 ? '' : 's'} paused: ${pausedAgents.map((a) => a.name).join(', ')}.`)
+  }
+
+  lines.push(`\nWhat would you like to do? You can ask me to coordinate across agents, set up a new one, or dig into anything above.`)
+
+  return {
+    id: 'apical-welcome',
+    role: 'agent',
+    content: lines.join('\n'),
+    createdAt: new Date().toISOString(),
+  }
+}
