@@ -1,0 +1,1124 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { Button } from "@/components/ui/button";
+     5→import { Badge } from "@/components/ui/badge";
+     6→import {
+     7→  Dialog,
+     8→  DialogContent,
+     9→  DialogDescription,
+    10→  DialogHeader,
+    11→  DialogTitle,
+    12→  DialogFooter,
+    13→} from "@/components/ui/dialog";
+    14→import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+    15→import { useToast } from "@/hooks/use-toast";
+    16→import { cn } from "@/lib/utils";
+    17→import {
+    18→  ArrowRight,
+    19→  Check,
+    20→  Copy,
+    21→  Download,
+    22→  FileText,
+    23→  FolderClosed,
+    24→  Bell,
+    25→  TrendingUp,
+    26→  Inbox,
+    27→  Receipt,
+    28→  Menu,
+    29→  Sparkles,
+    30→  Terminal,
+    31→  Users,
+    32→  Zap,
+    33→  ShieldCheck,
+    34→  Clock,
+    35→  Plug,
+    36→  Key,
+    37→  Code2,
+    38→  Globe,
+    39→  Lock,
+    40→} from "lucide-react";
+    41→import { DesktopStage, DraggableWindow } from "@/components/landing/DesktopStage";
+    42→import { DemoApp, ApicalMark } from "@/components/demo-app/DemoApp";
+    43→import { AuthProvider, useAuth } from "@/components/auth/AuthDialog";
+    44→import { FullscreenApp } from "@/components/landing/FullscreenApp";
+    45→
+    46→// ─── OS detection ──────────────────────────────────────────────────────────
+    47→
+    48→type DetectedOS = "mac" | "windows" | "linux" | "other";
+    49→
+    50→function detectOS(): DetectedOS {
+    51→  if (typeof navigator === "undefined") return "other";
+    52→  const ua = navigator.userAgent.toLowerCase();
+    53→  if (ua.includes("mac os x") || ua.includes("darwin")) return "mac";
+    54→  if (ua.includes("windows")) return "windows";
+    55→  if (ua.includes("linux")) return "linux";
+    56→  return "other";
+    57→}
+    58→function osLabel(os: DetectedOS): string {
+    59→  return os === "mac" ? "macOS" : os === "windows" ? "Windows" : os === "linux" ? "Linux" : "Pick platform";
+    60→}
+    61→function downloadButtonLabel(os: DetectedOS): string {
+    62→  return os === "other" ? "Download" : `Download for ${osLabel(os)}`;
+    63→}
+    64→function downloadUrl(os: DetectedOS): string {
+    65→  const base = "/downloads";
+    66→  if (os === "mac") return `${base}/apical-mac.dmg`;
+    67→  if (os === "windows") return `${base}/apical-windows.exe`;
+    68→  if (os === "linux") return `${base}/apical-linux.AppImage`;
+    69→  return `${base}/`;
+    70→}
+    71→function installCommandFor(os: DetectedOS): string {
+    72→  if (os === "mac") return "brew install --cask apical";
+    73→  if (os === "windows") return "winget install apical.apical";
+    74→  if (os === "linux") return "curl -fsSL https://apical.dev/install.sh | sh";
+    75→  return "curl -fsSL https://apical.dev/install.sh | sh";
+    76→}
+    77→function markLandingSeen() {
+    78→  if (typeof window === "undefined") return;
+    79→  try {
+    80→    window.sessionStorage.setItem("apical_landing_seen", "1");
+    81→  } catch {
+    82→    /* ignore */
+    83→  }
+    84→}
+    85→
+    86→// ─── Reduced motion hook (replaces framer-motion useReducedMotion) ────────
+    87→
+    88→function usePrefersReducedMotion(): boolean {
+    89→  const [reduced, setReduced] = React.useState(false);
+    90→
+    91→  React.useEffect(() => {
+    92→    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    93→    setReduced(mql.matches);
+    94→    const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
+    95→    mql.addEventListener("change", handler);
+    96→    return () => mql.removeEventListener("change", handler);
+    97→  }, []);
+    98→
+    99→  return reduced;
+   100→}
+   101→
+   102→// ─── Intersection observer hook for scroll-triggered animations ───────────
+   103→
+   104→function useInView(options?: IntersectionObserverInit) {
+   105→  const ref = React.useRef<HTMLDivElement>(null);
+   106→  const [inView, setInView] = React.useState(false);
+   107→
+   108→  React.useEffect(() => {
+   109→    const el = ref.current;
+   110→    if (!el) return;
+   111→
+   112→    const observer = new IntersectionObserver(([entry]) => {
+   113→      if (entry.isIntersecting) {
+   114→        setInView(true);
+   115→        observer.unobserve(el);
+   116→      }
+   117→    }, options);
+   118→
+   119→    observer.observe(el);
+   120→    return () => observer.disconnect();
+   121→  }, [options]);
+   122→
+   123→  return { ref, inView };
+   124→}
+   125→
+   126→// ─── AnimatedCard — wrapper component that handles scroll-triggered animation ─
+   127→
+   128→function AnimatedCard({
+   129→  children,
+   130→  reduced,
+   131→  delayMs = 0,
+   132→  className,
+   133→  rootMargin = "-60px",
+   134→  translateY = 12,
+   135→}: {
+   136→  children: React.ReactNode;
+   137→  reduced: boolean;
+   138→  delayMs?: number;
+   139→  className?: string;
+   140→  rootMargin?: string;
+   141→  translateY?: number;
+   142→}) {
+   143→  const { ref, inView } = useInView({ threshold: 0.05, rootMargin });
+   144→  return (
+   145→    <div
+   146→      ref={ref}
+   147→      className={cn("transition-all duration-500", className)}
+   148→      style={{
+   149→        opacity: reduced ? 1 : inView ? 1 : 0,
+   150→        transform: reduced ? "none" : inView ? "none" : `translateY(${translateY}px)`,
+   151→        transitionDelay: reduced ? undefined : `${delayMs}ms`,
+   152→      }}
+   153→    >
+   154→      {children}
+   155→    </div>
+   156→  );
+   157→}
+   158→
+   159→// ─── Pricing plans ───────────────────────────────────────────────────────────
+   160→
+   161→type Plan = {
+   162→  id: string;
+   163→  name: string;
+   164→  tagline: string;
+   165→  priceMonthly: number;
+   166→  priceYearly: number;
+   167→  featured?: boolean;
+   168→  features: string[];
+   169→};
+   170→
+   171→const PLAN_LIST: Plan[] = [
+   172→  {
+   173→    id: "free",
+   174→    name: "Free",
+   175→    tagline: "For trying it out and small jobs.",
+   176→    priceMonthly: 0,
+   177→    priceYearly: 0,
+   178→    features: ["1 agent running at a time", "50 tasks / month", "Local-only model keys", "Community support"],
+   179→  },
+   180→  {
+   181→    id: "pro",
+   182→    name: "Pro",
+   183→    tagline: "For people who actually want work done.",
+   184→    priceMonthly: 19,
+   185→    priceYearly: 190,
+   186→    featured: true,
+   187→    features: ["5 agents running at once", "Unlimited tasks", "Bring-your-own model keys", "Scheduled + recurring runs", "Email support"],
+   188→  },
+   189→  {
+   190→    id: "team",
+   191→    name: "Team",
+   192→    tagline: "For a small group handing off together.",
+   193→    priceMonthly: 49,
+   194→    priceYearly: 490,
+   195→    features: ["Everything in Pro", "5 seats included", "Shared folders + agents", "Audit log export", "Priority support"],
+   196→  },
+   197→  {
+   198→    id: "enterprise",
+   199→    name: "Enterprise",
+   200→    tagline: "For org-wide deployments.",
+   201→    priceMonthly: 0,
+   202→    priceYearly: 0,
+   203→    features: ["Self-host or cloud", "SSO + SAML", "Custom DPA", "Dedicated success manager", "Volume pricing"],
+   204→  },
+   205→];
+   206→
+   207→// ─── Connector catalog (internal MCP/API connectors) ─────────────────────────
+   208→
+   209→type Connector = {
+   210→  id: string;
+   211→  name: string;
+   212→  kind: "mcp" | "api" | "oauth";
+   213→  category: string;
+   214→  description: string;
+   215→  status: "live" | "beta" | "coming";
+   216→  icon: React.ComponentType<{ className?: string }>;
+   217→};
+   218→
+   219→const CONNECTOR_CATALOG: Connector[] = [
+   220→  { id: "gmail", name: "Gmail", kind: "oauth", category: "Email", description: "Read, send, and manage email", status: "live", icon: Inbox },
+   221→  { id: "google-drive", name: "Google Drive", kind: "oauth", category: "Files", description: "Access and manage documents", status: "live", icon: FolderClosed },
+   222→  { id: "slack", name: "Slack", kind: "oauth", category: "Messaging", description: "Send messages and read channels", status: "live", icon: Bell },
+   223→  { id: "stripe", name: "Stripe", kind: "api", category: "Finance", description: "Process payments and manage invoices", status: "live", icon: Receipt },
+   224→  { id: "notion", name: "Notion", kind: "api", category: "Documents", description: "Create and update pages and databases", status: "beta", icon: FileText },
+   225→  { id: "salesforce", name: "Salesforce", kind: "oauth", category: "CRM", description: "Manage leads, contacts, and deals", status: "beta", icon: TrendingUp },
+   226→  { id: "github", name: "GitHub", kind: "oauth", category: "Development", description: "Manage repos, issues, and PRs", status: "live", icon: Code2 },
+   227→  { id: "hubspot", name: "HubSpot", kind: "api", category: "Marketing", description: "Marketing and sales automation", status: "coming", icon: TrendingUp },
+   228→  { id: "quickbooks", name: "QuickBooks", kind: "oauth", category: "Finance", description: "Accounting and bookkeeping", status: "coming", icon: Receipt },
+   229→  { id: "jira", name: "Jira", kind: "api", category: "Project Mgmt", description: "Track issues and manage projects", status: "beta", icon: FileText },
+   230→  { id: "shopify", name: "Shopify", kind: "oauth", category: "E-commerce", description: "Manage products, orders, and customers", status: "coming", icon: Globe },
+   231→  { id: "mcp-filesystem", name: "File System (MCP)", kind: "mcp", category: "Local", description: "Read, write, and search local files", status: "live", icon: FolderClosed },
+   232→];
+   233→
+   234→// ─── Page ───────────────────────────────────────────────────────────────────
+   235→
+   236→function HomeContent() {
+   237→  const [os, setOs] = React.useState<DetectedOS>("other");
+   238→  const prefersReducedMotion = usePrefersReducedMotion();
+   239→  const { launch } = useAuth();
+   240→
+   241→  React.useEffect(() => {
+   242→    setOs(detectOS());
+   243→  }, []);
+   244→
+   245→  return (
+   246→    <div className={cn("flex min-h-screen flex-col bg-background text-foreground", !prefersReducedMotion && "animate-fade-in")}>
+   247→      <Nav os={os} onLaunch={launch} />
+   248→      <main className="flex-1">
+   249→        <Hero os={os} onLaunch={launch} reduced={prefersReducedMotion} />
+   250→        <SocialProof />
+   251→        <HowItWorks reduced={prefersReducedMotion} />
+   252→        <ConnectorCatalog reduced={prefersReducedMotion} />
+   253→        <PlatformForAgents reduced={prefersReducedMotion} />
+   254→        <UseCases reduced={prefersReducedMotion} />
+   255→        <Pricing os={os} onLaunch={launch} />
+   256→        <ForDevelopers />
+   257→        <FinalCTA os={os} onLaunch={launch} />
+   258→      </main>
+   259→      <Footer />
+   260→      <FullscreenApp />
+   261→    </div>
+   262→  );
+   263→}
+   264→
+   265→export default function Home() {
+   266→  return (
+   267→    <AuthProvider>
+   268→      <HomeContent />
+   269→    </AuthProvider>
+   270→  );
+   271→}
+   272→
+   273→// ─── Nav ────────────────────────────────────────────────────────────────────
+   274→
+   275→function Nav({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+   276→  const [open, setOpen] = React.useState(false);
+   277→  const { user, openAuth, signOut } = useAuth();
+   278→  return (
+   279→    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-lg">
+   280→      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4 md:px-6">
+   281→        <ApicalMark className="h-6 w-6" />
+   282→        <span className="text-sm font-semibold tracking-tight">Apical</span>
+   283→
+   284→        <nav className="ml-6 hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+   285→          <a href="#how" className="transition-colors hover:text-foreground">How it works</a>
+   286→          <a href="#connectors" className="transition-colors hover:text-foreground">Connectors</a>
+   287→          <a href="#platform" className="transition-colors hover:text-foreground">For AI Agents</a>
+   288→          <a href="#pricing" className="transition-colors hover:text-foreground">Pricing</a>
+   289→          <a href="#developers" className="transition-colors hover:text-foreground">Docs</a>
+   290→        </nav>
+   291→
+   292→        <div className="ml-auto flex items-center gap-2">
+   293→          {user ? (
+   294→            <>
+   295→              <span className="hidden text-xs text-muted-foreground sm:inline">
+   296→                {user.email}
+   297→              </span>
+   298→              <Button variant="ghost" size="sm" onClick={onLaunch}>
+   299→                Open app
+   300→              </Button>
+   301→              <Button variant="ghost" size="sm" onClick={signOut}>
+   302→                Sign out
+   303→              </Button>
+   304→            </>
+   305→          ) : (
+   306→            <>
+   307→              <Button
+   308→                variant="ghost"
+   309→                size="sm"
+   310→                className="hidden sm:inline-flex"
+   311→                onClick={() => openAuth("signin")}
+   312→              >
+   313→                Sign in
+   314→              </Button>
+   315→              <Button
+   316→                variant="outline"
+   317→                size="sm"
+   318→                className="hidden sm:inline-flex"
+   319→                onClick={() => openAuth("signup")}
+   320→              >
+   321→                Sign up
+   322→              </Button>
+   323→            </>
+   324→          )}
+   325→          <DownloadButton os={os} variant="default" size="sm" />
+   326→          <div className="md:hidden">
+   327→            <Sheet open={open} onOpenChange={setOpen}>
+   328→              <SheetTrigger asChild>
+   329→                <Button variant="ghost" size="icon" aria-label="Menu">
+   330→                  <Menu className="h-5 w-5" />
+   331→                </Button>
+   332→              </SheetTrigger>
+   333→              <SheetContent side="right" className="w-72">
+   334→                <div className="mt-6 flex flex-col gap-4 px-4">
+   335→                  <a href="#how" onClick={() => setOpen(false)} className="text-sm font-medium">How it works</a>
+   336→                  <a href="#connectors" onClick={() => setOpen(false)} className="text-sm font-medium">Connectors</a>
+   337→                  <a href="#platform" onClick={() => setOpen(false)} className="text-sm font-medium">For AI Agents</a>
+   338→                  <a href="#pricing" onClick={() => setOpen(false)} className="text-sm font-medium">Pricing</a>
+   339→                  <a href="#developers" onClick={() => setOpen(false)} className="text-sm font-medium">Docs</a>
+   340→                  <Button variant="outline" className="mt-2 w-full" onClick={() => { setOpen(false); onLaunch() }}>
+   341→                    Open the web app
+   342→                  </Button>
+   343→                </div>
+   344→              </SheetContent>
+   345→            </Sheet>
+   346→          </div>
+   347→        </div>
+   348→      </div>
+   349→    </header>
+   350→  );
+   351→}
+   352→
+   353→// ─── Hero — with live preview replacing the static screenshot ───────────────
+   354→
+   355→function Hero({
+   356→  os,
+   357→  onLaunch,
+   358→  reduced,
+   359→}: {
+   360→  os: DetectedOS;
+   361→  onLaunch: () => void;
+   362→  reduced: boolean;
+   363→}) {
+   364→  return (
+   365→    <section className="relative overflow-hidden">
+   366→      {/* Subtle background — soft green glow */}
+   367→      <div
+   368→        aria-hidden
+   369→        className="pointer-events-none absolute inset-0 -z-10"
+   370→        style={{
+   371→          background:
+   372→            "radial-gradient(60% 50% at 50% 0%, oklch(0.96 0.01 150 / 0.7) 0%, transparent 70%)",
+   373→        }}
+   374→      />
+   375→
+   376→      <div className="mx-auto max-w-4xl px-4 py-20 text-center md:py-24 md:px-6">
+   377→        <div className={cn(!reduced && "animate-slide-up")}>
+   378→          <Badge variant="outline" className="mb-6 gap-1.5 border-border/80 px-3 py-1 text-xs text-muted-foreground">
+   379→            <Sparkles className="h-3 w-3" /> AI agents that actually do the work
+   380→          </Badge>
+   381→
+   382→          <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl md:text-6xl">
+   383→            Consider it <span className="text-primary">Done.</span>
+   384→          </h1>
+   385→
+   386→          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground text-pretty md:text-xl">
+   387→            Tell Apical what needs doing. An AI agent figures out the steps,
+   388→            does the busywork, and hands you the result. You decide. It does.
+   389→          </p>
+   390→
+   391→          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+   392→            <DownloadButton os={os} size="lg" className="w-full sm:w-auto" />
+   393→            <Button variant="outline" size="lg" onClick={onLaunch} className="w-full sm:w-auto">
+   394→              Open the web app <ArrowRight className="ml-1.5 h-4 w-4" />
+   395→            </Button>
+   396→          </div>
+   397→
+   398→          <p className="mt-4 text-xs text-muted-foreground">
+   399→            Free to start. No credit card. Runs on your computer.
+   400→          </p>
+   401→        </div>
+   402→
+   403→        {/* Live interactive preview */}
+   404→        <div className={cn("mx-auto mt-14 max-w-5xl", !reduced && "animate-slide-up-lg delay-150")}>
+   405→          <div className="mb-2 flex items-center justify-between px-1">
+   406→            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+   407→              Live preview — drag the window
+   408→            </span>
+   409→            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+   410→              <span className="h-1.5 w-1.5 rounded-full bg-primary" /> interactive
+   411→            </span>
+   412→          </div>
+   413→          <DesktopStage>
+   414→            <DraggableWindow initialX={90} initialY={70} width={760} height={460}>
+   415→              <DemoApp />
+   416→            </DraggableWindow>
+   417→          </DesktopStage>
+   418→          <p className="mt-3 text-center text-[11px] text-muted-foreground">
+   419→            This is the real app shell — sidebar, agents, tasks, connectors, and chat that
+   420→            responds to anything you type.
+   421→          </p>
+   422→        </div>
+   423→      </div>
+   424→    </section>
+   425→  );
+   426→}
+   427→
+   428→// ─── Social proof strip ─────────────────────────────────────────────────────
+   429→
+   430→function SocialProof() {
+   431→  return (
+   432→    <section className="border-y border-border/50 bg-muted/30">
+   433→      <div className="mx-auto max-w-5xl px-4 py-8 md:px-6">
+   434→        <p className="text-center text-xs font-medium uppercase tracking-wider text-muted-foreground">
+   435→          Built for people who have too much to do
+   436→        </p>
+   437→        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-3 text-sm font-medium text-muted-foreground/80">
+   438→          <span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> Private by default</span>
+   439→          <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> Works while you sleep</span>
+   440→          <span className="flex items-center gap-2"><Zap className="h-4 w-4" /> Learns your job</span>
+   441→          <span className="flex items-center gap-2"><Plug className="h-4 w-4" /> 50+ integrations</span>
+   442→          <span className="flex items-center gap-2"><Users className="h-4 w-4" /> For one person or a whole team</span>
+   443→        </div>
+   444→      </div>
+   445→    </section>
+   446→  );
+   447→}
+   448→
+   449→// ─── How it works ───────────────────────────────────────────────────────────
+   450→
+   451→function HowItWorks({ reduced }: { reduced: boolean }) {
+   452→  const steps = [
+   453→    {
+   454→      n: "01",
+   455→      title: "Describe the job",
+   456→      body: "Type it out like you're delegating to a smart assistant. \"Sort my scanned documents into client folders.\" \"Check my competitors' pricing every week.\" \"Remind me when a license is about to expire.\"",
+   457→    },
+   458→    {
+   459→      n: "02",
+   460→      title: "Approve the plan",
+   461→      body: "Apical's agent breaks the job into steps and shows you the plan. You approve. It starts working — and asks before doing anything risky.",
+   462→    },
+   463→    {
+   464→      n: "03",
+   465→      title: "It just runs",
+   466→      body: "The agent does the work, again and again, without you watching. It gets faster over time as it learns your patterns. You get the results — and your time back.",
+   467→    },
+   468→  ];
+   469→
+   470→  return (
+   471→    <section id="how" className="scroll-mt-16">
+   472→      <div className="mx-auto max-w-4xl px-4 py-20 md:px-6 md:py-28">
+   473→        <div className="text-center">
+   474→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   475→            Less doing. <span className="text-primary">More deciding.</span>
+   476→          </h2>
+   477→          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   478→            You don&apos;t need to understand AI. You just need to know what you want done.
+   479→          </p>
+   480→        </div>
+   481→
+   482→        <div className="mt-14 grid gap-8 md:grid-cols-3">
+   483→          {steps.map((s, i) => (
+   484→            <AnimatedCard key={s.n} reduced={reduced} delayMs={i * 100} rootMargin="-80px" translateY={16}>
+   485→              <div className="text-left">
+   486→                <div className="text-sm font-mono text-primary">{s.n}</div>
+   487→                <h3 className="mt-2 text-lg font-semibold">{s.title}</h3>
+   488→                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
+   489→              </div>
+   490→            </AnimatedCard>
+   491→          ))}
+   492→        </div>
+   493→      </div>
+   494→    </section>
+   495→  );
+   496→}
+   497→
+   498→// ─── Connector Catalog ──────────────────────────────────────────────────────
+   499→
+   500→function ConnectorCard({ c, reduced, index }: { c: Connector; reduced: boolean; index: number }) {
+   501→  const Icon = c.icon;
+   502→  return (
+   503→    <AnimatedCard reduced={reduced} delayMs={index * 40} className="group relative flex items-start gap-3 rounded-lg border border-border/60 bg-card p-4 hover:border-primary/30 hover:bg-accent/20">
+   504→      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+   505→        <Icon className="h-4 w-4" />
+   506→      </div>
+   507→      <div className="min-w-0 flex-1">
+   508→        <div className="flex items-center gap-2">
+   509→          <h3 className="text-sm font-semibold">{c.name}</h3>
+   510→          <Badge
+   511→            variant="outline"
+   512→            className={cn(
+   513→              "text-[9px] px-1.5 py-0",
+   514→              c.status === "live" && "border-emerald-500/30 text-emerald-600",
+   515→              c.status === "beta" && "border-amber-500/30 text-amber-600",
+   516→              c.status === "coming" && "border-muted-foreground/30 text-muted-foreground",
+   517→            )}
+   518→          >
+   519→            {c.status}
+   520→          </Badge>
+   521→        </div>
+   522→        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{c.description}</p>
+   523→        <div className="mt-1.5 flex items-center gap-2">
+   524→          <Badge variant="secondary" className="text-[9px] px-1.5 py-0 font-mono">
+   525→            {c.kind.toUpperCase()}
+   526→          </Badge>
+   527→          <span className="text-[10px] text-muted-foreground">{c.category}</span>
+   528→        </div>
+   529→      </div>
+   530→    </AnimatedCard>
+   531→  );
+   532→}
+   533→
+   534→function ConnectorCatalog({ reduced }: { reduced: boolean }) {
+   535→  const [filter, setFilter] = React.useState<string>("all");
+   536→
+   537→  const categories = ["all", ...Array.from(new Set(CONNECTOR_CATALOG.map((c) => c.category)))];
+   538→  const filtered = filter === "all" ? CONNECTOR_CATALOG : CONNECTOR_CATALOG.filter((c) => c.category === filter);
+   539→
+   540→  return (
+   541→    <section id="connectors" className="scroll-mt-16 border-t border-border/50 bg-muted/20">
+   542→      <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
+   543→        <div className="text-center">
+   544→          <Badge variant="outline" className="mb-4 gap-1.5 border-primary/30 px-3 py-1 text-xs text-primary">
+   545→            <Plug className="h-3 w-3" /> Integration catalog
+   546→          </Badge>
+   547→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   548→            Connect to <span className="text-primary">everything</span>
+   549→          </h2>
+   550→          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   551→            Apical learns as we crawl and add integrations. Connect your tools once — agents use them forever.
+   552→          </p>
+   553→        </div>
+   554→
+   555→        {/* Filter pills */}
+   556→        <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+   557→          {categories.map((cat) => (
+   558→            <button
+   559→              key={cat}
+   560→              onClick={() => setFilter(cat)}
+   561→              className={cn(
+   562→                "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+   563→                filter === cat
+   564→                  ? "bg-primary text-primary-foreground"
+   565→                  : "bg-muted text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+   566→              )}
+   567→            >
+   568→              {cat === "all" ? "All" : cat}
+   569→            </button>
+   570→          ))}
+   571→        </div>
+   572→
+   573→        {/* Connector grid */}
+   574→        <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+   575→          {filtered.map((c, i) => (
+   576→            <ConnectorCard key={c.id} c={c} reduced={reduced} index={i} />
+   577→          ))}
+   578→        </div>
+   579→
+   580→        <p className="mt-8 text-center text-sm text-muted-foreground">
+   581→          Growing every week. <a href="#developers" className="text-primary hover:underline">Build your own connector →</a>
+   582→        </p>
+   583→      </div>
+   584→    </section>
+   585→  );
+   586→}
+   587→
+   588→// ─── Platform for AI Agents / LLMs ─────────────────────────────────────────
+   589→
+   590→function AgentFeatureCard({ f, reduced, index }: { f: { icon: React.ComponentType<{ className?: string }>; title: string; body: string }; reduced: boolean; index: number }) {
+   591→  const Icon = f.icon;
+   592→  return (
+   593→    <AnimatedCard reduced={reduced} delayMs={index * 100} rootMargin="-60px" className="rounded-xl border border-border/60 bg-card p-6">
+   594→      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+   595→        <Icon className="h-5 w-5" />
+   596→      </div>
+   597→      <h3 className="mt-4 text-base font-semibold">{f.title}</h3>
+   598→      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
+   599→    </AnimatedCard>
+   600→  );
+   601→}
+   602→
+   603→function PlatformForAgents({ reduced }: { reduced: boolean }) {
+   604→  const features = [
+   605→    {
+   606→      icon: Key,
+   607→      title: "API Key Management",
+   608→      body: "Agents sign up, retrieve API keys for any platform, and authenticate on behalf of users — all through Apical.",
+   609→    },
+   610→    {
+   611→      icon: Lock,
+   612→      title: "OAuth-as-a-Service",
+   613→      body: "We handle the OAuth flow so AI agents can connect to Gmail, Slack, Stripe, and 50+ services without building auth.",
+   614→    },
+   615→    {
+   616→      icon: Globe,
+   617→      title: "Payment Infrastructure",
+   618→      body: "API providers list their services on Apical. Agents pay per-call, and we handle billing, usage tracking, and payouts.",
+   619→    },
+   620→    {
+   621→      icon: Code2,
+   622→      title: "MCP + REST API",
+   623→      body: "Every integration is available via Model Context Protocol and a clean REST API. Plug into any agent framework.",
+   624→    },
+   625→  ];
+   626→
+   627→  return (
+   628→    <section id="platform" className="scroll-mt-16 border-t border-border/50">
+   629→      <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
+   630→        <div className="text-center">
+   631→          <Badge variant="outline" className="mb-4 gap-1.5 border-primary/30 px-3 py-1 text-xs text-primary">
+   632→            <Zap className="h-3 w-3" /> Platform for AI
+   633→          </Badge>
+   634→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   635→            The infrastructure layer for <span className="text-primary">AI agents</span>
+   636→          </h2>
+   637→          <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
+   638→            Apical isn&apos;t just for humans. We&apos;re building the platform where AI agents and LLMs
+   639→            sign up, get API keys, authenticate with services, and pay for API usage — all automatically.
+   640→          </p>
+   641→        </div>
+   642→
+   643→        <div className="mt-14 grid gap-6 md:grid-cols-2">
+   644→          {features.map((f, i) => (
+   645→            <AgentFeatureCard key={f.title} f={f} reduced={reduced} index={i} />
+   646→          ))}
+   647→        </div>
+   648→
+   649→        {/* Code example */}
+   650→        <AnimatedCard reduced={reduced} delayMs={200} className="mt-10">
+   651→          <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+   652→            <div className="flex items-center gap-2 border-b border-border/60 bg-muted/40 px-4 py-2.5">
+   653→              <div className="flex gap-1.5">
+   654→                <span className="h-2.5 w-2.5 rounded-full bg-red-400/60" />
+   655→                <span className="h-2.5 w-2.5 rounded-full bg-yellow-400/60" />
+   656→                <span className="h-2.5 w-2.5 rounded-full bg-green-400/60" />
+   657→              </div>
+   658→              <span className="ml-2 text-[11px] font-mono text-muted-foreground">agent-auth.ts</span>
+   659→            </div>
+   660→            <pre className="overflow-x-auto p-4 text-xs leading-relaxed">
+   661→              <code className="text-foreground/80">
+   662→{`// AI agent authenticates with Apical and gets API keys
+   663→const apical = new ApicalClient({ agentId: "my-agent" });
+   664→
+   665→// Sign up for platform access
+   666→const { apiKey } = await apical.auth.register({
+   667→  name: "Invoice Bot",
+   668→  capabilities: ["gmail.read", "stripe.invoices"]
+   669→});
+   670→
+   671→// Get OAuth tokens for connected services
+   672→const gmailToken = await apical.credentials.get("gmail");
+   673→const stripeKey = await apical.credentials.get("stripe");
+   674→
+   675→// Use them in your agent's tools
+   676→const emails = await gmail.read({ auth: gmailToken });
+   677→const invoices = await stripe.listInvoices({ key: stripeKey });`}
+   678→              </code>
+   679→            </pre>
+   680→          </div>
+   681→        </AnimatedCard>
+   682→      </div>
+   683→    </section>
+   684→  );
+   685→}
+   686→
+   687→// ─── Use cases ──────────────────────────────────────────────────────────────
+   688→
+   689→function UseCaseCard({ c, reduced, index }: { c: { icon: React.ComponentType<{ className?: string }>; title: string; body: string }; reduced: boolean; index: number }) {
+   690→  const Icon = c.icon;
+   691→  return (
+   692→    <AnimatedCard reduced={reduced} delayMs={index * 60} className="rounded-lg border border-border/60 bg-card p-5">
+   693→      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+   694→        <Icon className="h-4 w-4" />
+   695→      </div>
+   696→      <h3 className="mt-3 text-sm font-semibold">{c.title}</h3>
+   697→      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{c.body}</p>
+   698→    </AnimatedCard>
+   699→  );
+   700→}
+   701→
+   702→function UseCases({ reduced }: { reduced: boolean }) {
+   703→  const cases = [
+   704→    { icon: FileText, title: "Filing", body: "Sort scans, invoices, and documents into the right folders automatically." },
+   705→    { icon: TrendingUp, title: "Sales leads", body: "Find potential customers and keep your list fresh without lifting a finger." },
+   706→    { icon: Bell, title: "Reminders", body: "Never let a license, contract, or deadline expire again." },
+   707→    { icon: FolderClosed, title: "Competitor watch", body: "Know when a competitor changes their pricing or launches something new." },
+   708→    { icon: Inbox, title: "Inbox triage", body: "Every inbound email sorted, routed, and answered the right way." },
+   709→    { icon: Receipt, title: "Expenses", body: "Audit reports against your policy and flag the ones that need a look." },
+   710→  ];
+   711→
+   712→  return (
+   713→    <section id="examples" className="scroll-mt-16 border-t border-border/50 bg-muted/20">
+   714→      <div className="mx-auto max-w-5xl px-4 py-20 md:px-6 md:py-28">
+   715→        <div className="text-center">
+   716→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   717→            What will you hand off?
+   718→          </h2>
+   719→          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   720→            Any repetitive task — Apical can run it.
+   721→          </p>
+   722→        </div>
+   723→
+   724→        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   725→          {cases.map((c, i) => (
+   726→            <UseCaseCard key={c.title} c={c} reduced={reduced} index={i} />
+   727→          ))}
+   728→        </div>
+   729→
+   730→        <p className="mt-10 text-center text-sm text-muted-foreground">
+   731→          That&apos;s just the start. If you can describe it, an agent can probably do it.
+   732→        </p>
+   733→      </div>
+   734→    </section>
+   735→  );
+   736→}
+   737→
+   738→// ─── Pricing ────────────────────────────────────────────────────────────────
+   739→
+   740→function PricingCard({ plan, interval, index, onLaunch }: { plan: Plan; interval: "monthly" | "yearly"; index: number; onLaunch: () => void }) {
+   741→  const featured = plan.featured;
+   742→  const isFree = plan.id === "free";
+   743→  const isEnterprise = plan.id === "enterprise";
+   744→  const price = computePrice(plan, interval);
+   745→
+   746→  const cta = isFree
+   747→    ? "Get started"
+   748→    : isEnterprise
+   749→      ? "Contact sales"
+   750→      : "Choose";
+   751→
+   752→  const { ref, inView } = useInView({ threshold: 0.1 });
+   753→
+   754→  return (
+   755→    <div
+   756→      ref={ref}
+   757→      className={cn(
+   758→        "relative flex flex-col rounded-xl border bg-card p-6 transition-all duration-500",
+   759→        featured
+   760→          ? "border-primary/50 shadow-md lg:-translate-y-1"
+   761→          : "border-border hover:border-border/80",
+   762→        inView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3",
+   763→      )}
+   764→      style={{ transitionDelay: `${index * 70}ms` }}
+   765→    >
+   766→      {featured && (
+   767→        <Badge className="absolute -top-2.5 left-6 gap-1 bg-primary text-primary-foreground">
+   768→          <Sparkles className="h-3 w-3" /> Most popular
+   769→        </Badge>
+   770→      )}
+   771→
+   772→      <h3 className="text-base font-semibold">{plan.name}</h3>
+   773→      <p className="mt-1 min-h-[2.5rem] text-xs leading-relaxed text-muted-foreground">
+   774→        {plan.tagline}
+   775→      </p>
+   776→
+   777→      <div className="mt-4 flex items-baseline gap-1">
+   778→        <span className="text-3xl font-semibold tracking-tight">{price.display}</span>
+   779→        {price.suffix && <span className="text-sm text-muted-foreground">{price.suffix}</span>}
+   780→      </div>
+   781→      <div className="mt-1 min-h-[1rem] text-[11px] text-muted-foreground">
+   782→        {price.sub || "\u00A0"}
+   783→      </div>
+   784→
+   785→      <div className="mt-5">
+   786→        <Button
+   787→          variant={featured ? "default" : "outline"}
+   788→          className="w-full"
+   789→          onClick={() => {
+   790→            if (isFree) onLaunch();
+   791→            else if (isEnterprise) {
+   792→              window.location.href = "mailto:sales@apical.dev?subject=Apical%20Enterprise";
+   793→            } else {
+   794→              onLaunch();
+   795→            }
+   796→          }}
+   797→        >
+   798→          {cta} <ArrowRight className="ml-1.5 h-4 w-4" />
+   799→        </Button>
+   800→      </div>
+   801→
+   802→      <ul className="mt-6 space-y-2.5">
+   803→        {plan.features.map((f) => (
+   804→          <li key={f} className="flex items-start gap-2 text-xs">
+   805→            <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+   806→              <Check className="h-2.5 w-2.5" />
+   807→            </span>
+   808→            <span className="leading-relaxed text-foreground/80">{f}</span>
+   809→          </li>
+   810→        ))}
+   811→      </ul>
+   812→    </div>
+   813→  );
+   814→}
+   815→
+   816→function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+   817→  const [interval, setInterval] = React.useState<"monthly" | "yearly">("monthly");
+   818→
+   819→  return (
+   820→    <section id="pricing" className="scroll-mt-16">
+   821→      <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
+   822→        <div className="text-center">
+   823→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   824→            Simple pricing
+   825→          </h2>
+   826→          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   827→            Start free. Upgrade when it&apos;s doing real work for you.
+   828→          </p>
+   829→        </div>
+   830→
+   831→        {/* Interval toggle */}
+   832→        <div className="mt-8 flex items-center justify-center">
+   833→          <div className="inline-flex items-center rounded-full border border-border bg-muted/40 p-0.5 text-xs">
+   834→            <button
+   835→              type="button"
+   836→              onClick={() => setInterval("monthly")}
+   837→              className={cn(
+   838→                "rounded-full px-4 py-1.5 font-medium transition-colors",
+   839→                interval === "monthly" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+   840→              )}
+   841→            >
+   842→              Monthly
+   843→            </button>
+   844→            <button
+   845→              type="button"
+   846→              onClick={() => setInterval("yearly")}
+   847→              className={cn(
+   848→                "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 font-medium transition-colors",
+   849→                interval === "yearly" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+   850→              )}
+   851→            >
+   852→              Yearly
+   853→              <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
+   854→                2 mo free
+   855→              </span>
+   856→            </button>
+   857→          </div>
+   858→        </div>
+   859→
+   860→        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+   861→          {PLAN_LIST.map((plan, i) => (
+   862→            <PricingCard key={plan.id} plan={plan} interval={interval} index={i} onLaunch={onLaunch} />
+   863→          ))}
+   864→        </div>
+   865→      </div>
+   866→    </section>
+   867→  );
+   868→}
+   869→
+   870→function computePrice(
+   871→  plan: Plan,
+   872→  interval: "monthly" | "yearly",
+   873→): { display: string; suffix?: string; sub?: string } {
+   874→  if (plan.id === "enterprise") return { display: "Custom", sub: "Volume pricing — talk to sales." };
+   875→  if (plan.id === "free") return { display: "$0", suffix: "/mo", sub: "Free forever. No credit card." };
+   876→  const perSeat = plan.id === "team" ? " /seat" : "";
+   877→  if (interval === "monthly") {
+   878→    return {
+   879→      display: `$${plan.priceMonthly}`,
+   880→      suffix: `/mo${perSeat}`,
+   881→      sub: plan.id === "team" ? "5 seats included." : "Billed monthly.",
+   882→    };
+   883→  }
+   884→  const perMonth = plan.priceYearly / 12;
+   885→  const monthsFree = 12 - Math.round(plan.priceYearly / plan.priceMonthly);
+   886→  return {
+   887→    display: `$${perMonth % 1 === 0 ? perMonth : perMonth.toFixed(2)}`,
+   888→    suffix: `/mo${perSeat}`,
+   889→    sub: `$${plan.priceYearly}/yr${perSeat} — ${monthsFree} months free`,
+   890→  };
+   891→}
+   892→
+   893→// ─── For Developers ─────────────────────────────────────────────────────────
+   894→
+   895→function ForDevelopers() {
+   896→  return (
+   897→    <section id="developers" className="scroll-mt-16 border-t border-border/50 bg-muted/20">
+   898→      <div className="mx-auto max-w-4xl px-4 py-16 md:px-6 md:py-20">
+   899→        <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
+   900→          <div className="max-w-xl">
+   901→            <h2 className="text-2xl font-semibold tracking-tight">
+   902→              For developers
+   903→            </h2>
+   904→            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+   905→              Apical speaks MCP. Wire it into your editor, call it from your
+   906→              code, or run agents headlessly. Bring your own model keys —
+   907→              OpenAI, Anthropic, Google, or local.
+   908→            </p>
+   909→          </div>
+   910→          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+   911→            <Button variant="outline" asChild>
+   912→              <a href="#developers">
+   913→                Read the docs <ArrowRight className="ml-1.5 h-4 w-4" />
+   914→              </a>
+   915→            </Button>
+   916→          </div>
+   917→        </div>
+   918→      </div>
+   919→    </section>
+   920→  );
+   921→}
+   922→
+   923→// ─── Final CTA ──────────────────────────────────────────────────────────────
+   924→
+   925→function FinalCTA({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+   926→  return (
+   927→    <section className="border-t border-border/50">
+   928→      <div className="mx-auto max-w-3xl px-4 py-20 text-center md:px-6 md:py-28">
+   929→        <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   930→          What would you hand off today?
+   931→        </h2>
+   932→        <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   933→          Install Apical. Describe one job. Get your time back.
+   934→        </p>
+   935→        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+   936→          <DownloadButton os={os} size="lg" />
+   937→          <Button variant="ghost" size="lg" onClick={onLaunch}>
+   938→            Or try it in the browser
+   939→          </Button>
+   940→        </div>
+   941→      </div>
+   942→    </section>
+   943→  );
+   944→}
+   945→
+   946→// ─── Footer ─────────────────────────────────────────────────────────────────
+   947→
+   948→function Footer() {
+   949→  return (
+   950→    <footer className="border-t border-border/60 bg-background">
+   951→      <div className="mx-auto max-w-6xl px-4 py-10 md:px-6">
+   952→        <div className="flex flex-col items-start justify-between gap-8 md:flex-row">
+   953→          <div className="flex items-center gap-2">
+   954→            <ApicalMark className="h-5 w-5" />
+   955→            <span className="text-sm font-semibold">Apical</span>
+   956→          </div>
+   957→          <div className="grid grid-cols-2 gap-8 text-xs sm:grid-cols-4">
+   958→            <div>
+   959→              <div className="mb-3 font-medium text-foreground">Product</div>
+   960→              <ul className="space-y-2 text-muted-foreground">
+   961→                <li><a href="#how" className="hover:text-foreground">How it works</a></li>
+   962→                <li><a href="#connectors" className="hover:text-foreground">Connectors</a></li>
+   963→                <li><a href="#pricing" className="hover:text-foreground">Pricing</a></li>
+   964→              </ul>
+   965→            </div>
+   966→            <div>
+   967→              <div className="mb-3 font-medium text-foreground">Platform</div>
+   968→              <ul className="space-y-2 text-muted-foreground">
+   969→                <li><a href="#platform" className="hover:text-foreground">For AI Agents</a></li>
+   970→                <li><a href="#developers" className="hover:text-foreground">MCP + API</a></li>
+   971→                <li><a href="#developers" className="hover:text-foreground">Docs</a></li>
+   972→              </ul>
+   973→            </div>
+   974→            <div>
+   975→              <div className="mb-3 font-medium text-foreground">Company</div>
+   976→              <ul className="space-y-2 text-muted-foreground">
+   977→                <li><a href="mailto:hello@apical.dev" className="hover:text-foreground">Contact</a></li>
+   978→                <li><a href="mailto:sales@apical.dev" className="hover:text-foreground">Sales</a></li>
+   979→              </ul>
+   980→            </div>
+   981→            <div>
+   982→              <div className="mb-3 font-medium text-foreground">Legal</div>
+   983→              <ul className="space-y-2 text-muted-foreground">
+   984→                <li><a href="#" className="hover:text-foreground">Privacy</a></li>
+   985→                <li><a href="#" className="hover:text-foreground">Terms</a></li>
+   986→              </ul>
+   987→            </div>
+   988→          </div>
+   989→        </div>
+   990→        <div className="mt-10 border-t border-border/40 pt-6 text-center text-xs text-muted-foreground">
+   991→          Made for people with too much to do.
+   992→        </div>
+   993→      </div>
+   994→    </footer>
+   995→  );
+   996→}
+   997→
+   998→// ─── Download button + dialog ───────────────────────────────────────────────
+   999→
+  1000→function DownloadButton({
+  1001→  os,
+  1002→  variant = "default",
+  1003→  size = "default",
+  1004→  className,
+  1005→}: {
+  1006→  os: DetectedOS;
+  1007→  variant?: "default" | "outline" | "ghost";
+  1008→  size?: "default" | "sm" | "lg";
+  1009→  className?: string;
+  1010→}) {
+  1011→  const [open, setOpen] = React.useState(false);
+  1012→  const { toast } = useToast();
+  1013→
+  1014→  const handleClick = async () => {
+  1015→    if (os === "other") {
+  1016→      setOpen(true);
+  1017→      return;
+  1018→    }
+  1019→    try {
+  1020→      const res = await fetch(downloadUrl(os), { method: "HEAD" });
+  1021→      if (res.ok) {
+  1022→        window.location.href = downloadUrl(os);
+  1023→        return;
+  1024→      }
+  1025→      setOpen(true);
+  1026→    } catch {
+  1027→      setOpen(true);
+  1028→    }
+  1029→  };
+  1030→
+  1031→  return (
+  1032→    <>
+  1033→      <Button variant={variant} size={size} onClick={handleClick} className={className}>
+  1034→        <Download className="mr-1.5 h-4 w-4" />
+  1035→        {downloadButtonLabel(os)}
+  1036→      </Button>
+  1037→      <DownloadDialog open={open} onOpenChange={setOpen} os={os} onCopied={() => toast({ title: "Copied" })} />
+  1038→    </>
+  1039→  );
+  1040→}
+  1041→
+  1042→function DownloadDialog({
+  1043→  open,
+  1044→  onOpenChange,
+  1045→  os,
+  1046→  onCopied,
+  1047→}: {
+  1048→  open: boolean;
+  1049→  onOpenChange: (v: boolean) => void;
+  1050→  os: DetectedOS;
+  1051→  onCopied: () => void;
+  1052→}) {
+  1053→  const cmd = installCommandFor(os);
+  1054→  const [copied, setCopied] = React.useState(false);
+  1055→
+  1056→  const copy = () => {
+  1057→    navigator.clipboard?.writeText(cmd).then(() => {
+  1058→      setCopied(true);
+  1059→      onCopied();
+  1060→      setTimeout(() => setCopied(false), 2000);
+  1061→    });
+  1062→  };
+  1063→
+  1064→  return (
+  1065→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1066→      <DialogContent className="sm:max-w-md">
+  1067→        <DialogHeader>
+  1068→          <DialogTitle>Install Apical for {osLabel(os)}</DialogTitle>
+  1069→          <DialogDescription>
+  1070→            {os === "other"
+  1071→              ? "Pick your platform below."
+  1072→              : "The desktop app is the fastest way to get started. If the download above didn't start, use the command below."}
+  1073→          </DialogDescription>
+  1074→        </DialogHeader>
+  1075→
+  1076→        {os !== "other" && (
+  1077→          <div className="space-y-3">
+  1078→            <a
+  1079→              href={downloadUrl(os)}
+  1080→              className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+  1081→            >
+  1082→              <Download className="h-4 w-4" /> Download {osLabel(os)} app
+  1083→            </a>
+  1084→
+  1085→            <div className="relative">
+  1086→              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-2.5 pl-3">
+  1087→                <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+  1088→                <code className="flex-1 truncate font-mono text-xs">{cmd}</code>
+  1089→                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={copy}>
+  1090→                  {copied ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
+  1091→                </Button>
+  1092→              </div>
+  1093→              <p className="mt-2 text-[11px] text-muted-foreground">
+  1094→                Or install from the command line.
+  1095→              </p>
+  1096→            </div>
+  1097→          </div>
+  1098→        )}
+  1099→
+  1100→        {os === "other" && (
+  1101→          <div className="space-y-2">
+  1102→            {(["mac", "windows", "linux"] as DetectedOS[]).map((o) => (
+  1103→              <a
+  1104→                key={o}
+  1105→                href={downloadUrl(o)}
+  1106→                className="flex items-center justify-between rounded-lg border border-border p-3 text-sm hover:bg-accent/50"
+  1107→              >
+  1108→                <span>{osLabel(o)}</span>
+  1109→                <Download className="h-4 w-4 text-muted-foreground" />
+  1110→              </a>
+  1111→            ))}
+  1112→          </div>
+  1113→        )}
+  1114→
+  1115→        <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+  1116→          <Button variant="outline" className="w-full" asChild>
+  1117→            <a href="#developers">Build from source</a>
+  1118→          </Button>
+  1119→        </DialogFooter>
+  1120→      </DialogContent>
+  1121→    </Dialog>
+  1122→  );
+  1123→}
+  1124→

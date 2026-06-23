@@ -1,0 +1,786 @@
+     1→'use client'
+     2→
+     3→import * as React from 'react'
+     4→import { motion, useReducedMotion } from 'framer-motion'
+     5→import { Button } from '@/components/ui/button'
+     6→import { Badge } from '@/components/ui/badge'
+     7→import {
+     8→  Dialog,
+     9→  DialogContent,
+    10→  DialogDescription,
+    11→  DialogHeader,
+    12→  DialogTitle,
+    13→  DialogFooter,
+    14→} from '@/components/ui/dialog'
+    15→import {
+    16→  Accordion,
+    17→  AccordionContent,
+    18→  AccordionItem,
+    19→  AccordionTrigger,
+    20→} from '@/components/ui/accordion'
+    21→import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+    22→import { useToast } from '@/hooks/use-toast'
+    23→import { cn } from '@/lib/utils'
+    24→import {
+    25→  ArrowRight,
+    26→  Check,
+    27→  Copy,
+    28→  Download,
+    29→  Menu,
+    30→  Sparkles,
+    31→  Terminal,
+    32→  Users,
+    33→  Zap,
+    34→  ShieldCheck,
+    35→  Clock,
+    36→  Mail,
+    37→  ChevronRight,
+    38→} from 'lucide-react'
+    39→import {
+    40→  detectOS,
+    41→  osLabel,
+    42→  downloadButtonLabel,
+    43→  downloadUrl,
+    44→  installCommandFor,
+    45→  markLandingSeen,
+    46→  type DetectedOS,
+    47→} from './os-detect'
+    48→import { PLAN_LIST } from '@/lib/platform/pricing'
+    49→
+    50→// ---------------------------------------------------------------------------
+    51→// LandingPage
+    52→// ---------------------------------------------------------------------------
+    53→
+    54→export interface LandingPageProps {
+    55→  /** Called when the user clicks "Open the web app". */
+    56→  onLaunch?: () => void
+    57→}
+    58→
+    59→export function LandingPage({ onLaunch }: LandingPageProps) {
+    60→  const [os, setOs] = React.useState<DetectedOS>('other')
+    61→  const prefersReducedMotion = useReducedMotion()
+    62→
+    63→  React.useEffect(() => {
+    64→    setOs(detectOS())
+    65→  }, [])
+    66→
+    67→  const launch = () => {
+    68→    markLandingSeen()
+    69→    onLaunch?.()
+    70→  }
+    71→
+    72→  return (
+    73→    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    74→      <Nav os={os} onLaunch={launch} />
+    75→      <main className="flex-1">
+    76→        <Hero os={os} onLaunch={launch} reduced={prefersReducedMotion} />
+    77→        <SocialProof />
+    78→        <HowItWorks reduced={prefersReducedMotion} />
+    79→        <UseCases reduced={prefersReducedMotion} />
+    80→        <Pricing os={os} onLaunch={launch} />
+    81→        <ForDevelopers />
+    82→        <FinalCTA os={os} onLaunch={launch} />
+    83→      </main>
+    84→      <Footer />
+    85→    </div>
+    86→  )
+    87→}
+    88→
+    89→export default LandingPage
+    90→
+    91→// Re-export so the app shell can import it from the landing barrel.
+    92→export { clearLandingSeen } from './os-detect'
+    93→
+    94→// ---------------------------------------------------------------------------
+    95→// Nav
+    96→// ---------------------------------------------------------------------------
+    97→
+    98→function Nav({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+    99→  const [open, setOpen] = React.useState(false)
+   100→  return (
+   101→    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-lg">
+   102→      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4 md:px-6">
+   103→        <ApicalMark className="h-6 w-6" />
+   104→        <span className="text-sm font-semibold tracking-tight">Apical</span>
+   105→
+   106→        <nav className="ml-6 hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+   107→          <a href="#how" className="transition-colors hover:text-foreground">How it works</a>
+   108→          <a href="#examples" className="transition-colors hover:text-foreground">Examples</a>
+   109→          <a href="#pricing" className="transition-colors hover:text-foreground">Pricing</a>
+   110→          <a href="/docs" className="transition-colors hover:text-foreground">Docs</a>
+   111→        </nav>
+   112→
+   113→        <div className="ml-auto flex items-center gap-2">
+   114→          <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={onLaunch}>
+   115→            Sign in
+   116→          </Button>
+   117→          <DownloadButton os={os} variant="default" size="sm" />
+   118→          <div className="md:hidden">
+   119→            <Sheet open={open} onOpenChange={setOpen}>
+   120→              <SheetTrigger asChild>
+   121→                <Button variant="ghost" size="icon" aria-label="Menu">
+   122→                  <Menu className="h-5 w-5" />
+   123→                </Button>
+   124→              </SheetTrigger>
+   125→              <SheetContent side="right" className="w-72">
+   126→                <div className="mt-6 flex flex-col gap-4 px-4">
+   127→                  <a href="#how" onClick={() => setOpen(false)} className="text-sm font-medium">How it works</a>
+   128→                  <a href="#examples" onClick={() => setOpen(false)} className="text-sm font-medium">Examples</a>
+   129→                  <a href="#pricing" onClick={() => setOpen(false)} className="text-sm font-medium">Pricing</a>
+   130→                  <a href="/docs" onClick={() => setOpen(false)} className="text-sm font-medium">Docs</a>
+   131→                  <Button variant="outline" className="mt-2 w-full" onClick={() => { setOpen(false); onLaunch() }}>
+   132→                    Open the web app
+   133→                  </Button>
+   134→                </div>
+   135→              </SheetContent>
+   136→            </Sheet>
+   137→          </div>
+   138→        </div>
+   139→      </div>
+   140→    </header>
+   141→  )
+   142→}
+   143→
+   144→// ---------------------------------------------------------------------------
+   145→// Hero
+   146→// ---------------------------------------------------------------------------
+   147→
+   148→function Hero({
+   149→  os,
+   150→  onLaunch,
+   151→  reduced,
+   152→}: {
+   153→  os: DetectedOS
+   154→  onLaunch: () => void
+   155→  reduced: boolean | null
+   156→}) {
+   157→  return (
+   158→    <section className="relative overflow-hidden">
+   159→      {/* Subtle background — no loud green blobs */}
+   160→      <div
+   161→        aria-hidden
+   162→        className="pointer-events-none absolute inset-0 -z-10"
+   163→        style={{
+   164→          background:
+   165→            'radial-gradient(60% 50% at 50% 0%, oklch(0.96 0.01 150 / 0.7) 0%, transparent 70%)',
+   166→        }}
+   167→      />
+   168→      <div className="dark:hidden" aria-hidden style={{ position: 'absolute', inset: 0, zIndex: -10 }}>
+   169→        {/* light-mode soft glow */}
+   170→      </div>
+   171→
+   172→      <div className="mx-auto max-w-4xl px-4 py-20 text-center md:py-28 md:px-6">
+   173→        <motion.div
+   174→          initial={reduced ? undefined : { opacity: 0, y: 16 }}
+   175→          animate={{ opacity: 1, y: 0 }}
+   176→          transition={{ duration: 0.5, ease: 'easeOut' }}
+   177→        >
+   178→          <Badge variant="outline" className="mb-6 gap-1.5 border-border/80 px-3 py-1 text-xs text-muted-foreground">
+   179→            <Sparkles className="h-3 w-3" /> AI agents that actually do the work
+   180→          </Badge>
+   181→
+   182→          <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl md:text-6xl">
+   183→            Consider it <span className="text-primary">Done.</span>
+   184→          </h1>
+   185→
+   186→          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground text-pretty md:text-xl">
+   187→            Tell Apical what needs doing. An AI agent figures out the steps,
+   188→            does the busywork, and hands you the result. You decide. It does.
+   189→          </p>
+   190→
+   191→          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+   192→            <DownloadButton os={os} size="lg" className="w-full sm:w-auto" />
+   193→            <Button variant="outline" size="lg" onClick={onLaunch} className="w-full sm:w-auto">
+   194→              Open the web app <ArrowRight className="ml-1.5 h-4 w-4" />
+   195→            </Button>
+   196→          </div>
+   197→
+   198→          <p className="mt-4 text-xs text-muted-foreground">
+   199→            Free to start. No credit card. Runs on your computer.
+   200→          </p>
+   201→        </motion.div>
+   202→
+   203→        {/* Screenshot */}
+   204→        <motion.div
+   205→          initial={reduced ? undefined : { opacity: 0, y: 24 }}
+   206→          animate={{ opacity: 1, y: 0 }}
+   207→          transition={{ delay: 0.15, duration: 0.6, ease: 'easeOut' }}
+   208→          className="mx-auto mt-16 max-w-5xl"
+   209→        >
+   210→          <div className="overflow-hidden rounded-xl border border-border/70 shadow-2xl shadow-black/5">
+   211→            {/* next/image not used for a static screenshot — plain img is fine */}
+   212→            <img
+   213→              src="/screenshot-dashboard.png"
+   214→              alt="Apical dashboard showing agents and their work"
+   215→              className="w-full"
+   216→              loading="eager"
+   217→            />
+   218→          </div>
+   219→        </motion.div>
+   220→      </div>
+   221→    </section>
+   222→  )
+   223→}
+   224→
+   225→// ---------------------------------------------------------------------------
+   226→// Social proof strip
+   227→// ---------------------------------------------------------------------------
+   228→
+   229→function SocialProof() {
+   230→  return (
+   231→    <section className="border-y border-border/50 bg-muted/30">
+   232→      <div className="mx-auto max-w-5xl px-4 py-8 md:px-6">
+   233→        <p className="text-center text-xs font-medium uppercase tracking-wider text-muted-foreground">
+   234→          Built for people who have too much to do
+   235→        </p>
+   236→        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-3 text-sm font-medium text-muted-foreground/80">
+   237→          <span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> Private by default</span>
+   238→          <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> Works while you sleep</span>
+   239→          <span className="flex items-center gap-2"><Zap className="h-4 w-4" /> Learns your job</span>
+   240→          <span className="flex items-center gap-2"><Users className="h-4 w-4" /> For one person or a whole team</span>
+   241→        </div>
+   242→      </div>
+   243→    </section>
+   244→  )
+   245→}
+   246→
+   247→// ---------------------------------------------------------------------------
+   248→// How it works — one section, three simple steps
+   249→// ---------------------------------------------------------------------------
+   250→
+   251→function HowItWorks({ reduced }: { reduced: boolean | null }) {
+   252→  const steps = [
+   253→    {
+   254→      n: '01',
+   255→      title: 'Describe the job',
+   256→      body: 'Type it out like you\'re delegating to a smart assistant. "Sort my scanned documents into client folders." "Check my competitors\' pricing every week." "Remind me when a license is about to expire."',
+   257→    },
+   258→    {
+   259→      n: '02',
+   260→      title: 'Approve the plan',
+   261→      body: 'Apical\'s agent breaks the job into steps and shows you the plan. You approve. It starts working — and asks before doing anything risky.',
+   262→    },
+   263→    {
+   264→      n: '03',
+   265→      title: 'It just runs',
+   266→      body: 'The agent does the work, again and again, without you watching. It gets faster over time as it learns your patterns. You get the results — and your time back.',
+   267→    },
+   268→  ]
+   269→
+   270→  return (
+   271→    <section id="how" className="scroll-mt-16">
+   272→      <div className="mx-auto max-w-4xl px-4 py-20 md:px-6 md:py-28">
+   273→        <div className="text-center">
+   274→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   275→            Less doing. <span className="text-primary">More deciding.</span>
+   276→          </h2>
+   277→          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   278→            You don't need to understand AI. You just need to know what you want done.
+   279→          </p>
+   280→        </div>
+   281→
+   282→        <div className="mt-14 grid gap-8 md:grid-cols-3">
+   283→          {steps.map((s, i) => (
+   284→            <motion.div
+   285→              key={s.n}
+   286→              initial={reduced ? undefined : { opacity: 0, y: 16 }}
+   287→              whileInView={{ opacity: 1, y: 0 }}
+   288→              viewport={{ once: true, margin: '-80px' }}
+   289→              transition={{ delay: i * 0.1, duration: 0.4 }}
+   290→              className="text-left"
+   291→            >
+   292→              <div className="text-sm font-mono text-primary">{s.n}</div>
+   293→              <h3 className="mt-2 text-lg font-semibold">{s.title}</h3>
+   294→              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
+   295→            </motion.div>
+   296→          ))}
+   297→        </div>
+   298→      </div>
+   299→    </section>
+   300→  )
+   301→}
+   302→
+   303→// ---------------------------------------------------------------------------
+   304→// Use cases — brief, relatable, no jargon
+   305→// ---------------------------------------------------------------------------
+   306→
+   307→function UseCases({ reduced }: { reduced: boolean | null }) {
+   308→  const cases = [
+   309→    { emoji: '📄', title: 'Filing', body: 'Sort scans, invoices, and documents into the right folders automatically.' },
+   310→    { emoji: '💼', title: 'Sales leads', body: 'Find potential customers and keep your list fresh without lifting a finger.' },
+   311→    { emoji: '🔔', title: 'Reminders', body: 'Never let a license, contract, or deadline expire again.' },
+   312→    { emoji: '📊', title: 'Competitor watch', body: 'Know when a competitor changes their pricing or launches something new.' },
+   313→    { emoji: '✉️', title: 'Inbox triage', body: 'Every inbound email sorted, routed, and answered the right way.' },
+   314→    { emoji: '🧾', title: 'Expenses', body: 'Audit reports against your policy and flag the ones that need a look.' },
+   315→  ]
+   316→
+   317→  return (
+   318→    <section id="examples" className="scroll-mt-16 border-t border-border/50 bg-muted/20">
+   319→      <div className="mx-auto max-w-5xl px-4 py-20 md:px-6 md:py-28">
+   320→        <div className="text-center">
+   321→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   322→            What will you hand off?
+   323→          </h2>
+   324→          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   325→            Any repetitive task — Apical can run it.
+   326→          </p>
+   327→        </div>
+   328→
+   329→        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   330→          {cases.map((c, i) => (
+   331→            <motion.div
+   332→              key={c.title}
+   333→              initial={reduced ? undefined : { opacity: 0, y: 12 }}
+   334→              whileInView={{ opacity: 1, y: 0 }}
+   335→              viewport={{ once: true, margin: '-60px' }}
+   336→              transition={{ delay: i * 0.06, duration: 0.35 }}
+   337→              className="rounded-lg border border-border/60 bg-card p-5"
+   338→            >
+   339→              <div className="text-2xl">{c.emoji}</div>
+   340→              <h3 className="mt-3 text-sm font-semibold">{c.title}</h3>
+   341→              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{c.body}</p>
+   342→            </motion.div>
+   343→          ))}
+   344→        </div>
+   345→
+   346→        <p className="mt-10 text-center text-sm text-muted-foreground">
+   347→          That's just the start. If you can describe it, an agent can probably do it.
+   348→        </p>
+   349→      </div>
+   350→    </section>
+   351→  )
+   352→}
+   353→
+   354→// ---------------------------------------------------------------------------
+   355→// Pricing
+   356→// ---------------------------------------------------------------------------
+   357→
+   358→function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+   359→  const [interval, setInterval] = React.useState<'monthly' | 'yearly'>('monthly')
+   360→  const [downloadOpen, setDownloadOpen] = React.useState(false)
+   361→
+   362→  return (
+   363→    <section id="pricing" className="scroll-mt-16">
+   364→      <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
+   365→        <div className="text-center">
+   366→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   367→            Simple pricing
+   368→          </h2>
+   369→          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   370→            Start free. Upgrade when it\'s doing real work for you.
+   371→          </p>
+   372→        </div>
+   373→
+   374→        {/* Interval toggle */}
+   375→        <div className="mt-8 flex items-center justify-center">
+   376→          <div className="inline-flex items-center rounded-full border border-border bg-muted/40 p-0.5 text-xs">
+   377→            <button
+   378→              type="button"
+   379→              onClick={() => setInterval('monthly')}
+   380→              className={cn(
+   381→                'rounded-full px-4 py-1.5 font-medium transition-colors',
+   382→                interval === 'monthly' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground',
+   383→              )}
+   384→            >
+   385→              Monthly
+   386→            </button>
+   387→            <button
+   388→              type="button"
+   389→              onClick={() => setInterval('yearly')}
+   390→              className={cn(
+   391→                'inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 font-medium transition-colors',
+   392→                interval === 'yearly' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground',
+   393→              )}
+   394→            >
+   395→              Yearly
+   396→              <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
+   397→                2 mo free
+   398→              </span>
+   399→            </button>
+   400→          </div>
+   401→        </div>
+   402→
+   403→        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+   404→          {PLAN_LIST.map((plan, i) => {
+   405→            const featured = plan.featured
+   406→            const isFree = plan.id === 'free'
+   407→            const isEnterprise = plan.id === 'enterprise'
+   408→            const price = computePrice(plan, interval)
+   409→
+   410→            const cta = isFree
+   411→              ? 'Get started'
+   412→              : isEnterprise
+   413→                ? 'Contact sales'
+   414→                : plan.id === currentPlanId
+   415→                  ? 'Current plan'
+   416→                  : 'Choose'
+   417→
+   418→            return (
+   419→              <motion.div
+   420→                key={plan.id}
+   421→                initial={{ opacity: 0, y: 12 }}
+   422→                whileInView={{ opacity: 1, y: 0 }}
+   423→                viewport={{ once: true }}
+   424→                transition={{ delay: i * 0.07, duration: 0.35 }}
+   425→                className={cn(
+   426→                  'relative flex flex-col rounded-xl border bg-card p-6',
+   427→                  featured
+   428→                    ? 'border-primary/50 shadow-md lg:-translate-y-1'
+   429→                    : 'border-border hover:border-border/80',
+   430→                )}
+   431→              >
+   432→                {featured && (
+   433→                  <Badge className="absolute -top-2.5 left-6 gap-1 bg-primary text-primary-foreground">
+   434→                    <Sparkles className="h-3 w-3" /> Most popular
+   435→                  </Badge>
+   436→                )}
+   437→
+   438→                <h3 className="text-base font-semibold">{plan.name}</h3>
+   439→                <p className="mt-1 min-h-[2.5rem] text-xs leading-relaxed text-muted-foreground">
+   440→                  {plan.tagline}
+   441→                </p>
+   442→
+   443→                <div className="mt-4 flex items-baseline gap-1">
+   444→                  <span className="text-3xl font-semibold tracking-tight">{price.display}</span>
+   445→                  {price.suffix && <span className="text-sm text-muted-foreground">{price.suffix}</span>}
+   446→                </div>
+   447→                <div className="mt-1 min-h-[1rem] text-[11px] text-muted-foreground">
+   448→                  {price.sub || '\u00A0'}
+   449→                </div>
+   450→
+   451→                <div className="mt-5">
+   452→                  <Button
+   453→                    variant={featured ? 'default' : 'outline'}
+   454→                    className="w-full"
+   455→                    onClick={() => {
+   456→                      if (isFree) onLaunch()
+   457→                      else if (isEnterprise) {
+   458→                        window.location.href = 'mailto:sales@apical.dev?subject=Apical%20Enterprise'
+   459→                      } else {
+   460→                        // Start checkout (demo mode upgrades immediately).
+   461→                        fetch('/api/billing/checkout', {
+   462→                          method: 'POST',
+   463→                          headers: { 'Content-Type': 'application/json' },
+   464→                          body: JSON.stringify({ planId: plan.id, interval }),
+   465→                        })
+   466→                          .then((r) => r.json())
+   467→                          .then((d) => { if (d.url) window.location.href = d.url })
+   468→                          .catch(() => {})
+   469→                      }
+   470→                    }}
+   471→                  >
+   472→                    {cta} <ArrowRight className="ml-1.5 h-4 w-4" />
+   473→                  </Button>
+   474→                </div>
+   475→
+   476→                <ul className="mt-6 space-y-2.5">
+   477→                  {plan.features.map((f) => (
+   478→                    <li key={f} className="flex items-start gap-2 text-xs">
+   479→                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+   480→                        <Check className="h-2.5 w-2.5" />
+   481→                      </span>
+   482→                      <span className="leading-relaxed text-foreground/80">{f}</span>
+   483→                    </li>
+   484→                  ))}
+   485→                </ul>
+   486→              </motion.div>
+   487→            )
+   488→          })}
+   489→        </div>
+   490→      </div>
+   491→    </section>
+   492→  )
+   493→}
+   494→
+   495→// Cheap way to detect the current plan client-side (reads the cached sub from
+   496→// /api/billing/subscription if available). For the landing page we don't need
+   497→// this to be live — just a best-effort label.
+   498→const currentPlanId = 'free' // visitors on the landing are typically free
+   499→
+   500→function computePrice(
+   501→  plan: (typeof PLAN_LIST)[number],
+   502→  interval: 'monthly' | 'yearly',
+   503→): { display: string; suffix?: string; sub?: string } {
+   504→  if (plan.id === 'enterprise') return { display: 'Custom', sub: 'Volume pricing — talk to sales.' }
+   505→  if (plan.id === 'free') return { display: '$0', suffix: '/mo', sub: 'Free forever. No credit card.' }
+   506→  const perSeat = plan.id === 'team' ? ' /seat' : ''
+   507→  if (interval === 'monthly') {
+   508→    return {
+   509→      display: `$${plan.priceMonthly}`,
+   510→      suffix: `/mo${perSeat}`,
+   511→      sub: plan.id === 'team' ? '5 seats included.' : 'Billed monthly.',
+   512→    }
+   513→  }
+   514→  const perMonth = plan.priceYearly / 12
+   515→  const monthsFree = 12 - Math.round(plan.priceYearly / plan.priceMonthly)
+   516→  return {
+   517→    display: `$${perMonth % 1 === 0 ? perMonth : perMonth.toFixed(2)}`,
+   518→    suffix: `/mo${perSeat}`,
+   519→    sub: `$${plan.priceYearly}/yr${perSeat} — ${monthsFree} months free`,
+   520→  }
+   521→}
+   522→
+   523→// ---------------------------------------------------------------------------
+   524→// For Developers — short, links to /docs
+   525→// ---------------------------------------------------------------------------
+   526→
+   527→function ForDevelopers() {
+   528→  return (
+   529→    <section className="border-t border-border/50 bg-muted/20">
+   530→      <div className="mx-auto max-w-4xl px-4 py-16 md:px-6 md:py-20">
+   531→        <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
+   532→          <div className="max-w-xl">
+   533→            <h2 className="text-2xl font-semibold tracking-tight">
+   534→              For developers
+   535→            </h2>
+   536→            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+   537→              Apical speaks MCP. Wire it into your editor, call it from your
+   538→              code, or run agents headlessly. Bring your own model keys —
+   539→              OpenAI, Anthropic, Google, or local.
+   540→            </p>
+   541→          </div>
+   542→          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+   543→            <Button variant="outline" asChild>
+   544→              <a href="/docs">
+   545→                Read the docs <ArrowRight className="ml-1.5 h-4 w-4" />
+   546→              </a>
+   547→            </Button>
+   548→          </div>
+   549→        </div>
+   550→      </div>
+   551→    </section>
+   552→  )
+   553→}
+   554→
+   555→// ---------------------------------------------------------------------------
+   556→// Final CTA
+   557→// ---------------------------------------------------------------------------
+   558→
+   559→function FinalCTA({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+   560→  return (
+   561→    <section className="border-t border-border/50">
+   562→      <div className="mx-auto max-w-3xl px-4 py-20 text-center md:px-6 md:py-28">
+   563→        <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   564→          What would you hand off today?
+   565→        </h2>
+   566→        <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   567→          Install Apical. Describe one job. Get your time back.
+   568→        </p>
+   569→        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+   570→          <DownloadButton os={os} size="lg" />
+   571→          <Button variant="ghost" size="lg" onClick={onLaunch}>
+   572→            Or try it in the browser
+   573→          </Button>
+   574→        </div>
+   575→      </div>
+   576→    </section>
+   577→  )
+   578→}
+   579→
+   580→// ---------------------------------------------------------------------------
+   581→// Footer
+   582→// ---------------------------------------------------------------------------
+   583→
+   584→function Footer() {
+   585→  return (
+   586→    <footer className="border-t border-border/60 bg-background">
+   587→      <div className="mx-auto max-w-6xl px-4 py-10 md:px-6">
+   588→        <div className="flex flex-col items-start justify-between gap-8 md:flex-row">
+   589→          <div className="flex items-center gap-2">
+   590→            <ApicalMark className="h-5 w-5" />
+   591→            <span className="text-sm font-semibold">Apical</span>
+   592→          </div>
+   593→          <div className="grid grid-cols-2 gap-8 text-xs sm:grid-cols-4">
+   594→            <div>
+   595→              <div className="mb-3 font-medium text-foreground">Product</div>
+   596→              <ul className="space-y-2 text-muted-foreground">
+   597→                <li><a href="#how" className="hover:text-foreground">How it works</a></li>
+   598→                <li><a href="#pricing" className="hover:text-foreground">Pricing</a></li>
+   599→                <li><a href="#examples" className="hover:text-foreground">Examples</a></li>
+   600→              </ul>
+   601→            </div>
+   602→            <div>
+   603→              <div className="mb-3 font-medium text-foreground">Resources</div>
+   604→              <ul className="space-y-2 text-muted-foreground">
+   605→                <li><a href="/docs" className="hover:text-foreground">Docs</a></li>
+   606→                <li><a href="/docs" className="hover:text-foreground">MCP + API</a></li>
+   607→              </ul>
+   608→            </div>
+   609→            <div>
+   610→              <div className="mb-3 font-medium text-foreground">Company</div>
+   611→              <ul className="space-y-2 text-muted-foreground">
+   612→                <li><a href="mailto:hello@apical.dev" className="hover:text-foreground">Contact</a></li>
+   613→                <li><a href="mailto:sales@apical.dev" className="hover:text-foreground">Sales</a></li>
+   614→              </ul>
+   615→            </div>
+   616→            <div>
+   617→              <div className="mb-3 font-medium text-foreground">Legal</div>
+   618→              <ul className="space-y-2 text-muted-foreground">
+   619→                <li><a href="#" className="hover:text-foreground">Privacy</a></li>
+   620→                <li><a href="#" className="hover:text-foreground">Terms</a></li>
+   621→              </ul>
+   622→            </div>
+   623→          </div>
+   624→        </div>
+   625→        <div className="mt-10 border-t border-border/40 pt-6 text-center text-xs text-muted-foreground">
+   626→          Made for people with too much to do.
+   627→        </div>
+   628→      </div>
+   629→    </footer>
+   630→  )
+   631→}
+   632→
+   633→// ---------------------------------------------------------------------------
+   634→// Shared: Apical mark
+   635→// ---------------------------------------------------------------------------
+   636→
+   637→function ApicalMark({ className }: { className?: string }) {
+   638→  return (
+   639→    <svg viewBox="0 0 32 32" fill="none" className={className} aria-hidden="true">
+   640→      <defs>
+   641→        <linearGradient id="apicalGradMark" x1="0" y1="32" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+   642→          <stop stopColor="oklch(0.55 0.09 155)" />
+   643→          <stop offset="1" stopColor="oklch(0.70 0.10 165)" />
+   644→        </linearGradient>
+   645→      </defs>
+   646→      <path d="M16 2 L29 28 L22.5 28 L16 14 L9.5 28 L3 28 Z" fill="url(#apicalGradMark)" />
+   647→      <circle cx="16" cy="6" r="2.2" fill="oklch(0.98 0.01 150)" />
+   648→    </svg>
+   649→  )
+   650→}
+   651→
+   652→// ---------------------------------------------------------------------------
+   653→// Shared: Download button + dialog
+   654→// ---------------------------------------------------------------------------
+   655→
+   656→function DownloadButton({
+   657→  os,
+   658→  variant = 'default',
+   659→  size = 'default',
+   660→  className,
+   661→}: {
+   662→  os: DetectedOS
+   663→  variant?: 'default' | 'outline' | 'ghost'
+   664→  size?: 'default' | 'sm' | 'lg'
+   665→  className?: string
+   666→}) {
+   667→  const [open, setOpen] = React.useState(false)
+   668→  const { toast } = useToast()
+   669→
+   670→  // The button tries the real download first. If the binary isn't uploaded
+   671→  // (404 not_uploaded), it opens the dialog with the CLI fallback.
+   672→  const handleClick = async () => {
+   673→    if (os === 'other') {
+   674→      setOpen(true)
+   675→      return
+   676→    }
+   677→    // Hit the API. If it returns a file (200), the browser downloads it. If
+   678→    // it returns 404 not_uploaded, we open the dialog.
+   679→    try {
+   680→      const res = await fetch(downloadUrl(os), { method: 'HEAD' })
+   681→      if (res.ok) {
+   682→        // Real binary exists — trigger the download.
+   683→        window.location.href = downloadUrl(os)
+   684→        return
+   685→      }
+   686→      // 404 or other — open the dialog with the fallback.
+   687→      setOpen(true)
+   688→    } catch {
+   689→      setOpen(true)
+   690→    }
+   691→  }
+   692→
+   693→  return (
+   694→    <>
+   695→      <Button variant={variant} size={size} onClick={handleClick} className={className}>
+   696→        <Download className="mr-1.5 h-4 w-4" />
+   697→        {downloadButtonLabel(os)}
+   698→      </Button>
+   699→      <DownloadDialog open={open} onOpenChange={setOpen} os={os} onCopied={() => toast({ title: 'Copied' })} />
+   700→    </>
+   701→  )
+   702→}
+   703→
+   704→function DownloadDialog({
+   705→  open,
+   706→  onOpenChange,
+   707→  os,
+   708→  onCopied,
+   709→}: {
+   710→  open: boolean
+   711→  onOpenChange: (v: boolean) => void
+   712→  os: DetectedOS
+   713→  onCopied: () => void
+   714→}) {
+   715→  const cmd = installCommandFor(os)
+   716→  const [copied, setCopied] = React.useState(false)
+   717→
+   718→  const copy = () => {
+   719→    navigator.clipboard?.writeText(cmd).then(() => {
+   720→      setCopied(true)
+   721→      onCopied()
+   722→      setTimeout(() => setCopied(false), 2000)
+   723→    })
+   724→  }
+   725→
+   726→  return (
+   727→    <Dialog open={open} onOpenChange={onOpenChange}>
+   728→      <DialogContent className="sm:max-w-md">
+   729→        <DialogHeader>
+   730→          <DialogTitle>Install Apical for {osLabel(os)}</DialogTitle>
+   731→          <DialogDescription>
+   732→            {os === 'other'
+   733→              ? 'Pick your platform below.'
+   734→              : 'The desktop app is the fastest way to get started. If the download above didn\'t start, use the command below.'}
+   735→          </DialogDescription>
+   736→        </DialogHeader>
+   737→
+   738→        {os !== 'other' && (
+   739→          <div className="space-y-3">
+   740→            <a
+   741→              href={downloadUrl(os)}
+   742→              className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+   743→            >
+   744→              <Download className="h-4 w-4" /> Download {osLabel(os)} app
+   745→            </a>
+   746→
+   747→            <div className="relative">
+   748→              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-2.5 pl-3">
+   749→                <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+   750→                <code className="flex-1 truncate font-mono text-xs">{cmd}</code>
+   751→                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={copy}>
+   752→                  {copied ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
+   753→                </Button>
+   754→              </div>
+   755→              <p className="mt-2 text-[11px] text-muted-foreground">
+   756→                Or install from the command line.
+   757→              </p>
+   758→            </div>
+   759→          </div>
+   760→        )}
+   761→
+   762→        {os === 'other' && (
+   763→          <div className="space-y-2">
+   764→            {(['mac', 'windows', 'linux'] as DetectedOS[]).map((o) => (
+   765→              <a
+   766→                key={o}
+   767→                href={downloadUrl(o)}
+   768→                className="flex items-center justify-between rounded-lg border border-border p-3 text-sm hover:bg-accent/50"
+   769→              >
+   770→                <span>{osLabel(o)}</span>
+   771→                <Download className="h-4 w-4 text-muted-foreground" />
+   772→              </a>
+   773→            ))}
+   774→          </div>
+   775→        )}
+   776→
+   777→        <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+   778→          <Button variant="outline" className="w-full" asChild>
+   779→            <a href="/docs">Build from source</a>
+   780→          </Button>
+   781→        </DialogFooter>
+   782→      </DialogContent>
+   783→    </Dialog>
+   784→  )
+   785→}
+   786→

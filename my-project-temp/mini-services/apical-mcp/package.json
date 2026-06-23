@@ -1,0 +1,29 @@
+{
+  "name": "apical-mcp",
+  "version": "0.1.0",
+  "description": "Apical MCP server — deploy and run Apical automations from Cursor, Claude Code, or Windsurf.",
+  "type": "module",
+  "bin": {
+    "apical-mcp": "index.ts"
+  },
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "files": [
+    "index.ts",
+    "README.md"
+  ],
+  "keywords": [
+    "apical",
+    "mcp",
+    "automation",
+    "model-context-protocol",
+    "cursor",
+    "claude"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
+}

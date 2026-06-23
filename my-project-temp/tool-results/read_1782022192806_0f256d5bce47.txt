@@ -1,0 +1,841 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { motion, useReducedMotion } from "framer-motion";
+     5→import { Button } from "@/components/ui/button";
+     6→import { Badge } from "@/components/ui/badge";
+     7→import {
+     8→  Dialog,
+     9→  DialogContent,
+    10→  DialogDescription,
+    11→  DialogHeader,
+    12→  DialogTitle,
+    13→  DialogFooter,
+    14→} from "@/components/ui/dialog";
+    15→import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+    16→import { useToast } from "@/hooks/use-toast";
+    17→import { cn } from "@/lib/utils";
+    18→import {
+    19→  ArrowRight,
+    20→  Check,
+    21→  Copy,
+    22→  Download,
+    23→  FileText,
+    24→  FolderClosed,
+    25→  Bell,
+    26→  TrendingUp,
+    27→  Inbox,
+    28→  Receipt,
+    29→  Menu,
+    30→  Sparkles,
+    31→  Terminal,
+    32→  Users,
+    33→  Zap,
+    34→  ShieldCheck,
+    35→  Clock,
+    36→} from "lucide-react";
+    37→import { DesktopStage, DraggableWindow } from "@/components/landing/DesktopStage";
+    38→import { AppShell } from "@/components/apical/app-shell";
+    39→import { ApicalMark } from "@/components/apical/logo";
+    40→import { AuthProvider, useAuth } from "@/components/auth/AuthDialog";
+    41→import { FullscreenApp } from "@/components/landing/FullscreenApp";
+    42→
+    43→// ─── OS detection (inlined so the page is self-contained) ──────────────────
+    44→
+    45→type DetectedOS = "mac" | "windows" | "linux" | "other";
+    46→
+    47→function detectOS(): DetectedOS {
+    48→  if (typeof navigator === "undefined") return "other";
+    49→  const ua = navigator.userAgent.toLowerCase();
+    50→  if (ua.includes("mac os x") || ua.includes("darwin")) return "mac";
+    51→  if (ua.includes("windows")) return "windows";
+    52→  if (ua.includes("linux")) return "linux";
+    53→  return "other";
+    54→}
+    55→function osLabel(os: DetectedOS): string {
+    56→  return os === "mac" ? "macOS" : os === "windows" ? "Windows" : os === "linux" ? "Linux" : "Pick platform";
+    57→}
+    58→function downloadButtonLabel(os: DetectedOS): string {
+    59→  return os === "other" ? "Download" : `Download for ${osLabel(os)}`;
+    60→}
+    61→function downloadUrl(os: DetectedOS): string {
+    62→  const base = "/downloads";
+    63→  if (os === "mac") return `${base}/apical-mac.tar.gz`;
+    64→  if (os === "windows") return `${base}/apical-windows.exe`;
+    65→  if (os === "linux") return `${base}/apical-linux.AppImage`;
+    66→  return `${base}/`;
+    67→}
+    68→function installCommandFor(os: DetectedOS): string {
+    69→  if (os === "mac") return "brew install --cask apical";
+    70→  if (os === "windows") return "winget install apical.apical";
+    71→  if (os === "linux") return "curl -fsSL https://apical.dev/install.sh | sh";
+    72→  return "curl -fsSL https://apical.dev/install.sh | sh";
+    73→}
+    74→function markLandingSeen() {
+    75→  if (typeof window === "undefined") return;
+    76→  try {
+    77→    window.sessionStorage.setItem("apical_landing_seen", "1");
+    78→  } catch {
+    79→    /* ignore */
+    80→  }
+    81→}
+    82→
+    83→// ─── Pricing plans (inlined) ───────────────────────────────────────────────
+    84→
+    85→type Plan = {
+    86→  id: string;
+    87→  name: string;
+    88→  tagline: string;
+    89→  priceMonthly: number;
+    90→  priceYearly: number;
+    91→  featured?: boolean;
+    92→  features: string[];
+    93→};
+    94→
+    95→const PLAN_LIST: Plan[] = [
+    96→  {
+    97→    id: "free",
+    98→    name: "Free",
+    99→    tagline: "For trying it out and small jobs.",
+   100→    priceMonthly: 0,
+   101→    priceYearly: 0,
+   102→    features: ["1 agent running at a time", "50 tasks / month", "Local-only model keys", "Community support"],
+   103→  },
+   104→  {
+   105→    id: "pro",
+   106→    name: "Pro",
+   107→    tagline: "For people who actually want work done.",
+   108→    priceMonthly: 19,
+   109→    priceYearly: 190,
+   110→    featured: true,
+   111→    features: ["5 agents running at once", "Unlimited tasks", "Bring-your-own model keys", "Scheduled + recurring runs", "Email support"],
+   112→  },
+   113→  {
+   114→    id: "team",
+   115→    name: "Team",
+   116→    tagline: "For a small group handing off together.",
+   117→    priceMonthly: 49,
+   118→    priceYearly: 490,
+   119→    features: ["Everything in Pro", "5 seats included", "Shared folders + agents", "Audit log export", "Priority support"],
+   120→  },
+   121→  {
+   122→    id: "enterprise",
+   123→    name: "Enterprise",
+   124→    tagline: "For org-wide deployments.",
+   125→    priceMonthly: 0,
+   126→    priceYearly: 0,
+   127→    features: ["Self-host or cloud", "SSO + SAML", "Custom DPA", "Dedicated success manager", "Volume pricing"],
+   128→  },
+   129→];
+   130→
+   131→// ─── Page ───────────────────────────────────────────────────────────────────
+   132→
+   133→function HomeContent() {
+   134→  const [os, setOs] = React.useState<DetectedOS>("other");
+   135→  const prefersReducedMotion = useReducedMotion();
+   136→  const { launch } = useAuth();
+   137→
+   138→  React.useEffect(() => {
+   139→    setOs(detectOS());
+   140→  }, []);
+   141→
+   142→  return (
+   143→    <div className="flex min-h-screen flex-col bg-background text-foreground">
+   144→      <Nav os={os} onLaunch={launch} />
+   145→      <main className="flex-1">
+   146→        <Hero os={os} onLaunch={launch} reduced={prefersReducedMotion} />
+   147→        <SocialProof />
+   148→        <HowItWorks reduced={prefersReducedMotion} />
+   149→        <UseCases reduced={prefersReducedMotion} />
+   150→        <Pricing os={os} onLaunch={launch} />
+   151→        <ForDevelopers />
+   152→        <FinalCTA os={os} onLaunch={launch} />
+   153→      </main>
+   154→      <Footer />
+   155→      <FullscreenApp />
+   156→    </div>
+   157→  );
+   158→}
+   159→
+   160→export default function Home() {
+   161→  return (
+   162→    <AuthProvider>
+   163→      <HomeContent />
+   164→    </AuthProvider>
+   165→  );
+   166→}
+   167→
+   168→// ─── Nav ────────────────────────────────────────────────────────────────────
+   169→
+   170→function Nav({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+   171→  const [open, setOpen] = React.useState(false);
+   172→  const { user, openAuth, signOut } = useAuth();
+   173→  return (
+   174→    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-lg">
+   175→      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4 md:px-6">
+   176→        <ApicalMark className="h-6 w-6" />
+   177→        <span className="text-sm font-semibold tracking-tight">Apical</span>
+   178→
+   179→        <nav className="ml-6 hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+   180→          <a href="#how" className="transition-colors hover:text-foreground">How it works</a>
+   181→          <a href="#examples" className="transition-colors hover:text-foreground">Examples</a>
+   182→          <a href="#pricing" className="transition-colors hover:text-foreground">Pricing</a>
+   183→          <a href="#developers" className="transition-colors hover:text-foreground">Docs</a>
+   184→        </nav>
+   185→
+   186→        <div className="ml-auto flex items-center gap-2">
+   187→          {user ? (
+   188→            <>
+   189→              <span className="hidden text-xs text-muted-foreground sm:inline">
+   190→                {user.email}
+   191→              </span>
+   192→              <Button variant="ghost" size="sm" onClick={onLaunch}>
+   193→                Open app
+   194→              </Button>
+   195→              <Button variant="ghost" size="sm" onClick={signOut}>
+   196→                Sign out
+   197→              </Button>
+   198→            </>
+   199→          ) : (
+   200→            <>
+   201→              <Button
+   202→                variant="ghost"
+   203→                size="sm"
+   204→                className="hidden sm:inline-flex"
+   205→                onClick={() => openAuth("signin")}
+   206→              >
+   207→                Sign in
+   208→              </Button>
+   209→              <Button
+   210→                variant="outline"
+   211→                size="sm"
+   212→                className="hidden sm:inline-flex"
+   213→                onClick={() => openAuth("signup")}
+   214→              >
+   215→                Sign up
+   216→              </Button>
+   217→            </>
+   218→          )}
+   219→          <DownloadButton os={os} variant="default" size="sm" />
+   220→          <div className="md:hidden">
+   221→            <Sheet open={open} onOpenChange={setOpen}>
+   222→              <SheetTrigger asChild>
+   223→                <Button variant="ghost" size="icon" aria-label="Menu">
+   224→                  <Menu className="h-5 w-5" />
+   225→                </Button>
+   226→              </SheetTrigger>
+   227→              <SheetContent side="right" className="w-72">
+   228→                <div className="mt-6 flex flex-col gap-4 px-4">
+   229→                  <a href="#how" onClick={() => setOpen(false)} className="text-sm font-medium">How it works</a>
+   230→                  <a href="#examples" onClick={() => setOpen(false)} className="text-sm font-medium">Examples</a>
+   231→                  <a href="#pricing" onClick={() => setOpen(false)} className="text-sm font-medium">Pricing</a>
+   232→                  <a href="#developers" onClick={() => setOpen(false)} className="text-sm font-medium">Docs</a>
+   233→                  <Button variant="outline" className="mt-2 w-full" onClick={() => { setOpen(false); onLaunch() }}>
+   234→                    Open the web app
+   235→                  </Button>
+   236→                </div>
+   237→              </SheetContent>
+   238→            </Sheet>
+   239→          </div>
+   240→        </div>
+   241→      </div>
+   242→    </header>
+   243→  );
+   244→}
+   245→
+   246→// ─── Hero — with live preview replacing the static screenshot ───────────────
+   247→
+   248→function Hero({
+   249→  os,
+   250→  onLaunch,
+   251→  reduced,
+   252→}: {
+   253→  os: DetectedOS;
+   254→  onLaunch: () => void;
+   255→  reduced: boolean | null;
+   256→}) {
+   257→  return (
+   258→    <section className="relative overflow-hidden">
+   259→      {/* Subtle background — soft green glow */}
+   260→      <div
+   261→        aria-hidden
+   262→        className="pointer-events-none absolute inset-0 -z-10"
+   263→        style={{
+   264→          background:
+   265→            "radial-gradient(60% 50% at 50% 0%, oklch(0.96 0.01 150 / 0.7) 0%, transparent 70%)",
+   266→        }}
+   267→      />
+   268→
+   269→      <div className="mx-auto max-w-4xl px-4 py-20 text-center md:py-24 md:px-6">
+   270→        <motion.div
+   271→          initial={reduced ? undefined : { opacity: 0, y: 16 }}
+   272→          animate={{ opacity: 1, y: 0 }}
+   273→          transition={{ duration: 0.5, ease: "easeOut" }}
+   274→        >
+   275→          <Badge variant="outline" className="mb-6 gap-1.5 border-border/80 px-3 py-1 text-xs text-muted-foreground">
+   276→            <Sparkles className="h-3 w-3" /> AI agents that actually do the work
+   277→          </Badge>
+   278→
+   279→          <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl md:text-6xl">
+   280→            Consider it <span className="text-primary">Done.</span>
+   281→          </h1>
+   282→
+   283→          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground text-pretty md:text-xl">
+   284→            Tell Apical what needs doing. An AI agent figures out the steps,
+   285→            does the busywork, and hands you the result. You decide. It does.
+   286→          </p>
+   287→
+   288→          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+   289→            <DownloadButton os={os} size="lg" className="w-full sm:w-auto" />
+   290→            <Button variant="outline" size="lg" onClick={onLaunch} className="w-full sm:w-auto">
+   291→              Open the web app <ArrowRight className="ml-1.5 h-4 w-4" />
+   292→            </Button>
+   293→          </div>
+   294→
+   295→          <p className="mt-4 text-xs text-muted-foreground">
+   296→            Free to start. No credit card. Runs on your computer.
+   297→          </p>
+   298→        </motion.div>
+   299→
+   300→        {/* Live interactive preview (replaces the static screenshot) */}
+   301→        <motion.div
+   302→          initial={reduced ? undefined : { opacity: 0, y: 24 }}
+   303→          animate={{ opacity: 1, y: 0 }}
+   304→          transition={{ delay: 0.15, duration: 0.6, ease: "easeOut" }}
+   305→          className="mx-auto mt-14 max-w-5xl"
+   306→        >
+   307→          <div className="mb-2 flex items-center justify-between px-1">
+   308→            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+   309→              Live preview — drag the window
+   310→            </span>
+   311→            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+   312→              <span className="h-1.5 w-1.5 rounded-full bg-primary" /> interactive
+   313→            </span>
+   314→          </div>
+   315→          <DesktopStage>
+   316→            <DraggableWindow initialX={90} initialY={70} width={820} height={520}>
+   317→              <AppShell user={null} />
+   318→            </DraggableWindow>
+   319→          </DesktopStage>
+   320→          <p className="mt-3 text-center text-[11px] text-muted-foreground">
+   321→            This is the real app — Chat, Agents, Vault, Data, and Billing tabs. Type a job
+   322→            and watch it propose a workflow. Drag the title bar to move the window.
+   323→          </p>
+   324→        </motion.div>
+   325→      </div>
+   326→    </section>
+   327→  );
+   328→}
+   329→
+   330→// ─── Social proof strip ─────────────────────────────────────────────────────
+   331→
+   332→function SocialProof() {
+   333→  return (
+   334→    <section className="border-y border-border/50 bg-muted/30">
+   335→      <div className="mx-auto max-w-5xl px-4 py-8 md:px-6">
+   336→        <p className="text-center text-xs font-medium uppercase tracking-wider text-muted-foreground">
+   337→          Built for people who have too much to do
+   338→        </p>
+   339→        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-3 text-sm font-medium text-muted-foreground/80">
+   340→          <span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> Private by default</span>
+   341→          <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> Works while you sleep</span>
+   342→          <span className="flex items-center gap-2"><Zap className="h-4 w-4" /> Learns your job</span>
+   343→          <span className="flex items-center gap-2"><Users className="h-4 w-4" /> For one person or a whole team</span>
+   344→        </div>
+   345→      </div>
+   346→    </section>
+   347→  );
+   348→}
+   349→
+   350→// ─── How it works ───────────────────────────────────────────────────────────
+   351→
+   352→function HowItWorks({ reduced }: { reduced: boolean | null }) {
+   353→  const steps = [
+   354→    {
+   355→      n: "01",
+   356→      title: "Describe the job",
+   357→      body: "Type it out like you're delegating to a smart assistant. \"Sort my scanned documents into client folders.\" \"Check my competitors' pricing every week.\" \"Remind me when a license is about to expire.\"",
+   358→    },
+   359→    {
+   360→      n: "02",
+   361→      title: "Approve the plan",
+   362→      body: "Apical's agent breaks the job into steps and shows you the plan. You approve. It starts working — and asks before doing anything risky.",
+   363→    },
+   364→    {
+   365→      n: "03",
+   366→      title: "It just runs",
+   367→      body: "The agent does the work, again and again, without you watching. It gets faster over time as it learns your patterns. You get the results — and your time back.",
+   368→    },
+   369→  ];
+   370→
+   371→  return (
+   372→    <section id="how" className="scroll-mt-16">
+   373→      <div className="mx-auto max-w-4xl px-4 py-20 md:px-6 md:py-28">
+   374→        <div className="text-center">
+   375→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   376→            Less doing. <span className="text-primary">More deciding.</span>
+   377→          </h2>
+   378→          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   379→            You don&apos;t need to understand AI. You just need to know what you want done.
+   380→          </p>
+   381→        </div>
+   382→
+   383→        <div className="mt-14 grid gap-8 md:grid-cols-3">
+   384→          {steps.map((s, i) => (
+   385→            <motion.div
+   386→              key={s.n}
+   387→              initial={reduced ? undefined : { opacity: 0, y: 16 }}
+   388→              whileInView={{ opacity: 1, y: 0 }}
+   389→              viewport={{ once: true, margin: "-80px" }}
+   390→              transition={{ delay: i * 0.1, duration: 0.4 }}
+   391→              className="text-left"
+   392→            >
+   393→              <div className="text-sm font-mono text-primary">{s.n}</div>
+   394→              <h3 className="mt-2 text-lg font-semibold">{s.title}</h3>
+   395→              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
+   396→            </motion.div>
+   397→          ))}
+   398→        </div>
+   399→      </div>
+   400→    </section>
+   401→  );
+   402→}
+   403→
+   404→// ─── Use cases ──────────────────────────────────────────────────────────────
+   405→
+   406→function UseCases({ reduced }: { reduced: boolean | null }) {
+   407→  const cases = [
+   408→    { icon: FileText, title: "Filing", body: "Sort scans, invoices, and documents into the right folders automatically." },
+   409→    { icon: TrendingUp, title: "Sales leads", body: "Find potential customers and keep your list fresh without lifting a finger." },
+   410→    { icon: Bell, title: "Reminders", body: "Never let a license, contract, or deadline expire again." },
+   411→    { icon: FolderClosed, title: "Competitor watch", body: "Know when a competitor changes their pricing or launches something new." },
+   412→    { icon: Inbox, title: "Inbox triage", body: "Every inbound email sorted, routed, and answered the right way." },
+   413→    { icon: Receipt, title: "Expenses", body: "Audit reports against your policy and flag the ones that need a look." },
+   414→  ];
+   415→
+   416→  return (
+   417→    <section id="examples" className="scroll-mt-16 border-t border-border/50 bg-muted/20">
+   418→      <div className="mx-auto max-w-5xl px-4 py-20 md:px-6 md:py-28">
+   419→        <div className="text-center">
+   420→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   421→            What will you hand off?
+   422→          </h2>
+   423→          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   424→            Any repetitive task — Apical can run it.
+   425→          </p>
+   426→        </div>
+   427→
+   428→        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   429→          {cases.map((c, i) => {
+   430→            const Icon = c.icon;
+   431→            return (
+   432→              <motion.div
+   433→                key={c.title}
+   434→                initial={reduced ? undefined : { opacity: 0, y: 12 }}
+   435→                whileInView={{ opacity: 1, y: 0 }}
+   436→                viewport={{ once: true, margin: "-60px" }}
+   437→                transition={{ delay: i * 0.06, duration: 0.35 }}
+   438→                className="rounded-lg border border-border/60 bg-card p-5"
+   439→              >
+   440→                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+   441→                  <Icon className="h-4 w-4" />
+   442→                </div>
+   443→                <h3 className="mt-3 text-sm font-semibold">{c.title}</h3>
+   444→                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{c.body}</p>
+   445→              </motion.div>
+   446→            );
+   447→          })}
+   448→        </div>
+   449→
+   450→        <p className="mt-10 text-center text-sm text-muted-foreground">
+   451→          That&apos;s just the start. If you can describe it, an agent can probably do it.
+   452→        </p>
+   453→      </div>
+   454→    </section>
+   455→  );
+   456→}
+   457→
+   458→// ─── Pricing ────────────────────────────────────────────────────────────────
+   459→
+   460→function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+   461→  const [interval, setInterval] = React.useState<"monthly" | "yearly">("monthly");
+   462→
+   463→  return (
+   464→    <section id="pricing" className="scroll-mt-16">
+   465→      <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
+   466→        <div className="text-center">
+   467→          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   468→            Simple pricing
+   469→          </h2>
+   470→          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   471→            Start free. Upgrade when it&apos;s doing real work for you.
+   472→          </p>
+   473→        </div>
+   474→
+   475→        {/* Interval toggle */}
+   476→        <div className="mt-8 flex items-center justify-center">
+   477→          <div className="inline-flex items-center rounded-full border border-border bg-muted/40 p-0.5 text-xs">
+   478→            <button
+   479→              type="button"
+   480→              onClick={() => setInterval("monthly")}
+   481→              className={cn(
+   482→                "rounded-full px-4 py-1.5 font-medium transition-colors",
+   483→                interval === "monthly" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+   484→              )}
+   485→            >
+   486→              Monthly
+   487→            </button>
+   488→            <button
+   489→              type="button"
+   490→              onClick={() => setInterval("yearly")}
+   491→              className={cn(
+   492→                "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 font-medium transition-colors",
+   493→                interval === "yearly" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+   494→              )}
+   495→            >
+   496→              Yearly
+   497→              <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
+   498→                2 mo free
+   499→              </span>
+   500→            </button>
+   501→          </div>
+   502→        </div>
+   503→
+   504→        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+   505→          {PLAN_LIST.map((plan, i) => {
+   506→            const featured = plan.featured;
+   507→            const isFree = plan.id === "free";
+   508→            const isEnterprise = plan.id === "enterprise";
+   509→            const price = computePrice(plan, interval);
+   510→
+   511→            const cta = isFree
+   512→              ? "Get started"
+   513→              : isEnterprise
+   514→                ? "Contact sales"
+   515→                : "Choose";
+   516→
+   517→            return (
+   518→              <motion.div
+   519→                key={plan.id}
+   520→                initial={{ opacity: 0, y: 12 }}
+   521→                whileInView={{ opacity: 1, y: 0 }}
+   522→                viewport={{ once: true }}
+   523→                transition={{ delay: i * 0.07, duration: 0.35 }}
+   524→                className={cn(
+   525→                  "relative flex flex-col rounded-xl border bg-card p-6",
+   526→                  featured
+   527→                    ? "border-primary/50 shadow-md lg:-translate-y-1"
+   528→                    : "border-border hover:border-border/80",
+   529→                )}
+   530→              >
+   531→                {featured && (
+   532→                  <Badge className="absolute -top-2.5 left-6 gap-1 bg-primary text-primary-foreground">
+   533→                    <Sparkles className="h-3 w-3" /> Most popular
+   534→                  </Badge>
+   535→                )}
+   536→
+   537→                <h3 className="text-base font-semibold">{plan.name}</h3>
+   538→                <p className="mt-1 min-h-[2.5rem] text-xs leading-relaxed text-muted-foreground">
+   539→                  {plan.tagline}
+   540→                </p>
+   541→
+   542→                <div className="mt-4 flex items-baseline gap-1">
+   543→                  <span className="text-3xl font-semibold tracking-tight">{price.display}</span>
+   544→                  {price.suffix && <span className="text-sm text-muted-foreground">{price.suffix}</span>}
+   545→                </div>
+   546→                <div className="mt-1 min-h-[1rem] text-[11px] text-muted-foreground">
+   547→                  {price.sub || "\u00A0"}
+   548→                </div>
+   549→
+   550→                <div className="mt-5">
+   551→                  <Button
+   552→                    variant={featured ? "default" : "outline"}
+   553→                    className="w-full"
+   554→                    onClick={() => {
+   555→                      if (isFree) onLaunch();
+   556→                      else if (isEnterprise) {
+   557→                        window.location.href = "mailto:sales@apical.dev?subject=Apical%20Enterprise";
+   558→                      } else {
+   559→                        // Demo: just navigate to the web app
+   560→                        onLaunch();
+   561→                      }
+   562→                    }}
+   563→                  >
+   564→                    {cta} <ArrowRight className="ml-1.5 h-4 w-4" />
+   565→                  </Button>
+   566→                </div>
+   567→
+   568→                <ul className="mt-6 space-y-2.5">
+   569→                  {plan.features.map((f) => (
+   570→                    <li key={f} className="flex items-start gap-2 text-xs">
+   571→                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+   572→                        <Check className="h-2.5 w-2.5" />
+   573→                      </span>
+   574→                      <span className="leading-relaxed text-foreground/80">{f}</span>
+   575→                    </li>
+   576→                  ))}
+   577→                </ul>
+   578→              </motion.div>
+   579→            );
+   580→          })}
+   581→        </div>
+   582→      </div>
+   583→    </section>
+   584→  );
+   585→}
+   586→
+   587→function computePrice(
+   588→  plan: Plan,
+   589→  interval: "monthly" | "yearly",
+   590→): { display: string; suffix?: string; sub?: string } {
+   591→  if (plan.id === "enterprise") return { display: "Custom", sub: "Volume pricing — talk to sales." };
+   592→  if (plan.id === "free") return { display: "$0", suffix: "/mo", sub: "Free forever. No credit card." };
+   593→  const perSeat = plan.id === "team" ? " /seat" : "";
+   594→  if (interval === "monthly") {
+   595→    return {
+   596→      display: `$${plan.priceMonthly}`,
+   597→      suffix: `/mo${perSeat}`,
+   598→      sub: plan.id === "team" ? "5 seats included." : "Billed monthly.",
+   599→    };
+   600→  }
+   601→  const perMonth = plan.priceYearly / 12;
+   602→  const monthsFree = 12 - Math.round(plan.priceYearly / plan.priceMonthly);
+   603→  return {
+   604→    display: `$${perMonth % 1 === 0 ? perMonth : perMonth.toFixed(2)}`,
+   605→    suffix: `/mo${perSeat}`,
+   606→    sub: `$${plan.priceYearly}/yr${perSeat} — ${monthsFree} months free`,
+   607→  };
+   608→}
+   609→
+   610→// ─── For Developers ─────────────────────────────────────────────────────────
+   611→
+   612→function ForDevelopers() {
+   613→  return (
+   614→    <section id="developers" className="scroll-mt-16 border-t border-border/50 bg-muted/20">
+   615→      <div className="mx-auto max-w-4xl px-4 py-16 md:px-6 md:py-20">
+   616→        <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
+   617→          <div className="max-w-xl">
+   618→            <h2 className="text-2xl font-semibold tracking-tight">
+   619→              For developers
+   620→            </h2>
+   621→            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+   622→              Apical speaks MCP. Wire it into your editor, call it from your
+   623→              code, or run agents headlessly. Bring your own model keys —
+   624→              OpenAI, Anthropic, Google, or local.
+   625→            </p>
+   626→          </div>
+   627→          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+   628→            <Button variant="outline" asChild>
+   629→              <a href="#developers">
+   630→                Read the docs <ArrowRight className="ml-1.5 h-4 w-4" />
+   631→              </a>
+   632→            </Button>
+   633→          </div>
+   634→        </div>
+   635→      </div>
+   636→    </section>
+   637→  );
+   638→}
+   639→
+   640→// ─── Final CTA ──────────────────────────────────────────────────────────────
+   641→
+   642→function FinalCTA({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+   643→  return (
+   644→    <section className="border-t border-border/50">
+   645→      <div className="mx-auto max-w-3xl px-4 py-20 text-center md:px-6 md:py-28">
+   646→        <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+   647→          What would you hand off today?
+   648→        </h2>
+   649→        <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+   650→          Install Apical. Describe one job. Get your time back.
+   651→        </p>
+   652→        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+   653→          <DownloadButton os={os} size="lg" />
+   654→          <Button variant="ghost" size="lg" onClick={onLaunch}>
+   655→            Or try it in the browser
+   656→          </Button>
+   657→        </div>
+   658→      </div>
+   659→    </section>
+   660→  );
+   661→}
+   662→
+   663→// ─── Footer ─────────────────────────────────────────────────────────────────
+   664→
+   665→function Footer() {
+   666→  return (
+   667→    <footer className="border-t border-border/60 bg-background">
+   668→      <div className="mx-auto max-w-6xl px-4 py-10 md:px-6">
+   669→        <div className="flex flex-col items-start justify-between gap-8 md:flex-row">
+   670→          <div className="flex items-center gap-2">
+   671→            <ApicalMark className="h-5 w-5" />
+   672→            <span className="text-sm font-semibold">Apical</span>
+   673→          </div>
+   674→          <div className="grid grid-cols-2 gap-8 text-xs sm:grid-cols-4">
+   675→            <div>
+   676→              <div className="mb-3 font-medium text-foreground">Product</div>
+   677→              <ul className="space-y-2 text-muted-foreground">
+   678→                <li><a href="#how" className="hover:text-foreground">How it works</a></li>
+   679→                <li><a href="#pricing" className="hover:text-foreground">Pricing</a></li>
+   680→                <li><a href="#examples" className="hover:text-foreground">Examples</a></li>
+   681→              </ul>
+   682→            </div>
+   683→            <div>
+   684→              <div className="mb-3 font-medium text-foreground">Resources</div>
+   685→              <ul className="space-y-2 text-muted-foreground">
+   686→                <li><a href="#developers" className="hover:text-foreground">Docs</a></li>
+   687→                <li><a href="#developers" className="hover:text-foreground">MCP + API</a></li>
+   688→              </ul>
+   689→            </div>
+   690→            <div>
+   691→              <div className="mb-3 font-medium text-foreground">Company</div>
+   692→              <ul className="space-y-2 text-muted-foreground">
+   693→                <li><a href="mailto:hello@apical.dev" className="hover:text-foreground">Contact</a></li>
+   694→                <li><a href="mailto:sales@apical.dev" className="hover:text-foreground">Sales</a></li>
+   695→              </ul>
+   696→            </div>
+   697→            <div>
+   698→              <div className="mb-3 font-medium text-foreground">Legal</div>
+   699→              <ul className="space-y-2 text-muted-foreground">
+   700→                <li><a href="#" className="hover:text-foreground">Privacy</a></li>
+   701→                <li><a href="#" className="hover:text-foreground">Terms</a></li>
+   702→              </ul>
+   703→            </div>
+   704→          </div>
+   705→        </div>
+   706→        <div className="mt-10 border-t border-border/40 pt-6 text-center text-xs text-muted-foreground">
+   707→          Made for people with too much to do.
+   708→        </div>
+   709→      </div>
+   710→    </footer>
+   711→  );
+   712→}
+   713→
+   714→// ─── Download button + dialog ───────────────────────────────────────────────
+   715→
+   716→function DownloadButton({
+   717→  os,
+   718→  variant = "default",
+   719→  size = "default",
+   720→  className,
+   721→}: {
+   722→  os: DetectedOS;
+   723→  variant?: "default" | "outline" | "ghost";
+   724→  size?: "default" | "sm" | "lg";
+   725→  className?: string;
+   726→}) {
+   727→  const [open, setOpen] = React.useState(false);
+   728→  const { toast } = useToast();
+   729→
+   730→  const handleClick = async () => {
+   731→    if (os === "other") {
+   732→      setOpen(true);
+   733→      return;
+   734→    }
+   735→    // Try the real download URL. If 404, open the dialog with CLI fallback.
+   736→    try {
+   737→      const res = await fetch(downloadUrl(os), { method: "HEAD" });
+   738→      if (res.ok) {
+   739→        window.location.href = downloadUrl(os);
+   740→        return;
+   741→      }
+   742→      setOpen(true);
+   743→    } catch {
+   744→      setOpen(true);
+   745→    }
+   746→  };
+   747→
+   748→  return (
+   749→    <>
+   750→      <Button variant={variant} size={size} onClick={handleClick} className={className}>
+   751→        <Download className="mr-1.5 h-4 w-4" />
+   752→        {downloadButtonLabel(os)}
+   753→      </Button>
+   754→      <DownloadDialog open={open} onOpenChange={setOpen} os={os} onCopied={() => toast({ title: "Copied" })} />
+   755→    </>
+   756→  );
+   757→}
+   758→
+   759→function DownloadDialog({
+   760→  open,
+   761→  onOpenChange,
+   762→  os,
+   763→  onCopied,
+   764→}: {
+   765→  open: boolean;
+   766→  onOpenChange: (v: boolean) => void;
+   767→  os: DetectedOS;
+   768→  onCopied: () => void;
+   769→}) {
+   770→  const cmd = installCommandFor(os);
+   771→  const [copied, setCopied] = React.useState(false);
+   772→
+   773→  const copy = () => {
+   774→    navigator.clipboard?.writeText(cmd).then(() => {
+   775→      setCopied(true);
+   776→      onCopied();
+   777→      setTimeout(() => setCopied(false), 2000);
+   778→    });
+   779→  };
+   780→
+   781→  return (
+   782→    <Dialog open={open} onOpenChange={onOpenChange}>
+   783→      <DialogContent className="sm:max-w-md">
+   784→        <DialogHeader>
+   785→          <DialogTitle>Install Apical for {osLabel(os)}</DialogTitle>
+   786→          <DialogDescription>
+   787→            {os === "other"
+   788→              ? "Pick your platform below."
+   789→              : "The desktop app is the fastest way to get started. If the download above didn't start, use the command below."}
+   790→          </DialogDescription>
+   791→        </DialogHeader>
+   792→
+   793→        {os !== "other" && (
+   794→          <div className="space-y-3">
+   795→            <a
+   796→              href={downloadUrl(os)}
+   797→              className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+   798→            >
+   799→              <Download className="h-4 w-4" /> Download {osLabel(os)} app
+   800→            </a>
+   801→
+   802→            <div className="relative">
+   803→              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-2.5 pl-3">
+   804→                <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+   805→                <code className="flex-1 truncate font-mono text-xs">{cmd}</code>
+   806→                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={copy}>
+   807→                  {copied ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
+   808→                </Button>
+   809→              </div>
+   810→              <p className="mt-2 text-[11px] text-muted-foreground">
+   811→                Or install from the command line.
+   812→              </p>
+   813→            </div>
+   814→          </div>
+   815→        )}
+   816→
+   817→        {os === "other" && (
+   818→          <div className="space-y-2">
+   819→            {(["mac", "windows", "linux"] as DetectedOS[]).map((o) => (
+   820→              <a
+   821→                key={o}
+   822→                href={downloadUrl(o)}
+   823→                className="flex items-center justify-between rounded-lg border border-border p-3 text-sm hover:bg-accent/50"
+   824→              >
+   825→                <span>{osLabel(o)}</span>
+   826→                <Download className="h-4 w-4 text-muted-foreground" />
+   827→              </a>
+   828→            ))}
+   829→          </div>
+   830→        )}
+   831→
+   832→        <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+   833→          <Button variant="outline" className="w-full" asChild>
+   834→            <a href="#developers">Build from source</a>
+   835→          </Button>
+   836→        </DialogFooter>
+   837→      </DialogContent>
+   838→    </Dialog>
+   839→  );
+   840→}
+   841→

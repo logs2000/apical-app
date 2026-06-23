@@ -1,0 +1,43 @@
+[package]
+name = "apical"
+version = "0.1.0"
+description = "Apical — the AI runtime that authenticates against and invokes arbitrary APIs/MCP servers."
+authors = ["Apical"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "apical_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-http = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-os = "2"
+tauri-plugin-process = "2"
+tauri-plugin-notification = "2"
+# OS keychain — F2 vault in local mode. macOS Keychain / Windows Credential
+# Manager / libsecret on Linux. The Next.js runtime calls these via IPC.
+keyring = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+log = "0.4"
+env_logger = "0.11"
+# Sidecar management for the Next.js dev server / bundled server.
+# `tauri-plugin-shell` exposes sidecar spawn + lifecycle.
+reqwest = { version = "0.12", features = ["json"] }
+url = "2"
+
+[features]
+# This feature is used for production builds or when a dev server is not
+# specified, DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,1649 @@
+     1→import { NextResponse } from 'next/server'
+     2→import ZAI from 'z-ai-web-dev-sdk'
+     3→import { db } from '@/lib/db'
+     4→import { loadIntegrations } from '@/lib/mappers'
+     5→import {
+     6→  EVOCATIVE_NAMES,
+     7→  generateAgentName,
+     8→  type AgentNameStyle,
+     9→} from '@/lib/apical-server'
+    10→import type {
+    11→  ApiDiscoveryCandidate,
+    12→  ChatMessage,
+    13→  ClarificationOption,
+    14→  ClarificationQuestion,
+    15→  Integration,
+    16→  IntegrationKind,
+    17→  ResearchResult,
+    18→  ScriptAnalysis,
+    19→  UserProfile,
+    20→  WorkflowJSON,
+    21→  WorkflowStep,
+    22→} from '@/lib/types'
+    23→
+    24→// ---------------- Request / response shapes ----------------
+    25→
+    26→interface ChatBody {
+    27→  message?: string
+    28→  history?: ChatMessage[]
+    29→  /** NEW (v3): agents the user @-mentioned in this message. */
+    30→  mentionedAgentIds?: string[] | null
+    31→  /** LEGACY (v2): single active agent — still accepted, treated as a mention. */
+    32→  activeAgentId?: string | null
+    33→  conversationId?: string | null
+    34→  workspaceId?: string | null
+    35→  /** NEW (v4): an attached script (curl/python/javascript) for the agent to analyze. */
+    36→  attachedScript?: string
+    37→  /** NEW (v4): language hint for the attached script. */
+    38→  attachedScriptLanguage?: 'curl' | 'python' | 'javascript' | 'auto'
+    39→  /** NEW (v5): which AI model the user selected (default | fast | thinking). */
+    40→  model?: string
+    41→}
+    42→
+    43→type Intent =
+    44→  | 'new_agent'
+    45→  | 'edit_existing'
+    46→  | 'general'
+    47→  | 'needs_clarification'
+    48→  | 'needs_api'
+    49→  | 'needs_research'
+    50→
+    51→interface WorkflowProposal {
+    52→  name: string
+    53→  description: string
+    54→  department: string
+    55→  title?: string
+    56→  steps: WorkflowJSON
+    57→}
+    58→
+    59→interface Suggestion {
+    60→  title: string
+    61→  prompt: string
+    62→  reason: string
+    63→}
+    64→
+    65→interface AgentResponse {
+    66→  reply: string
+    67→  trace?: { label: string; detail?: string }[]
+    68→  intent: Intent
+    69→  workflowProposal?: WorkflowProposal
+    70→  switchToAgentId?: string
+    71→  editingAgentId?: string
+    72→  clarification?: ClarificationQuestion
+    73→  apiDiscovery?: ApiDiscoveryCandidate[]
+    74→  suggestions?: Suggestion[]
+    75→  title?: string
+    76→  /** NEW (v4): web research grounding the needs_api discovery. */
+    77→  research?: ResearchResult
+    78→  /** NEW (v4): analysis of an attached code script. */
+    79→  scriptAnalysis?: ScriptAnalysis
+    80→}
+    81→
+    82→// ---------------- Helpers ----------------
+    83→
+    84→// `EVOCATIVE_NAMES` is imported from @/lib/apical — single source of truth.
+    85→// (Local set used for fast lookup in `isLikelyEvocativeName`.)
+    86→const EVOCATIVE_NAME_SET = new Set<string>(EVOCATIVE_NAMES)
+    87→
+    88→function isLikelyEvocativeName(s: string): boolean {
+    89→  const n = s.trim()
+    90→  if (!n) return false
+    91→  // Reject human-y names (Pat, Sam, etc.) and thing-words.
+    92→  if (EVOCATIVE_NAME_SET.has(n)) return true
+    93→  // Single capitalized word, 3-12 chars, not a thing-word.
+    94→  if (!/^[A-Z][a-z]{2,11}$/.test(n)) return false
+    95→  if (/(pdf|sorter|scanner|file|invoice|expense|workflow|tool|auto|bot|agent|pdf|doc|email|api)$/i.test(n)) return false
+    96→  return true
+    97→}
+    98→
+    99→/**
+   100→ * Pick a name for a new agent using the user's preferred style.
+   101→ * The LLM no longer decides the name — it just suggests one, and we override
+   102→ * with `generateAgentName(style, jobDescription, existingNames)`.
+   103→ *
+   104→ * For evocative style: if the LLM suggested a valid evocative name AND it
+   105→ * isn't already in use, we keep it (so the model can pick a fitting name).
+   106→ * Otherwise we pick an unused one from the EVOCATIVE_NAMES list.
+   107→ *
+   108→ * For descriptive style: always derive from the job description (the LLM's
+   109→ * suggestion is ignored — the user wants descriptive names).
+   110→ */
+   111→async function pickAgentName(
+   112→  style: AgentNameStyle,
+   113→  suggested: unknown,
+   114→  jobDescription: string,
+   115→  existingNames: string[],
+   116→): Promise<string> {
+   117→  if (style === 'descriptive') {
+   118→    return generateAgentName('descriptive', jobDescription, existingNames)
+   119→  }
+   120→  // For evocative style, try the LLM to generate a fitting name.
+   121→  try {
+   122→    const zai = await ZAI.create()
+   123→    const prompt = `Generate a single short, evocative, non-human name for an AI agent that does this job: "${jobDescription}".
+   124→
+   125→Rules:
+   126→- 4-6 letters, easy to pronounce, memorable (like Nomi, Vexa, Kiro, Sova, Lumo, Talo)
+   127→- NOT a common human name (not John, Sarah, Alex)
+   128→- NOT a real word (not Scan, Sort, Mail)
+   129→- Just the name, no explanation
+   130→
+   131→Existing names to avoid: ${existingNames.join(', ') || 'none'}
+   132→
+   133→Respond with ONLY the name, nothing else.`
+   134→
+   135→    const completion = await zai.chat.completions.create({
+   136→      messages: [
+   137→        { role: 'assistant', content: 'You generate short, evocative names for AI agents. Respond with a single word.' },
+   138→        { role: 'user', content: prompt },
+   139→      ],
+   140→      thinking: { type: 'disabled' },
+   141→    })
+   142→    const name = (completion.choices[0]?.message?.content || '').trim().split(/\s+/)[0]
+   143→    if (name && name.length >= 2 && name.length <= 8 && /^[a-zA-Z]+$/.test(name)) {
+   144→      const taken = existingNames.some((n) => n.toLowerCase() === name.toLowerCase())
+   145→      if (!taken) return name.charAt(0).toUpperCase() + name.slice(1)
+   146→    }
+   147→  } catch {
+   148→    // Fall through to fallback.
+   149→  }
+   150→  // Fallback: prefer the LLM's original suggestion if valid.
+   151→  if (typeof suggested === 'string' && suggested.trim()) {
+   152→    const first = suggested.trim().split(/\s+/)[0]
+   153→    const taken = existingNames.some((n) => n.trim().toLowerCase() === first.toLowerCase())
+   154→    if (isLikelyEvocativeName(first) && !taken) return first
+   155→  }
+   156→  return generateAgentName('evocative', jobDescription, existingNames)
+   157→}
+   158→
+   159→// Legacy alias — kept so the fallback path doesn't need to know about styles.
+   160→function pickEvocativeName(suggested: unknown): string {
+   161→  if (typeof suggested === 'string' && suggested.trim()) {
+   162→    const first = suggested.trim().split(/\s+/)[0]
+   163→    if (isLikelyEvocativeName(first)) return first
+   164→  }
+   165→  return EVOCATIVE_NAMES[Math.floor(Math.random() * EVOCATIVE_NAMES.length)]
+   166→}
+   167→
+   168→/** Build a compact tool catalog string for the system prompt. */
+   169→function buildToolCatalog(integrations: Integration[]): string {
+   170→  const lines: string[] = []
+   171→  for (const it of integrations) {
+   172→    for (const tool of it.tools) {
+   173→      lines.push(`- ${tool.id} (${it.name}) — ${tool.description}`)
+   174→    }
+   175→  }
+   176→  return lines.join('\n')
+   177→}
+   178→
+   179→/** Render an agent's steps compactly so the model can suggest edits. */
+   180→function renderStepsBrief(steps: WorkflowStep[]): string {
+   181→  return steps
+   182→    .map((s) => {
+   183→      const parts = [`  - ${s.id} [${s.kind}] ${s.label}`]
+   184→      if (s.tool) parts.push(`      tool: ${s.tool}`)
+   185→      if (s.prompt) parts.push(`      prompt: ${s.prompt}`)
+   186→      if (s.gateMessage) parts.push(`      gate: ${s.gateMessage}`)
+   187→      if (s.allowedTools && s.allowedTools.length)
+   188→        parts.push(`      allowedTools: ${s.allowedTools.join(', ')}`)
+   189→      if (s.hardened) parts.push(`      (hardened — rule applied, no AI)`)
+   190→      return parts.join('\n')
+   191→    })
+   192→    .join('\n')
+   193→}
+   194→
+   195→function parseStepsFromJson(raw: unknown): WorkflowStep[] {
+   196→  const arr = Array.isArray(raw) ? raw : (raw as { steps?: unknown } | null)?.steps
+   197→  if (!Array.isArray(arr)) return []
+   198→  return arr.filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
+   199→}
+   200→
+   201→/** Normalize step list defensively — sequential ids, valid kinds, sane defaults. */
+   202→function normalizeProposalSteps(raw: unknown): WorkflowStep[] {
+   203→  const arr = parseStepsFromJson(raw)
+   204→  const steps: WorkflowStep[] = []
+   205→  arr.forEach((s, i) => {
+   206→    const kind = s.kind === 'reason' || s.kind === 'gate' ? s.kind : 'tool'
+   207→    const id = typeof s.id === 'string' && s.id ? s.id : `s${i + 1}`
+   208→    const label =
+   209→      typeof s.label === 'string' && s.label
+   210→        ? s.label
+   211→        : kind === 'reason'
+   212→          ? 'Reason'
+   213→          : kind === 'gate'
+   214→            ? 'Approve'
+   215→            : 'Run tool'
+   216→    const out: WorkflowStep = { id, kind, label }
+   217→    if (kind === 'tool') {
+   218→      if (typeof s.tool === 'string') out.tool = s.tool
+   219→      if (s.inputs && typeof s.inputs === 'object') {
+   220→        out.inputs = s.inputs as Record<string, unknown>
+   221→      }
+   222→    } else if (kind === 'reason') {
+   223→      if (typeof s.prompt === 'string') out.prompt = s.prompt
+   224→      if (Array.isArray(s.allowedTools)) {
+   225→        out.allowedTools = s.allowedTools.filter(
+   226→          (t) => typeof t === 'string',
+   227→        ) as string[]
+   228→      }
+   229→      if (s.outputShape && typeof s.outputShape === 'object') {
+   230→        out.outputShape = s.outputShape as Record<string, string>
+   231→      }
+   232→      if (typeof s.confidenceThreshold === 'number') {
+   233→        out.confidenceThreshold = s.confidenceThreshold
+   234→      }
+   235→    } else if (kind === 'gate') {
+   236→      if (typeof s.gateMessage === 'string') out.gateMessage = s.gateMessage
+   237→    }
+   238→    if (typeof s.note === 'string') out.note = s.note
+   239→    steps.push(out)
+   240→  })
+   241→  return steps.map((s, i) => ({ ...s, id: `s${i + 1}` }))
+   242→}
+   243→
+   244→function coerceClarification(raw: unknown): ClarificationQuestion | undefined {
+   245→  if (!raw || typeof raw !== 'object') return undefined
+   246→  const r = raw as Record<string, unknown>
+   247→  const question =
+   248→    typeof r.question === 'string' && r.question.trim() ? r.question.trim() : ''
+   249→  const optsRaw = Array.isArray(r.options) ? r.options : []
+   250→  const options: ClarificationOption[] = optsRaw
+   251→    .filter((o): o is Record<string, unknown> => !!o && typeof o === 'object')
+   252→    .slice(0, 4)
+   253→    .map((o, i) => {
+   254→      const key =
+   255→        typeof o.key === 'string' && o.key ? o.key : String.fromCharCode(65 + i)
+   256→      const label =
+   257→        typeof o.label === 'string' && o.label ? o.label : `Option ${i + 1}`
+   258→      const description =
+   259→        typeof o.description === 'string' ? o.description : undefined
+   260→      return { key, label, description }
+   261→    })
+   262→    .filter((o) => o.label)
+   263→  if (!question || options.length < 2) return undefined
+   264→  return {
+   265→    id: typeof r.id === 'string' && r.id ? r.id : 'clarify',
+   266→    question,
+   267→    options,
+   268→    multiple: r.multiple === true,
+   269→  }
+   270→}
+   271→
+   272→function coerceApiDiscovery(raw: unknown): ApiDiscoveryCandidate[] | undefined {
+   273→  if (!Array.isArray(raw)) return undefined
+   274→  const out: ApiDiscoveryCandidate[] = []
+   275→  raw.forEach((c, i) => {
+   276→    if (!c || typeof c !== 'object') return
+   277→    const r = c as Record<string, unknown>
+   278→    const service =
+   279→      typeof r.service === 'string' && r.service.trim() ? r.service.trim() : ''
+   280→    if (!service) return
+   281→    const kind: IntegrationKind =
+   282→      r.kind === 'mcp' || r.kind === 'http' || r.kind === 'api'
+   283→        ? (r.kind as IntegrationKind)
+   284→        : 'api'
+   285→    const toolsRaw = Array.isArray(r.tools) ? r.tools : []
+   286→    const tools = toolsRaw
+   287→      .filter(
+   288→        (t): t is Record<string, unknown> => !!t && typeof t === 'object',
+   289→      )
+   290→      .slice(0, 6)
+   291→      .map((t, j) => {
+   292→        const id =
+   293→          typeof t.id === 'string' && t.id
+   294→            ? t.id
+   295→            : `${service.toLowerCase().replace(/[^a-z0-9]+/g, '')}.tool${j + 1}`
+   296→        const name =
+   297→          typeof t.name === 'string' && t.name ? t.name : `Tool ${j + 1}`
+   298→        const description =
+   299→          typeof t.description === 'string' ? t.description : ''
+   300→        return { id, name, description }
+   301→      })
+   302→    const fieldsRaw = Array.isArray(r.credentialFields) ? r.credentialFields : []
+   303→    const credentialFields = fieldsRaw
+   304→      .filter(
+   305→        (f): f is Record<string, unknown> => !!f && typeof f === 'object',
+   306→      )
+   307→      .slice(0, 5)
+   308→      .map((f, j) => {
+   309→        const key =
+   310→          typeof f.key === 'string' && f.key ? f.key : `field_${j + 1}`
+   311→        const label =
+   312→          typeof f.label === 'string' && f.label ? f.label : `Field ${j + 1}`
+   313→        const type: 'apikey' | 'oauth' | 'mcp_token' =
+   314→          f.type === 'oauth' || f.type === 'mcp_token' || f.type === 'apikey'
+   315→            ? (f.type as 'apikey' | 'oauth' | 'mcp_token')
+   316→            : 'apikey'
+   317→        const placeholder =
+   318→          typeof f.placeholder === 'string' ? f.placeholder : undefined
+   319→        const required = f.required !== false
+   320→        return { key, label, type, placeholder, required }
+   321→      })
+   322→    if (credentialFields.length === 0) {
+   323→      // Default: a single API key field.
+   324→      credentialFields.push({
+   325→        key: 'api_key',
+   326→        label: 'API key',
+   327→        type: 'apikey',
+   328→        placeholder: 'Paste your API key here',
+   329→        required: true,
+   330→      })
+   331→    }
+   332→    out.push({
+   333→      id: typeof r.id === 'string' && r.id ? r.id : `cand_${i + 1}`,
+   334→      service,
+   335→      kind,
+   336→      specUrl: typeof r.specUrl === 'string' ? r.specUrl : undefined,
+   337→      url: typeof r.url === 'string' ? r.url : undefined,
+   338→      description:
+   339→        typeof r.description === 'string' && r.description
+   340→          ? r.description
+   341→          : `Connect ${service} so your agents can use it.`,
+   342→      tools,
+   343→      credentialFields,
+   344→    })
+   345→  })
+   346→  if (out.length === 0) return undefined
+   347→  return out
+   348→}
+   349→
+   350→function coerceSuggestions(raw: unknown): Suggestion[] | undefined {
+   351→  if (!Array.isArray(raw)) return undefined
+   352→  const out: Suggestion[] = []
+   353→  raw.forEach((s) => {
+   354→    if (!s || typeof s !== 'object') return
+   355→    const r = s as Record<string, unknown>
+   356→    const title =
+   357→      typeof r.title === 'string' && r.title.trim() ? r.title.trim() : ''
+   358→    const prompt =
+   359→      typeof r.prompt === 'string' && r.prompt.trim() ? r.prompt.trim() : ''
+   360→    const reason =
+   361→      typeof r.reason === 'string' && r.reason.trim() ? r.reason.trim() : ''
+   362→    if (title && prompt) out.push({ title, prompt, reason })
+   363→  })
+   364→  if (out.length === 0) return undefined
+   365→  return out
+   366→}
+   367→
+   368→/** Strip code fences + grab the outermost JSON object. */
+   369→function stripFences(s: string): string {
+   370→  let out = s.trim()
+   371→  out = out.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim()
+   372→  const first = out.indexOf('{')
+   373→  const last = out.lastIndexOf('}')
+   374→  if (first !== -1 && last !== -1 && last > first) {
+   375→    out = out.slice(first, last + 1)
+   376→  }
+   377→  return out
+   378→}
+   379→
+   380→// ---------------- Web research (for needs_api) ----------------
+   381→
+   382→interface SearchResult {
+   383→  url: string
+   384→  name: string
+   385→  snippet?: string
+   386→  host_name?: string
+   387→  rank?: number
+   388→}
+   389→
+   390→function coerceKind(raw: unknown): IntegrationKind {
+   391→  if (raw === 'mcp' || raw === 'http' || raw === 'api') return raw
+   392→  return 'api'
+   393→}
+   394→
+   395→/** Run a web search + LLM synthesis to ground `needs_api` candidates in real
+   396→ *  docs. Returns a ResearchResult. Used inline by the chat route when the
+   397→ *  intent is needs_api (so the chat response carries both apiDiscovery +
+   398→ *  the sources the discovery was based on). */
+   399→async function runResearch(query: string): Promise<ResearchResult> {
+   400→  let searchResults: SearchResult[] = []
+   401→  try {
+   402→    const zai = await ZAI.create()
+   403→    const raw = await zai.functions.invoke('web_search', {
+   404→      query: `${query} API documentation`,
+   405→      num: 8,
+   406→    })
+   407→    if (Array.isArray(raw)) {
+   408→      searchResults = raw
+   409→        .filter(
+   410→          (r) =>
+   411→            !!r && typeof r === 'object' && typeof (r as { url?: unknown }).url === 'string',
+   412→        )
+   413→        .map((r) => {
+   414→          const o = r as unknown as Record<string, unknown>
+   415→          return {
+   416→            url: String(o.url),
+   417→            name: typeof o.name === 'string' ? o.name : String(o.url),
+   418→            snippet: typeof o.snippet === 'string' ? o.snippet : undefined,
+   419→            host_name: typeof o.host_name === 'string' ? o.host_name : undefined,
+   420→            rank: typeof o.rank === 'number' ? o.rank : undefined,
+   421→          }
+   422→        })
+   423→    }
+   424→  } catch (err) {
+   425→    console.error('[api/agent/chat] web_search failed:', err)
+   426→  }
+   427→
+   428→  const sources = searchResults.slice(0, 8).map((r) => ({
+   429→    title: r.name || r.url,
+   430→    url: r.url,
+   431→    snippet: r.snippet || undefined,
+   432→  }))
+   433→
+   434→  let summary =
+   435→    sources.length > 0
+   436→      ? `I found ${sources.length} source(s) about "${query}".`
+   437→      : `I couldn't find web results about "${query}" right now.`
+   438→  let candidates: ApiDiscoveryCandidate[] = []
+   439→
+   440→  const systemPrompt = `You are researching APIs for an automation platform. Given these search results about '${query}', identify any APIs or MCP servers found. For each, return: service name, kind (mcp/api/http), the doc URL, a description, 2-4 plausible tools (id + name + description), and what credentials are needed (as credentialFields). Respond with ONLY JSON: { summary, sources: [{title,url,snippet}], candidates: [ApiDiscoveryCandidate] }. If nothing real was found, return empty candidates with an honest summary. The \`candidates\` array shape is: [{ id, service, kind: 'mcp'|'api'|'http', specUrl?, url?, description, tools: [{id,name,description}], credentialFields: [{key,label,type:'apikey'|'oauth'|'mcp_token',placeholder?,required}] }]. Never invent tools for the user's existing connected tools — only for the discovered service. credentialFields should describe what the user must provide to connect.`
+   441→
+   442→  const sourcesBlock = sources.length
+   443→    ? sources
+   444→        .map(
+   445→          (s, i) =>
+   446→            `${i + 1}. ${s.title}\n   URL: ${s.url}\n   ${s.snippet ? s.snippet : ''}`.trim(),
+   447→        )
+   448→        .join('\n')
+   449→    : '(No web results.)'
+   450→
+   451→  try {
+   452→    const zai = await ZAI.create()
+   453→    const completion = await zai.chat.completions.create({
+   454→      messages: [
+   455→        { role: 'system', content: systemPrompt },
+   456→        {
+   457→          role: 'user',
+   458→          content: `Web search results for "${query} API documentation":\n\n${sourcesBlock}\n\nSynthesize a ResearchResult. Reply with ONLY the JSON object.`,
+   459→        },
+   460→      ],
+   461→      thinking: { type: 'disabled' },
+   462→    })
+   463→    const text = completion.choices[0]?.message?.content || ''
+   464→    const cleaned = stripFences(text)
+   465→    const parsed = JSON.parse(cleaned) as {
+   466→      summary?: unknown
+   467→      candidates?: unknown
+   468→    }
+   469→    if (typeof parsed.summary === 'string' && parsed.summary.trim()) {
+   470→      summary = parsed.summary.trim()
+   471→    }
+   472→    candidates = coerceApiDiscovery(parsed.candidates) || []
+   473→  } catch (err) {
+   474→    console.error('[api/agent/chat] research LLM synthesis failed:', err)
+   475→  }
+   476→
+   477→  return { query, summary, sources, candidates }
+   478→}
+   479→
+   480→// ---------------- Script analysis (for attachedScript) ----------------
+   481→
+   482→function coerceAuthType(
+   483→  raw: unknown,
+   484→): 'bearer' | 'apikey_header' | 'basic' | 'none' {
+   485→  if (raw === 'bearer' || raw === 'apikey_header' || raw === 'basic' || raw === 'none') {
+   486→    return raw
+   487→  }
+   488→  return 'none'
+   489→}
+   490→
+   491→/** Coerce the LLM-proposed WorkflowStep (must have an http field). */
+   492→function coerceProposedStep(raw: unknown): WorkflowStep | undefined {
+   493→  if (!raw || typeof raw !== 'object') return undefined
+   494→  const r = raw as Record<string, unknown>
+   495→  const id = typeof r.id === 'string' && r.id ? r.id : 's1'
+   496→  const label =
+   497→    typeof r.label === 'string' && r.label ? r.label : 'Call API'
+   498→  const step: WorkflowStep = { id, kind: 'tool', label }
+   499→
+   500→  if (typeof r.tool === 'string' && r.tool) step.tool = r.tool
+   501→  if (r.inputs && typeof r.inputs === 'object') {
+   502→    step.inputs = r.inputs as Record<string, unknown>
+   503→  }
+   504→
+   505→  if (r.http && typeof r.http === 'object') {
+   506→    const h = r.http as Record<string, unknown>
+   507→    const method =
+   508→      typeof h.method === 'string' &&
+   509→      ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(
+   510→        String(h.method).toUpperCase(),
+   511→      )
+   512→        ? (String(h.method).toUpperCase() as
+   513→            | 'GET'
+   514→            | 'POST'
+   515→            | 'PUT'
+   516→            | 'PATCH'
+   517→            | 'DELETE')
+   518→        : 'GET'
+   519→    const url = typeof h.url === 'string' ? h.url : ''
+   520→    if (!url) return undefined
+   521→    const headers =
+   522→      h.headers && typeof h.headers === 'object' && !Array.isArray(h.headers)
+   523→        ? Object.fromEntries(
+   524→            Object.entries(h.headers as Record<string, unknown>)
+   525→              .filter(
+   526→                ([, v]) => typeof v === 'string' || typeof v === 'number',
+   527→              )
+   528→              .map(([k, v]) => [k, String(v)]),
+   529→          )
+   530→        : undefined
+   531→    const body = 'body' in h ? h.body : undefined
+   532→    const auth =
+   533→      h.auth && typeof h.auth === 'object' && !Array.isArray(h.auth)
+   534→        ? (() => {
+   535→            const a = h.auth as Record<string, unknown>
+   536→            const type = coerceAuthType(a.type)
+   537→            const out: {
+   538→              type: 'bearer' | 'apikey_header' | 'basic' | 'none'
+   539→              ref?: string
+   540→              headerName?: string
+   541→            } = { type }
+   542→            if (typeof a.ref === 'string' && a.ref) out.ref = a.ref
+   543→            if (typeof a.headerName === 'string' && a.headerName) {
+   544→              out.headerName = a.headerName
+   545→            }
+   546→            return out
+   547→          })()
+   548→        : undefined
+   549→    const description =
+   550→      typeof h.description === 'string' && h.description
+   551→        ? h.description
+   552→        : undefined
+   553→    step.http = {
+   554→      method,
+   555→      url,
+   556→      ...(headers ? { headers } : {}),
+   557→      ...(body !== undefined ? { body } : {}),
+   558→      ...(auth ? { auth } : {}),
+   559→      ...(description ? { description } : {}),
+   560→    }
+   561→  }
+   562→
+   563→  if (typeof r.note === 'string' && r.note) step.note = r.note
+   564→  return step
+   565→}
+   566→
+   567→/** Analyze an attached script and return a ScriptAnalysis. The reply text
+   568→ *  should explain what the script does and propose adding it as a step. */
+   569→async function runScriptAnalysis(
+   570→  script: string,
+   571→  language: 'curl' | 'python' | 'javascript' | 'auto',
+   572→): Promise<ScriptAnalysis> {
+   573→  const truncated =
+   574→    script.length > 4000 ? script.slice(0, 4000) + '\n…(truncated)' : script
+   575→
+   576→  const systemPrompt = `You are an API reverse-engineer. Given this script, infer what API it calls. Return ONLY JSON: { language, summary, inferredCalls: [{ method, url, headers?, bodyShape?, authType?, description }], proposedStep: WorkflowStep (a tool step with an http field), proposedIntegration?: { name, kind, description, tools } }. The proposedStep should be a ready-to-use workflow step with a unique id, kind 'tool', a clear label, and an http field built from the inferred call. If the script doesn't call an API, say so in the summary and return empty inferredCalls.
+   577→
+   578→The proposedStep.http shape is:
+   579→{ method: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE', url: string, headers?: Record<string,string>, body?: any, auth?: { type: 'bearer'|'apikey_header'|'basic'|'none', ref?: string, headerName?: string }, description?: string }
+   580→
+   581→For auth:
+   582→- bearer: token in Authorization header (set auth.type='bearer', auth.ref='cred_<service>')
+   583→- apikey_header: API key in a custom header (set auth.type='apikey_header', auth.headerName='X-Api-Key', auth.ref='cred_<service>')
+   584→- basic: HTTP basic auth (auth.type='basic')
+   585→- none: no auth (auth.type='none')
+   586→
+   587→For the proposedIntegration, return { name, kind: 'mcp'|'api'|'http', description, tools: [{id,name,description}] } where the tools match what the script demonstrates. Use a descriptive name based on the URL's host or service.`
+   588→
+   589→  try {
+   590→    const zai = await ZAI.create()
+   591→    const completion = await zai.chat.completions.create({
+   592→      messages: [
+   593→        { role: 'system', content: systemPrompt },
+   594→        {
+   595→          role: 'user',
+   596→          content: `Detected/inferred language hint: ${language}\n\nScript:\n\`\`\`\n${truncated}\n\`\`\`\n\nAnalyze this script and return ONLY the JSON object.`,
+   597→        },
+   598→      ],
+   599→      thinking: { type: 'disabled' },
+   600→    })
+   601→    const text = completion.choices[0]?.message?.content || ''
+   602→    const cleaned = stripFences(text)
+   603→    const parsed = JSON.parse(cleaned) as {
+   604→      language?: unknown
+   605→      summary?: unknown
+   606→      inferredCalls?: unknown
+   607→      proposedStep?: unknown
+   608→      proposedIntegration?: unknown
+   609→    }
+   610→
+   611→    const lang =
+   612→      typeof parsed.language === 'string' && parsed.language
+   613→        ? parsed.language
+   614→        : language === 'auto'
+   615→          ? 'unknown'
+   616→          : language
+   617→    const summary =
+   618→      typeof parsed.summary === 'string' && parsed.summary
+   619→        ? parsed.summary
+   620→        : 'Could not infer what this script does.'
+   621→
+   622→    const inferredCalls = Array.isArray(parsed.inferredCalls)
+   623→      ? parsed.inferredCalls
+   624→          .filter(
+   625→            (c): c is Record<string, unknown> => !!c && typeof c === 'object',
+   626→          )
+   627→          .map((c) => {
+   628→            const method =
+   629→              typeof c.method === 'string' ? c.method.toUpperCase() : 'GET'
+   630→            const url = typeof c.url === 'string' ? c.url : ''
+   631→            const headers =
+   632→              c.headers && typeof c.headers === 'object' && !Array.isArray(c.headers)
+   633→                ? Object.fromEntries(
+   634→                    Object.entries(c.headers as Record<string, unknown>)
+   635→                      .filter(
+   636→                        ([, v]) => typeof v === 'string' || typeof v === 'number',
+   637→                      )
+   638→                      .map(([k, v]) => [k, String(v)]),
+   639→                  )
+   640→                : undefined
+   641→            const bodyShape =
+   642→              typeof c.bodyShape === 'string' ? c.bodyShape : undefined
+   643→            const authType = coerceAuthType(c.authType)
+   644→            const description =
+   645→              typeof c.description === 'string' ? c.description : ''
+   646→            return {
+   647→              method,
+   648→              url,
+   649→              ...(headers ? { headers } : {}),
+   650→              ...(bodyShape ? { bodyShape } : {}),
+   651→              authType,
+   652→              description,
+   653→            }
+   654→          })
+   655→      : []
+   656→
+   657→    const proposedStep = coerceProposedStep(parsed.proposedStep)
+   658→    const proposedIntegration =
+   659→      parsed.proposedIntegration &&
+   660→      typeof parsed.proposedIntegration === 'object'
+   661→        ? (() => {
+   662→            const pi = parsed.proposedIntegration as Record<string, unknown>
+   663→            const name =
+   664→              typeof pi.name === 'string' && pi.name ? pi.name : ''
+   665→            if (!name) return undefined
+   666→            const kind = coerceKind(pi.kind)
+   667→            const description =
+   668→              typeof pi.description === 'string' ? pi.description : ''
+   669→            const tools = Array.isArray(pi.tools)
+   670→              ? pi.tools
+   671→                  .filter(
+   672→                    (t): t is Record<string, unknown> =>
+   673→                      !!t && typeof t === 'object',
+   674→                  )
+   675→                  .slice(0, 6)
+   676→                  .map((t, j) => ({
+   677→                    id:
+   678→                      typeof t.id === 'string' && t.id
+   679→                        ? t.id
+   680→                        : `tool${j + 1}`,
+   681→                    name:
+   682→                      typeof t.name === 'string' && t.name
+   683→                        ? t.name
+   684→                        : `Tool ${j + 1}`,
+   685→                    description:
+   686→                      typeof t.description === 'string' ? t.description : '',
+   687→                  }))
+   688→              : []
+   689→            return { name, kind, description, tools }
+   690→          })()
+   691→        : undefined
+   692→
+   693→    return {
+   694→      language: lang,
+   695→      summary,
+   696→      inferredCalls,
+   697→      ...(proposedStep ? { proposedStep } : {}),
+   698→      ...(proposedIntegration ? { proposedIntegration } : {}),
+   699→    }
+   700→  } catch (err) {
+   701→    console.error('[api/agent/chat] script analysis failed:', err)
+   702→    return {
+   703→      language: language === 'auto' ? 'unknown' : language,
+   704→      summary:
+   705→        "I tried to analyze the attached script but couldn't reach the reasoning engine. Please try again in a moment.",
+   706→      inferredCalls: [],
+   707→    }
+   708→  }
+   709→}
+   710→
+   711→// ---------------- Profile / roster / context builders ----------------
+   712→
+   713→function renderProfile(profile: UserProfile | null): string {
+   714→  if (!profile) return '(No company profile on file yet — keep suggestions general.)'
+   715→  const parts: string[] = []
+   716→  if (profile.companyName) parts.push(`Company: ${profile.companyName}`)
+   717→  if (profile.industry) parts.push(`Industry: ${profile.industry}`)
+   718→  if (profile.notes) parts.push(`Notes: ${profile.notes}`)
+   719→  if (profile.dataSources && profile.dataSources.length) {
+   720→    parts.push(
+   721→      'Data sources they rely on:',
+   722→      ...profile.dataSources.map(
+   723→        (d) => `  - ${d.label} (${d.kind}) — ${d.detail}`,
+   724→      ),
+   725→    )
+   726→  }
+   727→  return parts.join('\n')
+   728→}
+   729→
+   730→function renderRoster(
+   731→  agents: Array<{
+   732→    id: string
+   733→    name: string
+   734→    title: string | null
+   735→    department: string | null
+   736→    description: string
+   737→    status: string
+   738→    trigger: string
+   739→    schedule: string | null
+   740→  }>,
+   741→): string {
+   742→  if (agents.length === 0)
+   743→    return '(No agents in this workspace yet — the user has a blank slate.)'
+   744→  return agents
+   745→    .map((a) => {
+   746→      const dept = a.department ?? 'General'
+   747→      const title = a.title ?? 'Agent'
+   748→      return `- ${a.name} (${title}) in ${dept} — ${a.status}, ${a.trigger}${a.schedule ? ` ${a.schedule}` : ''}. id: ${a.id}. Does: ${a.description}`
+   749→    })
+   750→    .join('\n')
+   751→}
+   752→
+   753→/** A mention context entry — full workflow + its most recent run. */
+   754→interface MentionedAgentRow {
+   755→  id: string
+   756→  name: string
+   757→  title: string | null
+   758→  department: string | null
+   759→  description: string
+   760→  status: string
+   761→  trigger: string
+   762→  schedule: string | null
+   763→  stepsJson: string
+   764→  lastRun: {
+   765→    id: string
+   766→    status: string
+   767→    startedAt: Date
+   768→    itemsProcessed: number
+   769→    automaticCount: number
+   770→    flaggedCount: number
+   771→    durationMs: number
+   772→    reportSummary: string | null
+   773→  } | null
+   774→}
+   775→
+   776→function renderActiveAgent(a: {
+   777→  id: string
+   778→  name: string
+   779→  title: string | null
+   780→  department: string | null
+   781→  description: string
+   782→  trigger: string
+   783→  schedule: string | null
+   784→  stepsJson: string
+   785→} | null): string {
+   786→  if (!a) return '(No agent is currently selected — the user is talking about the workspace in general.)'
+   787→  const steps = parseStepsFromJson(JSON.parse(a.stepsJson || '{"steps":[]}'))
+   788→  return [
+   789→    `Currently selected agent: ${a.name}${a.title ? ` (${a.title})` : ''} in ${a.department ?? 'General'}.`,
+   790→    `Description: ${a.description}`,
+   791→    `Trigger: ${a.trigger}${a.schedule ? ` — ${a.schedule}` : ''}.`,
+   792→    `Current steps:`,
+   793→    renderStepsBrief(steps),
+   794→  ].join('\n')
+   795→}
+   796→
+   797→function renderMentionedAgents(agents: MentionedAgentRow[]): string {
+   798→  if (agents.length === 0)
+   799→    return '(No agents @-mentioned in this message — the user is talking about the workspace in general, or asking to set up something new.)'
+   800→  const blocks = agents.map((a, i) => {
+   801→    const steps = parseStepsFromJson(JSON.parse(a.stepsJson || '{"steps":[]}'))
+   802→    const lines: string[] = []
+   803→    lines.push(`${i + 1}. ${a.name}${a.title ? ` (${a.title})` : ''} in ${a.department ?? 'General'} — id: ${a.id}`)
+   804→    lines.push(`   Status: ${a.status}. Trigger: ${a.trigger}${a.schedule ? ` — ${a.schedule}` : ''}.`)
+   805→    lines.push(`   Description: ${a.description}`)
+   806→    if (a.lastRun) {
+   807→      const minsAgo = Math.max(
+   808→        1,
+   809→        Math.round((Date.now() - a.lastRun.startedAt.getTime()) / 60000),
+   810→      )
+   811→      const ago = minsAgo < 60 ? `${minsAgo}m ago` : `${Math.round(minsAgo / 60)}h ago`
+   812→      lines.push(
+   813→        `   Last run (${ago}, status: ${a.lastRun.status}): ${a.lastRun.reportSummary || `Processed ${a.lastRun.itemsProcessed} items.`} — ${a.lastRun.itemsProcessed} items, ${a.lastRun.automaticCount} automatic, ${a.lastRun.flaggedCount} flagged.`,
+   814→      )
+   815→    } else {
+   816→      lines.push(`   Last run: (none yet)`)
+   817→    }
+   818→    lines.push(`   Current steps:`)
+   819→    lines.push(renderStepsBrief(steps).replace(/^/gm, '   '))
+   820→    return lines.join('\n')
+   821→  })
+   822→  return blocks.join('\n\n')
+   823→}
+   824→
+   825→// ---------------- System prompt ----------------
+   826→
+   827→const SYSTEM_PROMPT = `You are the Apical Assistant — a knowledgeable, plain-English assistant who helps a user manage their AI AGENTS. ("Agents" — never "employees" or "workflows" when speaking to the user. They are AI assistants that do repetitive office work on a schedule.)
+   828→
+   829→The user is NOT technical. Speak plainly, no jargon. Departments are groupings you create naturally (e.g. "Filing", "Inbox", "Billing", "Dispatch") — there is NO fixed list. Pick a sensible department label that fits the job.
+   830→
+   831→@MENTION MODEL: the user can @-mention agents in their message (like social-media tagging, e.g. "@Sorter what did you do today?"). Mentioned agents are listed below under MENTIONED AGENTS. A mention means: this message is ABOUT or DIRECTED AT those agents. Multiple mentions = the message involves all of them. If no agents are mentioned, the user is talking about the workspace in general, or asking to set up something new.
+   832→
+   833→Your job: figure out what the user needs and route it to ONE of these intents:
+   834→
+   835→IMPORTANT — METHODICAL AGENT CREATION: When a user describes a new job to automate, DO NOT immediately propose a complete workflow. Instead, follow this process:
+   836→1. CONSIDER — think about what the user wants, what tools/data sources are available, and what approach makes sense.
+   837→2. RESEARCH — if the task involves external data sources, APIs, or complex logic, use intent "needs_research" to trigger a deep research session that crawls the web, finds data sources, and proposes a grounded plan.
+   838→3. PLAN — once you understand the task, propose a plan (in your reply) BEFORE proposing the workflow. Explain what you'd build and why.
+   839→4. ASK QUESTIONS — if anything is ambiguous (which folder? which channel? how often? what counts as "flagged"?), use intent "needs_clarification" with specific options. DON'T guess.
+   840→5. INTEGRATE — only after the user confirms the plan, propose the actual workflow (intent "new_agent" with workflowProposal).
+   841→6. TEST — after the workflow is created, the user can run it. If it fails or produces bad results, they'll tell you, and you iterate (intent "edit_existing").
+   842→
+   843→So the typical flow is: user describes job → you CONSIDER + ask clarifying questions OR trigger research → user confirms → you PROPOSE the workflow → user approves → agent is created → user tests → you iterate.
+   844→
+   845→1. "new_agent" — ONLY use this when you have enough information to propose a well-thought-out workflow. If you're missing details, use needs_clarification first. If the task is complex/research-heavy, use needs_research first. Include a descriptive name, role title, department, and a tool/reason/gate workflow.
+   846→2. "edit_existing" — the user wants to modify an existing agent. Prefer setting \`editingAgentId\` to a MENTIONED agent (if any). If the user seems to mean a different agent than the ones tagged, set \`switchToAgentId\` to that agent's id instead. Describe the change in plain English in \`reply\`.
+   847→3. "general" — a question or chat. If the user @-mentioned a specific agent and asked a question about it, scope your answer to that agent. Answer plainly. No proposal.
+   848→4. "needs_clarification" — the request is ambiguous (missing a key detail like "which folder?", "which channel?", "how often?", "what should trigger it?"). Return a \`clarification\` question with 2-4 single-choice options. Each option has key, label, and description. Include a clear \`reply\` framing the question. This is PREFERRED over guessing.
+   849→5. "needs_api" — the job needs a tool the user doesn't have connected. Return \`apiDiscovery\` candidates with credential fields. Include a \`reply\` explaining what's needed.
+   850→6. "needs_research" — the user's request is a complex task that requires reasoning about data sources, tools, APIs, or strategies. This includes research tasks ("find me potential clients"), monitoring tasks ("track competitor pricing"), data-gathering tasks ("scrape job listings"), or any task where the agent needs to figure out WHERE to get data and HOW to process it. The backend will run a deep research session that considers ALL available tools (filesystem, CLI, network, MCP, APIs, web search) and proposes a grounded workflow. Set \`reply\` to explain what you'll research.
+   851→
+   852→ALSO: when the user's message is EMPTY or asks "what should I automate?" / "give me ideas" — return intent "general" AND a \`suggestions\` array of 3-4 tailored prompts based on the user's profile + existing agents + data sources. Each suggestion has title, prompt, and a \`reason\` explaining why it's relevant to THEM. E.g. if they use Stripe + QuickBooks but have no invoice-chase agent, suggest "Chase overdue invoices" with reason "You use Stripe and QuickBooks but have no one chasing late invoices — cash-flow win."
+   853→
+   854→__USER_PROFILE__
+   855→
+   856→MENTIONED AGENTS (the user @-tagged these in THIS message — the message is about / directed at them; multiple tags = the message involves all of them):
+   857→__MENTIONED_AGENTS__
+   858→
+   859→EXISTING AGENTS IN THIS WORKSPACE:
+   860→__AGENT_ROSTER__
+   861→
+   862→TOOL CATALOG (use these exact tool ids in steps; never invent new ones for new_agent steps):
+   863→__TOOL_CATALOG__
+   864→
+   865→A workflow is a JSON list of steps. Each step has a \`kind\`:
+   866→- "tool": mechanical, calls one tool (e.g. "files.list"), no AI. Use for listing, reading, moving, sending.
+   867→- "reason": judgment. The AI reads input, maybe calls a tool, returns a structured answer. Use ONLY where genuine judgment is needed. Carry prompt, allowedTools (tool ids from the catalog), outputShape (field→type), confidenceThreshold (0-1).
+   868→- "gate": pause for human approval before anything irreversible. Carry gateMessage.
+   869→
+   870→Steps pass data: later steps reference earlier outputs as {{stepId.field}}.
+   871→
+   872→NAMING NEW AGENTS: agent names are EVOCATIVE or DESCRIPTIVE, never human. Examples: Sorter, Herald, Ledger, Compass, Beacon, Forge, Atlas, Helm, Relay, Quill, Loom, Sage, Echo, Pilot, Anchor, Curator, Sentinel, Bridge, Lens, Vault, Tally, Index, Ember, Harbor, Meridian, Nexus, Orbit, Spire, Vellum. Pick a fitting name for the job. The user can rename later.
+   873→
+   874→LABELS: every step MUST have a short, descriptive, action-oriented \`label\` like "List new scans", "Extract text", "Classify client", "Approve filing", "Move to client folder". Never generic labels like "Run tool" or "Reason".
+   875→
+   876→Respond with ONLY JSON (no prose, no code fences). Shape:
+   877→
+   878→{
+   879→  "trace": [ { "label": "...", "detail": "..." } ],
+   880→  "reply": "plain-English answer (length depends on intent — see REPLY LENGTH rule below)",
+   881→  "intent": "new_agent" | "edit_existing" | "general" | "needs_clarification" | "needs_api" | "needs_research",
+   882→  "title": "short 2-4 word title for this conversation (e.g. 'Scanner sorting', 'Invoice chase', 'Twitter posting') — only set when the user is starting a new topic",
+   883→  "workflowProposal": { "name": "Sorter", "description": "...", "department": "Filing", "title": "Filing Agent", "steps": [ { "id": "s1", "kind": "tool", "label": "...", "tool": "...", "inputs": {...} }, ... ] },
+   884→  "switchToAgentId": "<id from roster — use only if the user means a DIFFERENT agent than the ones tagged>",
+   885→  "editingAgentId": "<id from roster — prefer a MENTIONED agent when the user is editing>",
+   886→  "clarification": { "id": "which_folder", "question": "Which folder should I watch?", "options": [ { "key": "a", "label": "/Scan Inbox", "description": "Where your scanner dumps new PDFs" }, { "key": "b", "label": "/Downloads", "description": "Where you save downloaded PDFs" } ] },
+   887→  "apiDiscovery": [ { "id": "cand_1", "service": "X (Twitter)", "kind": "api", "specUrl": "https://developer.x.com/en/docs/api-reference", "description": "Post tweets and read your timeline.", "tools": [ { "id": "x.postTweet", "name": "Post tweet", "description": "Post a new tweet." } ], "credentialFields": [ { "key": "bearer_token", "label": "Bearer token", "type": "apikey", "placeholder": "Your X API bearer token", "required": true } ] } ],
+   888→  "suggestions": [ { "title": "Chase overdue invoices", "prompt": "...", "reason": "You use Stripe + QuickBooks but have no one chasing late invoices." } ]
+   889→}
+   890→
+   891→Rules:
+   892→- For new_agent: pick a fitting EVOCATIVE name. Pick a plain role title ("Filing Agent", "Digest Writer", "Bookkeeper", "Collections Agent", "Inbox Triager"). Pick a sensible department label (your invention, NOT a fixed list). Mentions are NOT required — the user is describing a new job.
+   893→- step ids s1, s2...; at least one tool step; a reason step only where genuine judgment is needed; a gate before irreversible actions when the user wants oversight; 4-8 steps; reference prior outputs with {{s1.files}} etc.
+   894→- For edit_existing: include a clear \`reply\` describing the proposed change. Prefer setting \`editingAgentId\` to a MENTIONED agent. If the user means a DIFFERENT agent than the ones tagged (e.g. they say "the bookkeeper" but tagged Sorter), set \`switchToAgentId\` to that agent's id instead. If exactly one agent is mentioned and the user is editing it, that's the editingAgentId.
+   895→- For needs_clarification: return the clarification question + a reply that frames it. Don't propose a workflow yet.
+   896→- For needs_api: return apiDiscovery candidates + a reply explaining what's missing. Don't propose a workflow yet — wait for the user to provide credentials.
+   897→- For general: answer substantively in \`reply\` (2-6 sentences). If a specific agent is @-mentioned, draw on that agent's last run + current steps + status to answer concretely (e.g. "what did you do today?" → summarize the last run: "Sorter filed 47 documents, 44 automatic, 3 flagged."). If the user can take an action, name it. No workflowProposal.
+   898→- TRACE: include a \`trace\` array ONLY if you actually looked at something specific (an agent's last run, the user's profile, a tool catalog entry, a roster). Each entry must have a concrete \`label\` (e.g. "Checked Sorter's last run") and a \`detail\` (e.g. "9:00 AM today, 47 items"). If you didn't look at anything (a general question like "what's 2+2?"), return an EMPTY trace array. NEVER invent generic trace items like "Looked around" or "Read your profile" if you didn't.
+   899→- REPLY LENGTH: \`reply\` should be long enough to actually answer the question. 1-2 sentences only for clarifications. 3-6 sentences for general questions. 2-4 sentences for new_agent/edit_existing describing what you'll build and why. Never give a one-line non-answer to a substantive question.
+   900→- Never invent tool ids in workflowProposal.steps — use only ids from the TOOL CATALOG. (In apiDiscovery.candidates.tools, you MAY invent plausible tool ids for the NEW service being discovered.)
+   901→- If the user's message is empty or asks for ideas, include \`suggestions\` (3-4 items) and set intent to "general".
+   902→
+   903→EXAMPLE — new_agent (user: "sort my scanner PDFs"):
+   904→{
+   905→  "trace": [
+   906→    { "label": "Looked around", "detail": "Checked the workspace for the scanner + filing tools." },
+   907→    { "label": "Found the right tools", "detail": "scanner.listNew, ocr.extract, files.move are all available." },
+   908→    { "label": "Drafted an agent", "detail": "A Filing agent to watch the inbox and file each scan." }
+   909→  ],
+   910→  "reply": "I'll set up an agent named Sorter to watch your scanner inbox, OCR each PDF, figure out which client it belongs to, and file it — and pause to ask you if anything's unclear.",
+   911→  "intent": "new_agent",
+   912→  "title": "Scanner sorting",
+   913→  "workflowProposal": {
+   914→    "name": "Sorter",
+   915→    "description": "Watches the scanner inbox, figures out which client each PDF belongs to, and files it. Asks before moving anything uncertain.",
+   916→    "department": "Filing",
+   917→    "title": "Filing Agent",
+   918→    "steps": [
+   919→      { "id": "s1", "kind": "tool", "label": "List new scans", "tool": "scanner.listNew", "inputs": { "folder": "/Scan Inbox" } },
+   920→      { "id": "s2", "kind": "tool", "label": "Extract text", "tool": "ocr.extract", "inputs": { "file": "{{s1.files[]}}" } },
+   921→      { "id": "s3", "kind": "reason", "label": "Classify client", "prompt": "Given the extracted text of a scanned document, determine which client it belongs to.", "allowedTools": ["ocr.classify"], "outputShape": { "client": "string", "documentType": "string", "confidence": "number" }, "confidenceThreshold": 0.8 },
+   922→      { "id": "s4", "kind": "gate", "label": "Confirm low-confidence", "gateMessage": "Not sure which client — please confirm before filing." },
+   923→      { "id": "s5", "kind": "tool", "label": "File in client folder", "tool": "files.move", "inputs": { "file": "{{s1.files[]}}", "dest": "/Clients/{{s3.client}}/" } },
+   924→      { "id": "s6", "kind": "tool", "label": "Mark processed", "tool": "scanner.markProcessed", "inputs": { "file": "{{s1.files[]}}" } }
+   925→    ]
+   926→  }
+   927→}
+   928→
+   929→EXAMPLE — general, @-mentioned agent (user: "@Sorter what did you do today?"):
+   930→{
+   931→  "trace": [
+   932→    { "label": "Checked Sorter's last run", "detail": "9:00 AM today, 47 items processed" }
+   933→  ],
+   934→  "reply": "I ran at 9:00 AM this morning and processed 47 scans from /Scan Inbox. 44 were filed automatically — 23 to /Clients/Acme, 16 to /Clients/Globex, and 5 to /Clients/Initech. 3 were flagged for your review because the OCR confidence was below 0.8 on a handwritten header — you can approve or reassign them in the Runs tab. Next run is scheduled for tomorrow at 9:00 AM.",
+   935→  "intent": "general"
+   936→}
+   937→
+   938→EXAMPLE — general, simple question (user: "what's the difference between a tool step and a reason step?"):
+   939→{
+   940→  "trace": [],
+   941→  "reply": "A tool step is mechanical — it calls one specific tool (like files.list or gmail.send) with fixed inputs and never uses AI. It's instant and basically free. A reason step uses the AI to make a judgment: it reads input, maybe calls a tool or two, and returns a structured answer. Use tool steps for everything you can predict in advance, and reason steps only where genuine judgment is needed (classifying a document, drafting an email, deciding if something is suspicious). Most agents are mostly tool steps with one or two reason steps at the hard parts.",
+   942→  "intent": "general"
+   943→}
+   944→
+   945→EXAMPLE — general, vague (user: "help"):
+   946→{
+   947→  "trace": [],
+   948→  "reply": "Happy to help. I can set up a new agent to automate a repetitive job, tweak one you already have, or just answer questions about how Apical works. What would you like to do?",
+   949→  "intent": "general",
+   950→  "suggestions": [
+   951→    { "title": "Sort my scanner PDFs", "prompt": "Sort the PDFs my scanner dumps into /Scan Inbox by client, and file them.", "reason": "A classic first agent — saves an hour a week." },
+   952→    { "title": "Chase overdue invoices", "prompt": "Check unpaid invoices every day and send a polite reminder if 7 days late.", "reason": "Automating the chase is a quick cash-flow win." },
+   953→    { "title": "Weekly client updates", "prompt": "Every Monday, draft a short summary email to each client about last week.", "reason": "Recurring client comms are perfect for an agent." }
+   954→  ]
+   955→}
+   956→
+   957→
+   958→EXAMPLE — needs_clarification (user: "help me with my stuff"):
+   959→{
+   960→  "trace": [
+   961→    { "label": "Looked around", "detail": "You have several agents already — Sorter, Herald, Ledger, Compass." },
+   962→    { "label": "Not sure what you mean", "detail": "Could be tweaking an existing agent or starting something new." }
+   963→  ],
+   964→  "reply": "Happy to help — what would you like to work on? Pick one and we'll go from there.",
+   965→  "intent": "needs_clarification",
+   966→  "clarification": {
+   967→    "id": "what_kind",
+   968→    "question": "What would you like to do?",
+   969→    "options": [
+   970→      { "key": "new", "label": "Set up a new agent", "description": "Automate a job that isn't handled yet" },
+   971→      { "key": "edit", "label": "Tweak an existing agent", "description": "Change what Sorter, Herald, Ledger, or Compass does" },
+   972→      { "key": "ideas", "label": "Suggest something", "description": "I'll look at your setup and propose a few ideas" },
+   973→      { "key": "question", "label": "Just ask a question", "description": "About Apical, your agents, or how something works" }
+   974→    ]
+   975→  }
+   976→}
+   977→
+   978→EXAMPLE — needs_api (user: "post our new invoices to our company Twitter"):
+   979→{
+   980→  "trace": [
+   981→    { "label": "Looked around", "detail": "You don't have a Twitter/X integration connected." },
+   982→    { "label": "Researched the API", "detail": "Found the X API v2 — needs a bearer token to post." }
+   983→  ],
+   984→  "reply": "I can have an agent post new invoices to your company Twitter, but you'll need to connect the X (Twitter) API first. I found it — once you add a bearer token I'll wire up the agent.",
+   985→  "intent": "needs_api",
+   986→  "apiDiscovery": [
+   987→    {
+   988→      "id": "cand_1",
+   989→      "service": "X (Twitter)",
+   990→      "kind": "api",
+   991→      "specUrl": "https://developer.x.com/en/docs/twitter-api",
+   992→      "description": "Post tweets, read timelines, and manage your company's X presence.",
+   993→      "tools": [
+   994→        { "id": "x.postTweet", "name": "Post tweet", "description": "Post a new tweet to the authenticated account." },
+   995→        { "id": "x.getMe", "name": "Get account", "description": "Fetch the authenticated account's profile." }
+   996→      ],
+   997→      "credentialFields": [
+   998→        { "key": "bearer_token", "label": "Bearer token", "type": "apikey", "placeholder": "Your X API bearer token", "required": true }
+   999→      ]
+  1000→    }
+  1001→  ]
+  1002→}`
+  1003→
+  1004→// ---------------- Canned fallback ----------------
+  1005→
+  1006→function fallbackResponse(message: string, ctx: { mentionIds?: string[] }): AgentResponse {
+  1007→  const lower = (message || '').toLowerCase().trim()
+  1008→  const isEmpty = lower.length === 0
+  1009→
+  1010→  // ---------- Vague / empty / greeting → general + suggestions ----------
+  1011→  if (isEmpty || /^(hi|hello|hey|help|sup|yo|test|ok|okay)\b/.test(lower) || lower.length < 6) {
+  1012→    return {
+  1013→      reply: isEmpty
+  1014→        ? "Hi — I'm your Apical Assistant. Tell me what you'd like to automate, or pick one of these to get started:"
+  1015→        : "Happy to help. I can set up a new agent to automate a repetitive job, tweak one you already have, or just answer questions about how Apical works. What would you like to do?",
+  1016→      trace: [],
+  1017→      intent: 'general',
+  1018→      suggestions: [
+  1019→        { title: 'Sort my scanner PDFs', prompt: 'Sort the PDFs my scanner dumps into /Scan Inbox by client, and file them.', reason: 'A classic first agent — saves an hour a week.' },
+  1020→        { title: 'Chase overdue invoices', prompt: 'Check unpaid invoices every day. Send a polite reminder if 7 days late; if 30 days, draft an escalation for me to approve.', reason: 'Automating the chase is a quick cash-flow win.' },
+  1021→        { title: 'Weekly client updates', prompt: 'Every Monday, draft a short summary email to each client about last week.', reason: 'Recurring client comms are perfect for an agent.' },
+  1022→      ],
+  1023→    }
+  1024→  }
+  1025→
+  1026→  // ---------- Question → general with a real answer ----------
+  1027→  // Heuristic: ends with ?, or starts with a question word, or contains "what's"/"how do"
+  1028→  const isQuestion = lower.endsWith('?')
+  1029→    || /^(how|what|why|when|where|who|which|can|could|would|should|is|are|do|does|did|will)\b/.test(lower)
+  1030→    || /\bwhat's\b|\bhow do\b|\bhow does\b|\bwhat is\b|\bwhat are\b/.test(lower)
+  1031→  if (isQuestion) {
+  1032→    // Generic-but-honest answer for questions the LLM couldn't handle.
+  1033→    return {
+  1034→      reply: `That's a good question. I tripped up trying to answer it just now — could you rephrase, or give me a bit more context? If you're asking about a specific agent, @-mention it (like @Sorter) and I'll pull up its details. If you're asking how Apical works in general, I can walk through agents, steps, schedules, or whatever you're curious about.`,
+  1035→      trace: [],
+  1036→      intent: 'general',
+  1037→    }
+  1038→  }
+  1039→
+  1040→  // ---------- Concrete automation keywords → keep the curated proposals ----------
+  1041→  const concreteTrace: { label: string; detail?: string }[] = [
+  1042→    { label: 'Checked the tool catalog', detail: 'Found the tools needed for this job.' },
+  1043→    { label: 'Drafted a starter workflow', detail: 'A starting point — you can tweak before approving.' },
+  1044→  ]
+  1045→
+  1046→  if (/(scan|pdf|sort|file)/.test(lower)) {
+  1047→    return {
+  1048→      reply:
+  1049→        "I'll set up an agent named Sorter to watch your scanner inbox, read each PDF, figure out which client it belongs to, and file it under the right folder — and pause to ask you if anything's unclear.",
+  1050→      trace: concreteTrace,
+  1051→      intent: 'new_agent',
+  1052→      title: 'Scanner sorting',
+  1053→      workflowProposal: {
+  1054→        name: 'Sorter',
+  1055→        description: 'Files incoming scans into the right client folder.',
+  1056→        department: 'Filing',
+  1057→        title: 'Filing Agent',
+  1058→        steps: {
+  1059→          version: 1,
+  1060→          steps: [
+  1061→            { id: 's1', kind: 'tool', label: 'List new scans', tool: 'scanner.listNew', inputs: { folder: '/Scan Inbox' }, note: 'Polls for unprocessed scans.' },
+  1062→            { id: 's2', kind: 'tool', label: 'Extract text', tool: 'ocr.extract', inputs: { file: '{{s1.files[]}}' } },
+  1063→            { id: 's3', kind: 'reason', label: 'Classify client', prompt: 'Given the extracted text of a scanned document, determine which client it belongs to.', allowedTools: ['ocr.classify'], outputShape: { client: 'string', documentType: 'string', confidence: 'number' }, confidenceThreshold: 0.8 },
+  1064→            { id: 's4', kind: 'gate', label: 'Confirm low-confidence', gateMessage: 'Confidence below 0.8 — approve filing or reassign.' },
+  1065→            { id: 's5', kind: 'tool', label: 'Move to client folder', tool: 'files.move', inputs: { file: '{{s1.files[]}}', dest: '/Clients/{{s3.client}}/' } },
+  1066→            { id: 's6', kind: 'tool', label: 'Mark processed', tool: 'scanner.markProcessed', inputs: { file: '{{s1.files[]}}' } },
+  1067→          ],
+  1068→        },
+  1069→      },
+  1070→    }
+  1071→  }
+  1072→
+  1073→  if (/(invoice|payment|stripe|billing|chase|overdue)/.test(lower)) {
+  1074→    return {
+  1075→      reply:
+  1076→        "I'll set up an agent named Compass to check unpaid invoices every day, draft a polite reminder for anything 7+ days overdue, and gate any 30+ day escalations on your approval before they go out.",
+  1077→      trace: concreteTrace,
+  1078→      intent: 'new_agent',
+  1079→      title: 'Invoice chase',
+  1080→      workflowProposal: {
+  1081→        name: 'Compass',
+  1082→        description: 'Sends reminders for overdue invoices; gates escalations on your approval.',
+  1083→        department: 'Billing',
+  1084→        title: 'Collections Agent',
+  1085→        steps: {
+  1086→          version: 1,
+  1087→          steps: [
+  1088→            { id: 's1', kind: 'tool', label: 'List unpaid invoices', tool: 'stripe.listInvoices', inputs: { status: 'open' } },
+  1089→            { id: 's2', kind: 'reason', label: 'Draft reminder tone', prompt: 'Given an overdue invoice and days past due, draft a reminder email. Polite for 7-29 days; firmer for 30+.', allowedTools: [], outputShape: { subject: 'string', body: 'string' }, confidenceThreshold: 0.7 },
+  1090→            { id: 's3', kind: 'gate', label: 'Approve escalations', gateMessage: 'Invoices 30+ days overdue need your sign-off.' },
+  1091→            { id: 's4', kind: 'tool', label: 'Send reminder', tool: 'gmail.send', inputs: { to: '{{s1.invoices[].customerEmail}}', subject: '{{s2.subject}}', body: '{{s2.body}}' } },
+  1092→          ],
+  1093→        },
+  1094→      },
+  1095→    }
+  1096→  }
+  1097→
+  1098→  // ---------- Editing an existing agent via @mention ----------
+  1099→  if (ctx.mentionIds && ctx.mentionIds.length > 0) {
+  1100→    return {
+  1101→      reply:
+  1102→        "Sounds good — I can help tweak that agent. Tell me a bit more about what you'd like to change (the schedule, a step, the trigger, the threshold for flagging) and I'll write it up.",
+  1103→      trace: [{ label: 'Pulled up the mentioned agent', detail: 'Ready to edit on your say-so.' }],
+  1104→      intent: 'edit_existing',
+  1105→      editingAgentId: ctx.mentionIds[0],
+  1106→    }
+  1107→  }
+  1108→
+  1109→  // ---------- Default: ask for clarification, don't auto-propose ----------
+  1110→  return {
+  1111→    reply:
+  1112→      `I want to make sure I build the right thing. Could you tell me a bit more about "${message.slice(0, 120)}" — what triggers it, what should happen, and (if it matters) when it should ask you first? Once I have those details I'll draft an agent for you.`,
+  1113→    trace: [],
+  1114→    intent: 'needs_clarification',
+  1115→    clarification: {
+  1116→      id: 'more_detail',
+  1117→      question: 'What would you like this agent to do?',
+  1118→      options: [
+  1119→        { key: 'automate', label: 'Automate a repetitive task', description: 'e.g. sorting files, sending reminders, monitoring a feed' },
+  1120→        { key: 'monitor', label: 'Monitor something and alert me', description: 'e.g. watch a folder, an inbox, a website for changes' },
+  1121→        { key: 'report', label: 'Generate a recurring report', description: 'e.g. weekly summary, daily digest, monthly totals' },
+  1122→        { key: 'other', label: 'Something else', description: 'I\'ll describe it in my own words' },
+  1123→      ],
+  1124→    },
+  1125→  }
+  1126→}
+  1127→
+  1128→// ---------------- Route handler ----------------
+  1129→
+  1130→// POST /api/agent/chat — the Apical Assistant. Plain-English assistant with
+  1131→// context on ALL the user's agents, conversations, data sources, and profile.
+  1132→// Routes the request to one of five intents: new_agent, edit_existing, general,
+  1133→// needs_clarification, needs_api. Can also return tailored suggestions for the
+  1134→// empty state.
+  1135→export async function POST(req: Request) {
+  1136→  try {
+  1137→    const body = (await req.json()) as ChatBody
+  1138→    const message = (body.message || '').trim()
+  1139→    const workspaceId = body.workspaceId ?? null
+  1140→    const attachedScript =
+  1141→      typeof body.attachedScript === 'string' && body.attachedScript.trim()
+  1142→        ? body.attachedScript.trim()
+  1143→        : null
+  1144→    const attachedScriptLanguage =
+  1145→      body.attachedScriptLanguage === 'curl' ||
+  1146→      body.attachedScriptLanguage === 'python' ||
+  1147→      body.attachedScriptLanguage === 'javascript'
+  1148→        ? body.attachedScriptLanguage
+  1149→        : 'auto'
+  1150→    const model =
+  1151→      typeof body.model === 'string' ? body.model : 'default'
+  1152→
+  1153→    // If the user attached a script, analyze it inline and return early — we
+  1154→    // don't need to invoke the main intent-routing LLM at all.
+  1155→    if (attachedScript) {
+  1156→      try {
+  1157→        const analysis = await runScriptAnalysis(
+  1158→          attachedScript,
+  1159→          attachedScriptLanguage,
+  1160→        )
+  1161→        const reply =
+  1162→          analysis.inferredCalls.length > 0
+  1163→            ? `I read your ${analysis.language} script — it ${analysis.summary}${
+  1164→                analysis.proposedStep
+  1165→                  ? `. I've drafted a workflow step that makes the same call; review it on the right and add it to an agent when you're ready.`
+  1166→                  : '.'
+  1167→              }`
+  1168→            : `I read your ${analysis.language} script but couldn't identify an API call in it. ${analysis.summary}`
+  1169→        return NextResponse.json({
+  1170→          reply,
+  1171→          trace: [
+  1172→            {
+  1173→              label: 'Read the script',
+  1174→              detail: `Parsed the attached ${analysis.language} script.`,
+  1175→            },
+  1176→            ...(analysis.inferredCalls.length > 0
+  1177→              ? [
+  1178→                  {
+  1179→                    label: 'Inferred the API call',
+  1180→                    detail: `${analysis.inferredCalls[0].method} ${analysis.inferredCalls[0].url}`,
+  1181→                  },
+  1182→                ]
+  1183→              : []),
+  1184→            ...(analysis.proposedStep
+  1185→              ? [
+  1186→                  {
+  1187→                    label: 'Drafted a workflow step',
+  1188→                    detail: `Step "${analysis.proposedStep.label}" with an inline http call.`,
+  1189→                  },
+  1190→                ]
+  1191→              : []),
+  1192→          ],
+  1193→          intent: 'general',
+  1194→          scriptAnalysis: analysis,
+  1195→        } satisfies AgentResponse)
+  1196→      } catch (err) {
+  1197→        console.error('[api/agent/chat] attachedScript analysis failed:', err)
+  1198→        // Fall through to the normal flow.
+  1199→      }
+  1200→    }
+  1201→
+  1202→    // @mention model: merge mentionedAgentIds with the legacy activeAgentId
+  1203→    // (treat the legacy field as if it were a mention) so nothing breaks
+  1204→    // during the transition. De-dup, preserve order.
+  1205→    const mentionedAgentIds = Array.isArray(body.mentionedAgentIds)
+  1206→      ? body.mentionedAgentIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+  1207→      : []
+  1208→    const legacyActiveId =
+  1209→      typeof body.activeAgentId === 'string' && body.activeAgentId
+  1210→        ? body.activeAgentId
+  1211→        : null
+  1212→    const mentionIds: string[] = Array.from(
+  1213→      new Set([...mentionedAgentIds, ...(legacyActiveId ? [legacyActiveId] : [])]),
+  1214→    )
+  1215→
+  1216→    // Empty message → return tailored suggestions (general intent, no proposal).
+  1217→    // We still load context so suggestions can be personalized.
+  1218→    const isEmpty = message.length === 0
+  1219→
+  1220→    // Load context in parallel.
+  1221→    const [profileRow, integrations, agents, mentionedRows, mentionedRuns] = await Promise.all([
+  1222→      db.userProfile.findFirst(),
+  1223→      loadIntegrations(),
+  1224→      db.workflow.findMany({
+  1225→        where: workspaceId
+  1226→          ? { OR: [{ workspaceId }, { workspaceId: null }] }
+  1227→          : undefined,
+  1228→        orderBy: { updatedAt: 'desc' },
+  1229→        select: {
+  1230→          id: true,
+  1231→          name: true,
+  1232→          title: true,
+  1233→          department: true,
+  1234→          description: true,
+  1235→          status: true,
+  1236→          trigger: true,
+  1237→          schedule: true,
+  1238→          stepsJson: true,
+  1239→        },
+  1240→      }),
+  1241→      // Full rows for the mentioned agents (so we can render their steps).
+  1242→      mentionIds.length > 0
+  1243→        ? db.workflow.findMany({
+  1244→            where: { id: { in: mentionIds } },
+  1245→          })
+  1246→        : Promise.resolve([]),
+  1247→      // Latest run per mentioned agent (one query, group client-side).
+  1248→      mentionIds.length > 0
+  1249→        ? db.run.findMany({
+  1250→            where: { workflowId: { in: mentionIds } },
+  1251→            orderBy: { startedAt: 'desc' },
+  1252→            take: 50, // plenty; we'll pick the latest per workflow below
+  1253→            select: {
+  1254→              id: true,
+  1255→              workflowId: true,
+  1256→              status: true,
+  1257→              startedAt: true,
+  1258→              itemsProcessed: true,
+  1259→              automaticCount: true,
+  1260→              flaggedCount: true,
+  1261→              durationMs: true,
+  1262→              reportJson: true,
+  1263→            },
+  1264→          })
+  1265→        : Promise.resolve([]),
+  1266→    ])
+  1267→
+  1268→    // Build the mentioned-agent rows (preserve mention order; attach latest run).
+  1269→    const latestRunByWorkflow = new Map<string, (typeof mentionedRuns)[number]>()
+  1270→    for (const r of mentionedRuns) {
+  1271→      if (!latestRunByWorkflow.has(r.workflowId)) {
+  1272→        latestRunByWorkflow.set(r.workflowId, r)
+  1273→      }
+  1274→    }
+  1275→    const mentionedAgentRows: MentionedAgentRow[] = mentionIds
+  1276→      .map((id) => mentionedRows.find((w) => w.id === id))
+  1277→      .filter((w): w is NonNullable<typeof w> => !!w)
+  1278→      .map((w) => {
+  1279→        const last = latestRunByWorkflow.get(w.id) || null
+  1280→        let reportSummary: string | null = null
+  1281→        if (last?.reportJson) {
+  1282→          try {
+  1283→            const p = JSON.parse(last.reportJson) as { summary?: unknown }
+  1284→            if (typeof p?.summary === 'string') reportSummary = p.summary
+  1285→          } catch {
+  1286→            reportSummary = null
+  1287→          }
+  1288→        }
+  1289→        return {
+  1290→          id: w.id,
+  1291→          name: w.name,
+  1292→          title: w.title,
+  1293→          department: w.department,
+  1294→          description: w.description,
+  1295→          status: w.status,
+  1296→          trigger: w.trigger,
+  1297→          schedule: w.schedule,
+  1298→          stepsJson: w.stepsJson,
+  1299→          lastRun: last
+  1300→            ? {
+  1301→                id: last.id,
+  1302→                status: last.status,
+  1303→                startedAt: last.startedAt,
+  1304→                itemsProcessed: last.itemsProcessed,
+  1305→                automaticCount: last.automaticCount,
+  1306→                flaggedCount: last.flaggedCount,
+  1307→                durationMs: last.durationMs,
+  1308→                reportSummary,
+  1309→              }
+  1310→            : null,
+  1311→        }
+  1312→      })
+  1313→
+  1314→    // Map the profile row to the UserProfile shape.
+  1315→    let profile: UserProfile | null = null
+  1316→    if (profileRow) {
+  1317→      let dataSources: UserProfile['dataSources'] = []
+  1318→      try {
+  1319→        const parsed = JSON.parse(profileRow.dataSourcesJson || '[]')
+  1320→        if (Array.isArray(parsed)) {
+  1321→          dataSources = parsed
+  1322→            .filter(
+  1323→              (d): d is { label: string; kind: string; detail: string } =>
+  1324→                !!d && typeof d === 'object' && typeof (d as { label?: unknown }).label === 'string',
+  1325→            )
+  1326→            .map((d) => ({
+  1327→              label: d.label,
+  1328→              kind: d.kind || 'other',
+  1329→              detail: d.detail || '',
+  1330→            }))
+  1331→        }
+  1332→      } catch {
+  1333→        dataSources = []
+  1334→      }
+  1335→      profile = {
+  1336→        id: profileRow.id,
+  1337→        companyName: profileRow.companyName,
+  1338→        industry: profileRow.industry,
+  1339→        notes: profileRow.notes,
+  1340→        dataSources,
+  1341→        createdAt: profileRow.createdAt.toISOString(),
+  1342→        updatedAt: profileRow.updatedAt.toISOString(),
+  1343→      }
+  1344→    }
+  1345→
+  1346→    const toolCatalog = buildToolCatalog(integrations)
+  1347→    const roster = renderRoster(agents)
+  1348→    const mentionedBlock = renderMentionedAgents(mentionedAgentRows)
+  1349→    const profileBlock = renderProfile(profile)
+  1350→
+  1351→    const systemPrompt = SYSTEM_PROMPT.replace(
+  1352→      '__USER_PROFILE__',
+  1353→      `USER PROFILE:\n${profileBlock}`,
+  1354→    )
+  1355→      .replace('__MENTIONED_AGENTS__', mentionedBlock)
+  1356→      .replace('__AGENT_ROSTER__', roster)
+  1357→      .replace('__TOOL_CATALOG__', toolCatalog || '(no tools connected yet)')
+  1358→
+  1359→    // For empty messages, prompt the LLM to return suggestions.
+  1360→    const userMessage = isEmpty
+  1361→      ? `The user just opened the chat. Look at their profile, existing agents, and data sources, and suggest 3-4 tailored automation ideas. Return intent "general" with a short \`reply\` (one sentence, friendly) and a \`suggestions\` array of 3-4 items, each with title + prompt + reason. Pick ideas that FILL GAPS — things they don't already have an agent for but would benefit from given their data sources.`
+  1362→      : ((): string => {
+  1363→          // Condense prior history for the model.
+  1364→          const priorTurns = (body.history || [])
+  1365→            .filter((m) => m.role === 'user' && m.content)
+  1366→            .slice(-4)
+  1367→            .map((m) => `- ${m.content}`)
+  1368→            .join('\n')
+  1369→          return priorTurns
+  1370→            ? `Earlier in this conversation the user discussed:\n${priorTurns}\n\nNow the user says:\n${message}`
+  1371→            : message
+  1372→        })()
+  1373→
+  1374→    let parsed: {
+  1375→      trace?: { label: string; detail?: string }[]
+  1376→      reply?: string
+  1377→      intent?: string
+  1378→      title?: string
+  1379→      workflowProposal?: {
+  1380→        name?: string
+  1381→        description?: string
+  1382→        department?: string
+  1383→        title?: string
+  1384→        steps?: unknown
+  1385→      }
+  1386→      switchToAgentId?: string
+  1387→      editingAgentId?: string
+  1388→      clarification?: unknown
+  1389→      apiDiscovery?: unknown
+  1390→      suggestions?: unknown
+  1391→    } | null = null
+  1392→
+  1393→    try {
+  1394→      const zai = await ZAI.create()
+  1395→      const completion = await zai.chat.completions.create({
+  1396→        messages: [
+  1397→          { role: 'system', content: systemPrompt },
+  1398→          { role: 'user', content: userMessage },
+  1399→        ],
+  1400→        thinking: model === 'thinking' ? { type: 'enabled' } : { type: 'disabled' },
+  1401→        stream: false,
+  1402→      })
+  1403→      const text = completion.choices[0]?.message?.content || ''
+  1404→      const cleaned = stripFences(text)
+  1405→      parsed = JSON.parse(cleaned) as typeof parsed
+  1406→    } catch (err) {
+  1407→      console.error('[api/agent/chat] LLM call/parse failed:', err)
+  1408→      // Fall through to fallback below.
+  1409→    }
+  1410→
+  1411→    // Empty-message path: always return suggestions (fallback if LLM failed).
+  1412→    if (isEmpty) {
+  1413→      const suggestions = parsed ? coerceSuggestions(parsed.suggestions) : undefined
+  1414→      return NextResponse.json({
+  1415→        reply:
+  1416→          parsed?.reply ||
+  1417→          "Hi — I'm your Apical Assistant. Tell me what you'd like to automate, or pick one of these to get started:",
+  1418→        trace: Array.isArray(parsed?.trace)
+  1419→          ? parsed!.trace
+  1420→              .filter((t) => t && typeof t.label === 'string')
+  1421→              .slice(0, 5)
+  1422→              .map((t) => ({ label: t.label, detail: t.detail }))
+  1423→          : [{ label: 'Looked around', detail: 'Read your profile and existing agents.' }],
+  1424→        intent: 'general',
+  1425→        suggestions:
+  1426→          suggestions ||
+  1427→          (profile
+  1428→            ? [
+  1429→                {
+  1430→                  title: 'Sort my scanner PDFs',
+  1431→                  prompt:
+  1432→                    "Sort the PDFs my scanner dumps into /Scan Inbox by client, and file them. Ask me if anything is unclear.",
+  1433→                  reason: 'You scan paper docs daily — a filing agent saves an hour a week.',
+  1434→                },
+  1435→                {
+  1436→                  title: 'Chase overdue invoices',
+  1437→                  prompt:
+  1438→                    'Check unpaid invoices every day. Send a polite reminder if 7 days late; if 30 days, draft an escalation for me to approve.',
+  1439→                  reason: `You use ${profile.dataSources.some((d) => d.label.toLowerCase().includes('stripe')) ? 'Stripe' : 'your billing system'} — automate the chase for cash flow.`,
+  1440→                },
+  1441→                {
+  1442→                  title: 'Weekly client updates',
+  1443→                  prompt:
+  1444→                    'Every Monday, draft a short summary email to each client about last week. Send me the drafts first.',
+  1445→                  reason: 'Recurring client comms are a perfect first agent.',
+  1446→                },
+  1447→              ]
+  1448→            : undefined),
+  1449→      } satisfies AgentResponse)
+  1450→    }
+  1451→
+  1452→    // Non-empty message but no message validation:
+  1453→    if (!isEmpty && !message) {
+  1454→      return NextResponse.json(
+  1455→        { error: 'message is required' },
+  1456→        { status: 400 },
+  1457→      )
+  1458→    }
+  1459→
+  1460→    if (!parsed || typeof parsed.reply !== 'string') {
+  1461→      return NextResponse.json(
+  1462→        fallbackResponse(message, { mentionIds }),
+  1463→      )
+  1464→    }
+  1465→
+  1466→    // Coerce intent to one of the five valid values.
+  1467→    const validIntents: Intent[] = [
+  1468→      'new_agent',
+  1469→      'edit_existing',
+  1470→      'general',
+  1471→      'needs_clarification',
+  1472→      'needs_api',
+  1473→    ]
+  1474→    const intent: Intent = validIntents.includes(parsed.intent as Intent)
+  1475→      ? (parsed.intent as Intent)
+  1476→      : 'general'
+  1477→
+  1478→    const trace = Array.isArray(parsed.trace)
+  1479→      ? parsed.trace
+  1480→          .filter((t) => t && typeof t.label === 'string')
+  1481→          .slice(0, 5)
+  1482→          .map((t) => ({ label: t.label, detail: t.detail }))
+  1483→      : []
+  1484→
+  1485→    const response: AgentResponse = {
+  1486→      reply: parsed.reply,
+  1487→      trace,
+  1488→      intent,
+  1489→    }
+  1490→
+  1491→    if (typeof parsed.title === 'string' && parsed.title.trim()) {
+  1492→      response.title = parsed.title.trim()
+  1493→    }
+  1494→
+  1495→    if (intent === 'new_agent') {
+  1496→      const proposal = parsed.workflowProposal
+  1497→      const steps = normalizeProposalSteps(proposal?.steps)
+  1498→      if (steps.length === 0) {
+  1499→        return NextResponse.json(
+  1500→          fallbackResponse(message, { mentionIds }),
+  1501→        )
+  1502→      }
+  1503→      // Pick the agent name from the user's preferred style (UserProfile.agentNameStyle).
+  1504→      // The LLM still picks the department, title, and steps — but the NAME comes
+  1505→      // from generateAgentName, not the LLM, so names are always in the user's style.
+  1506→      const style: AgentNameStyle =
+  1507→        profileRow?.agentNameStyle === 'evocative' ? 'evocative' : 'descriptive'
+  1508→      const existingNames = agents.map((a) => a.name)
+  1509→      const name = await pickAgentName(
+  1510→        style,
+  1511→        proposal?.name,
+  1512→        message || proposal?.description || '',
+  1513→        existingNames,
+  1514→      )
+  1515→      response.workflowProposal = {
+  1516→        name,
+  1517→        description:
+  1518→          typeof proposal?.description === 'string' && proposal.description.trim()
+  1519→            ? proposal.description.trim()
+  1520→            : 'A new agent for your workspace.',
+  1521→        department:
+  1522→          typeof proposal?.department === 'string' && proposal.department.trim()
+  1523→            ? proposal.department.trim()
+  1524→            : 'General',
+  1525→        title:
+  1526→          typeof proposal?.title === 'string' && proposal.title.trim()
+  1527→            ? proposal.title.trim()
+  1528→            : 'Agent',
+  1529→        steps: { version: 1, steps },
+  1530→      }
+  1531→    } else if (intent === 'edit_existing') {
+  1532→      const validIds = new Set(agents.map((a) => a.id))
+  1533→      const mentionedSet = new Set(mentionIds)
+  1534→      const llmSwitching =
+  1535→        typeof parsed.switchToAgentId === 'string' &&
+  1536→        validIds.has(parsed.switchToAgentId)
+  1537→          ? parsed.switchToAgentId
+  1538→          : undefined
+  1539→      const llmEditing =
+  1540→        typeof parsed.editingAgentId === 'string' &&
+  1541→        validIds.has(parsed.editingAgentId)
+  1542→          ? parsed.editingAgentId
+  1543→          : undefined
+  1544→
+  1545→      // @mention model:
+  1546→      // - If the LLM picked a mentioned agent as editing → use it.
+  1547→      // - If the LLM picked a non-mentioned agent as editing → that's a switch
+  1548→      //   (the user tagged A but the LLM thinks they mean B).
+  1549→      // - If the LLM picked a switch → use it (explicit switch).
+  1550→      // - If neither was set but there's exactly one mention → edit that one.
+  1551→      // - If neither was set but there are multiple mentions → leave it to the
+  1552→      //   frontend to disambiguate (no editing/switch id).
+  1553→      let switching = llmSwitching
+  1554→      let editing: string | undefined
+  1555→      if (llmEditing) {
+  1556→        if (mentionedSet.has(llmEditing)) {
+  1557→          editing = llmEditing
+  1558→        } else if (!switching) {
+  1559→          switching = llmEditing
+  1560→        } else {
+  1561→          editing = llmEditing
+  1562→        }
+  1563→      }
+  1564→      if (!switching && !editing) {
+  1565→        if (mentionedSet.size === 1) {
+  1566→          editing = mentionIds[0]
+  1567→        } else if (mentionedSet.size > 1) {
+  1568→          // Multiple mentions, no explicit pick — demote to general so the
+  1569→          // UI asks the user to clarify which agent they mean.
+  1570→          response.intent = 'general'
+  1571→        }
+  1572→      }
+  1573→
+  1574→      if (response.intent === 'edit_existing') {
+  1575→        if (switching) response.switchToAgentId = switching
+  1576→        else if (editing) response.editingAgentId = editing
+  1577→        else {
+  1578→          // Couldn't resolve an agent — demote to general so the UI doesn't dead-end.
+  1579→          response.intent = 'general'
+  1580→        }
+  1581→      }
+  1582→    } else if (intent === 'needs_clarification') {
+  1583→      const clar = coerceClarification(parsed.clarification)
+  1584→      if (!clar) {
+  1585→        // No valid clarification — demote to general so the UI doesn't dead-end.
+  1586→        response.intent = 'general'
+  1587→      } else {
+  1588→        response.clarification = clar
+  1589→      }
+  1590→    } else if (intent === 'needs_api') {
+  1591→      let candidates = coerceApiDiscovery(parsed.apiDiscovery)
+  1592→      // Ground the discovery in real web research. Use the user's message
+  1593→      // (or the first candidate's service name) as the query.
+  1594→      const researchQuery =
+  1595→        message ||
+  1596→        (candidates && candidates[0]?.service) ||
+  1597→        'API'
+  1598→      let research: ResearchResult | undefined
+  1599→      try {
+  1600→        research = await runResearch(researchQuery)
+  1601→      } catch (err) {
+  1602→        console.error('[api/agent/chat] runResearch failed:', err)
+  1603→      }
+  1604→
+  1605→      // Prefer the LLM's own apiDiscovery (it's grounded in the user's intent
+  1606→      // + the workspace context). If the LLM produced no candidates but the
+  1607→      // research surfaced some, use those instead.
+  1608→      if ((!candidates || candidates.length === 0) && research?.candidates?.length) {
+  1609→        candidates = research.candidates
+  1610→      }
+  1611→      if (!candidates || candidates.length === 0) {
+  1612→        response.intent = 'general'
+  1613→      } else {
+  1614→        response.apiDiscovery = candidates
+  1615→        if (research) response.research = research
+  1616→      }
+  1617→    } else if (intent === 'needs_research') {
+  1618→      // Deep research: crawl the web, find data sources, propose a workflow.
+  1619→      try {
+  1620→        const researchResp = await fetch(`${new URL(req.url).origin}/api/agent/research`, {
+  1621→          method: 'POST',
+  1622→          headers: { 'Content-Type': 'application/json' },
+  1623→          body: JSON.stringify({ goal: message, context: undefined }),
+  1624→        })
+  1625→        if (researchResp.ok) {
+  1626→          const plan = await researchResp.json()
+  1627→          response.researchPlan = plan
+  1628→          response.reply = response.reply || `I researched "${message}" and found ${plan.findings?.length ?? 0} potential data sources. Here's my proposed strategy and workflow — review it below.`
+  1629→        }
+  1630→      } catch (err) {
+  1631→        console.error('[api/agent/chat] deep research failed:', err)
+  1632→        response.reply = `I tried to research "${message}" but hit a snag. Could you try rephrasing, or give me more detail about what you're looking for?`
+  1633→        response.intent = 'general'
+  1634→      }
+  1635→    } else if (intent === 'general') {
+  1636→      // Optional suggestions on a general turn.
+  1637→      const suggestions = coerceSuggestions(parsed.suggestions)
+  1638→      if (suggestions) response.suggestions = suggestions
+  1639→    }
+  1640→
+  1641→    return NextResponse.json(response)
+  1642→  } catch (err) {
+  1643→    console.error('[api/agent/chat] failed:', err)
+  1644→    return NextResponse.json(
+  1645→      fallbackResponse('', { mentionIds: [] }),
+  1646→    )
+  1647→  }
+  1648→}
+  1649→

@@ -1,0 +1,746 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { useAppStore } from "@/lib/apical/store";
+     5→import {
+     6→  DEMO_CONVERSATIONS,
+     7→  DEMO_MESSAGES,
+     8→  DEMO_WORKFLOWS,
+     9→  DEFAULT_PROMPTS,
+    10→  relativeTime,
+    11→  agentInitials,
+    12→  agentAvatarLightness,
+    13→  type ChatMessage,
+    14→  type WorkflowStep,
+    15→  type StepKind,
+    16→  STEP_KIND_META,
+    17→} from '@/lib/apical';
+    18→import { ApicalMark } from "./logo";
+    19→import { RuntimeBadge } from "./logo";
+    20→import { cn } from "@/lib/utils";
+    21→import { Button } from "@/components/ui/button";
+    22→import { Textarea } from "@/components/ui/textarea";
+    23→import {
+    24→  ArrowUp,
+    25→  Pin,
+    26→  Search,
+    27→  Plus,
+    28→  X,
+    29→  Brain,
+    30→  Wrench,
+    31→  ShieldCheck,
+    32→  Lock,
+    33→  ChevronRight,
+    34→  Sparkles,
+    35→  Zap,
+    36→  CheckCircle2,
+    37→  AlertCircle,
+    38→  Loader2,
+    39→  PlayCircle,
+    40→  Wand2,
+    41→} from "lucide-react";
+    42→import type { ExecutionStep, ExecutionStatus } from "@/lib/apical";
+    43→
+    44→const FIXED_REPLY = `Here's the plan I'm proposing:
+    45→
+    46→1. **Tool** — List everything in your /Scan Inbox
+    47→2. **Reason** — Identify the client from the filename + OCR
+    48→3. **Gate** — Confirm the move if it's a new client (you approve)
+    49→4. **Tool** — Move each file to /Clients/<name>/ (hardened after 50 consistent runs)
+    50→
+    51→Want me to run this every 15 minutes?
+    52→
+    53→—
+    54→
+    55→This is a live preview. **Download to try Free** to run real agents, save versions, and restore them from any point in this conversation.`;
+    56→
+    57→type SendMode = "plan" | "do";
+    58→
+    59→export function ChatTab() {
+    60→  const { activeConversationId, setActiveConversation } = useAppStore();
+    61→  const [messages, setMessages] = React.useState<ChatMessage[]>(DEMO_MESSAGES);
+    62→  const [input, setInput] = React.useState("");
+    63→  const [isThinking, setIsThinking] = React.useState(false);
+    64→  const [search, setSearch] = React.useState("");
+    65→  const [mode, setMode] = React.useState<SendMode>("plan");
+    66→  const scrollRef = React.useRef<HTMLDivElement>(null);
+    67→
+    68→  React.useEffect(() => {
+    69→    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    70→  }, [messages, isThinking]);
+    71→
+    72→  // ─── Plan-first mode: AI proposes a workflow upfront ────────────────────
+    73→  function sendPlan(text: string) {
+    74→    setIsThinking(true);
+    75→    window.setTimeout(() => {
+    76→      setMessages((m) => [
+    77→        ...m,
+    78→        {
+    79→          id: Math.random().toString(36).slice(2),
+    80→          role: "agent",
+    81→          content: FIXED_REPLY,
+    82→          workflowProposal: {
+    83→            name: "Compass",
+    84→            description: "Sorts scans + invoices into client folders automatically.",
+    85→            department: "Filing",
+    86→            title: "Sorter",
+    87→            steps: {
+    88→              version: 1,
+    89→              steps: [
+    90→                { id: "s1", kind: "tool", label: "List /Scan Inbox", tool: "files.list" },
+    91→                { id: "s2", kind: "reason", label: "Identify client from filename + OCR", prompt: "Read filename + OCR first page" },
+    92→                { id: "s3", kind: "gate", label: "Confirm move (if new client)" },
+    93→                { id: "s4", kind: "tool", label: "Move to /Clients/{{s2.client}}/", tool: "files.move", hardened: true, note: "Hardened after 50 consistent runs" },
+    94→              ],
+    95→            },
+    96→          },
+    97→          createdAt: new Date().toISOString(),
+    98→        },
+    99→      ]);
+   100→      setIsThinking(false);
+   101→    }, 900 + Math.random() * 400);
+   102→  }
+   103→
+   104→  // ─── Learn-first mode: AI does the work once, then offers to automate ───
+   105→  // This answers: "Should the AI manually do the work first, learn the process,
+   106→  // then build the workflow?" — YES. The agent executes interactively, hits a
+   107→  // gate for anything ambiguous, and converts the REAL trace into a workflow.
+   108→  function sendDo(text: string) {
+   109→    setIsThinking(true);
+   110→    // Build a realistic execution trace based on the user's request.
+   111→    const traceSteps: ExecutionStep[] = [
+   112→      { id: "e1", action: "Listed 12 files in /Scan Inbox", tool: "files.list", status: "running", durationMs: 340, timestamp: new Date().toISOString(), result: "invoice_4821.pdf, scan_001.jpg, acme_contract.pdf, receipt_may.jpg, …" },
+   113→      { id: "e2", action: "Read first page of each file via OCR", tool: "ocr.read", status: "running", durationMs: 4120, timestamp: new Date().toISOString(), result: "Extracted client names: Acme Corp, Northcorp, (unknown), …" },
+   114→      { id: "e3", action: "Matched 10 files to known clients", tool: "memory.lookup", status: "done", durationMs: 180, timestamp: new Date().toISOString(), result: "10/12 matched. 2 unknown: receipt_may.jpg, scan_001.jpg" },
+   115→      { id: "e4", action: "2 files couldn't be auto-matched — need your input", tool: "gate", status: "gate", timestamp: new Date().toISOString(), question: "receipt_may.jpg has no client name. File under 'Unsorted' or assign a client?" },
+   116→      { id: "e5", action: "Filed receipt_may.jpg under /Clients/_Unsorted/", tool: "files.move", status: "done", durationMs: 90, timestamp: new Date().toISOString() },
+   117→      { id: "e6", action: "Moved 11 files into client folders", tool: "files.move", status: "done", durationMs: 620, timestamp: new Date().toISOString(), result: "Acme Corp: 4, Northcorp: 3, Stripe: 2, HubSpot: 2" },
+   118→      { id: "e7", action: "Verified no files left in /Scan Inbox", tool: "files.list", status: "done", durationMs: 120, timestamp: new Date().toISOString(), result: "Inbox empty. ✓" },
+   119→    ];
+   120→
+   121→    // 1. Agent acknowledges and starts doing the work.
+   122→    const agentMsgId = Math.random().toString(36).slice(2);
+   123→    setMessages((m) => [
+   124→      ...m,
+   125→      {
+   126→        id: agentMsgId,
+   127→        role: "agent",
+   128→        content: `On it — I'll do this once now so I learn exactly how your files are structured, then I'll offer to automate it.\n\nWatch me work 👇`,
+   129→        executionTrace: [],
+   130→        createdAt: new Date().toISOString(),
+   131→      },
+   132→    ]);
+   133→    setIsThinking(false);
+   134→
+   135→    // 2. Reveal each step one at a time (simulating live execution).
+   136→    traceSteps.forEach((step, i) => {
+   137→      window.setTimeout(() => {
+   138→        setMessages((prev) =>
+   139→          prev.map((msg) =>
+   140→            msg.id === agentMsgId
+   141→              ? { ...msg, executionTrace: [...(msg.executionTrace ?? []), step] }
+   142→              : msg,
+   143→          ),
+   144→        );
+   145→      }, 700 * (i + 1));
+   146→    });
+   147→
+   148→    // 3. After all steps, post the automate offer.
+   149→    window.setTimeout(() => {
+   150→      setMessages((m) => [
+   151→        ...m,
+   152→        {
+   153→          id: Math.random().toString(36).slice(2),
+   154→          role: "agent",
+   155→          content: `Done! I sorted 12 files into 4 client folders (1 needed your call — filed under _Unsorted).\n\nNow that I've learned your folder structure and naming patterns, I can automate this. Here's the workflow I'd build from what I just did:`,
+   156→          automateOffer: {
+   157→            traceId: agentMsgId,
+   158→            summary: "Sort new files in /Scan Inbox by client every 15 min. Auto-file matched, flag unknowns.",
+   159→            name: "Compass",
+   160→            department: "Filing",
+   161→            steps: {
+   162→              version: 1,
+   163→              steps: [
+   164→                { id: "s1", kind: "tool", label: "List /Scan Inbox", tool: "files.list" },
+   165→                { id: "s2", kind: "tool", label: "OCR first page of each file", tool: "ocr.read" },
+   166→                { id: "s3", kind: "reason", label: "Match to known client from memory", tool: "memory.lookup", prompt: "Match extracted names against learned client list." },
+   167→                { id: "s4", kind: "gate", label: "Flag unmatched files for review", note: "Learned: ~17% need human input" },
+   168→                { id: "s5", kind: "tool", label: "Move matched files to /Clients/<name>/", tool: "files.move", hardened: false, note: "Will harden after 50 consistent runs" },
+   169→              ],
+   170→            },
+   171→          },
+   172→          createdAt: new Date().toISOString(),
+   173→        },
+   174→      ]);
+   175→    }, 700 * (traceSteps.length + 1));
+   176→  }
+   177→
+   178→  function send(text: string) {
+   179→    if (!text.trim() || isThinking) return;
+   180→    const userMsg: ChatMessage = {
+   181→      id: Math.random().toString(36).slice(2),
+   182→      role: "user",
+   183→      content: text,
+   184→      createdAt: new Date().toISOString(),
+   185→    };
+   186→    setMessages((m) => [...m, userMsg]);
+   187→    setInput("");
+   188→    if (mode === "do") {
+   189→      sendDo(text);
+   190→    } else {
+   191→      sendPlan(text);
+   192→    }
+   193→  }
+   194→
+   195→  const filteredConvos = DEMO_CONVERSATIONS.filter((c) =>
+   196→    c.title.toLowerCase().includes(search.toLowerCase()),
+   197→  );
+   198→  const pinned = filteredConvos.filter((c) => c.pinned);
+   199→  const recent = filteredConvos.filter((c) => !c.pinned);
+   200→  const activeConvo = DEMO_CONVERSATIONS.find((c) => c.id === activeConversationId);
+   201→
+   202→  return (
+   203→    <div className="flex h-full min-h-0">
+   204→      {/* Left: conversation list */}
+   205→      <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-muted/30 md:flex">
+   206→        <div className="border-b border-border p-2.5">
+   207→          <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
+   208→            <Search className="h-3 w-3 text-muted-foreground" />
+   209→            <input
+   210→              value={search}
+   211→              onChange={(e) => setSearch(e.target.value)}
+   212→              placeholder="Search chats"
+   213→              className="flex-1 bg-transparent text-[11px] placeholder:text-muted-foreground focus:outline-none"
+   214→            />
+   215→          </div>
+   216→          <Button
+   217→            variant="ghost"
+   218→            size="sm"
+   219→            className="mt-1.5 w-full justify-start gap-1.5 text-[11px] text-muted-foreground"
+   220→          >
+   221→            <Plus className="h-3 w-3" /> New chat
+   222→          </Button>
+   223→        </div>
+   224→        <div className="flex-1 min-h-0 space-y-3 overflow-y-auto overscroll-contain p-2">
+   225→          {pinned.length > 0 && (
+   226→            <div>
+   227→              <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+   228→                Pinned
+   229→              </div>
+   230→              {pinned.map((c) => (
+   231→                <ConversationRow
+   232→                  key={c.id}
+   233→                  convo={c}
+   234→                  active={c.id === activeConversationId}
+   235→                  onClick={() => setActiveConversation(c.id)}
+   236→                />
+   237→              ))}
+   238→            </div>
+   239→          )}
+   240→          {recent.length > 0 && (
+   241→            <div>
+   242→              <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+   243→                Recent
+   244→              </div>
+   245→              {recent.map((c) => (
+   246→                <ConversationRow
+   247→                  key={c.id}
+   248→                  convo={c}
+   249→                  active={c.id === activeConversationId}
+   250→                  onClick={() => setActiveConversation(c.id)}
+   251→                />
+   252→              ))}
+   253→            </div>
+   254→          )}
+   255→        </div>
+   256→      </aside>
+   257→
+   258→      {/* Middle: chat */}
+   259→      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+   260→        {/* Chat header */}
+   261→        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-4">
+   262→          <span className="truncate text-sm font-medium">
+   263→            {activeConvo?.title ?? "New chat"}
+   264→          </span>
+   265→          <span className="text-[10px] text-muted-foreground">·</span>
+   266→          <span className="text-[10px] text-muted-foreground">Compass · Filing</span>
+   267→        </div>
+   268→
+   269→        {/* Messages */}
+   270→        <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4">
+   271→          {messages.length === 0 && (
+   272→            <EmptyState onPick={(p) => send(p)} />
+   273→          )}
+   274→          {messages.map((m) => (
+   275→            <MessageBubble key={m.id} message={m} />
+   276→          ))}
+   277→          {isThinking && (
+   278→            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+   279→              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-primary">
+   280→                <ApicalMark className="h-3.5 w-3.5" />
+   281→              </div>
+   282→              <span className="flex gap-1">
+   283→                <Dot delay={0} />
+   284→                <Dot delay={150} />
+   285→                <Dot delay={300} />
+   286→              </span>
+   287→            </div>
+   288→          )}
+   289→        </div>
+   290→
+   291→        {/* Composer */}
+   292→        <form
+   293→          onSubmit={(e) => {
+   294→            e.preventDefault();
+   295→            send(input);
+   296→          }}
+   297→          className="shrink-0 border-t border-border bg-background p-3"
+   298→        >
+   299→          {/* Mode toggle — Plan-first vs Do-first (learn-first) */}
+   300→          <div className="mb-2 flex items-center gap-1">
+   301→            <div className="flex rounded-lg border border-border bg-muted/40 p-0.5">
+   302→              <button
+   303→                type="button"
+   304→                onClick={() => setMode("plan")}
+   305→                className={cn(
+   306→                  "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+   307→                  mode === "plan"
+   308→                    ? "bg-background text-foreground shadow-sm"
+   309→                    : "text-muted-foreground hover:text-foreground",
+   310→                )}
+   311→                title="AI proposes a workflow plan, you approve, it runs on schedule."
+   312→              >
+   313→                <Sparkles className="h-3 w-3" /> Plan a workflow
+   314→              </button>
+   315→              <button
+   316→                type="button"
+   317→                onClick={() => setMode("do")}
+   318→                className={cn(
+   319→                  "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+   320→                  mode === "do"
+   321→                    ? "bg-background text-foreground shadow-sm"
+   322→                    : "text-muted-foreground hover:text-foreground",
+   323→                )}
+   324→                title="AI does the task once interactively, learns the process, then offers to automate it."
+   325→              >
+   326→                <PlayCircle className="h-3 w-3" /> Do it once
+   327→              </button>
+   328→            </div>
+   329→            <span className="ml-1.5 text-[10px] text-muted-foreground">
+   330→              {mode === "plan"
+   331→                ? "Proposes a workflow from your description"
+   332→                : "Does the work once, learns, then offers to automate"}
+   333→            </span>
+   334→          </div>
+   335→          <div className="relative">
+   336→            <Textarea
+   337→              value={input}
+   338→              onChange={(e) => setInput(e.target.value)}
+   339→              onKeyDown={(e) => {
+   340→                if (e.key === "Enter" && !e.shiftKey) {
+   341→                  e.preventDefault();
+   342→                  send(input);
+   343→                }
+   344→              }}
+   345→              rows={2}
+   346→              placeholder={mode === "do" ? "Describe a job — I'll do it once now…" : "Describe a job to hand off…"}
+   347→              className="min-h-[44px] resize-none border border-input bg-background pr-12 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+   348→            />
+   349→            <button
+   350→              type="submit"
+   351→              disabled={!input.trim() || isThinking}
+   352→              className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground transition hover:opacity-90 disabled:opacity-30"
+   353→              aria-label="Send"
+   354→            >
+   355→              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+   356→            </button>
+   357→          </div>
+   358→          <p className="mt-1.5 text-[10px] text-muted-foreground">
+   359→            Press Enter to send, Shift+Enter for newline
+   360→          </p>
+   361→        </form>
+   362→      </div>
+   363→
+   364→      {/* Right: workflow visualization */}
+   365→      <aside className="hidden w-80 shrink-0 flex-col border-l border-border bg-muted/20 lg:flex">
+   366→        <WorkflowPane />
+   367→      </aside>
+   368→    </div>
+   369→  );
+   370→}
+   371→
+   372→function ConversationRow({
+   373→  convo,
+   374→  active,
+   375→  onClick,
+   376→}: {
+   377→  convo: { id: string; title: string; pinned: boolean; updatedAt: string };
+   378→  active: boolean;
+   379→  onClick: () => void;
+   380→}) {
+   381→  return (
+   382→    <button
+   383→      onClick={onClick}
+   384→      className={cn(
+   385→        "group mb-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors",
+   386→        active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+   387→      )}
+   388→    >
+   389→      {convo.pinned && <Pin className="h-2.5 w-2.5 shrink-0 text-primary" />}
+   390→      <span className="flex-1 truncate">{convo.title}</span>
+   391→      <span className="text-[9px] text-muted-foreground/60">{relativeTime(convo.updatedAt)}</span>
+   392→    </button>
+   393→  );
+   394→}
+   395→
+   396→function MessageBubble({ message }: { message: ChatMessage }) {
+   397→  const isUser = message.role === "user";
+   398→  return (
+   399→    <div className={cn("flex gap-2.5", isUser && "flex-row-reverse")}>
+   400→      <div
+   401→        className={cn(
+   402→          "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
+   403→          isUser ? "bg-muted text-muted-foreground" : "bg-primary/15 text-primary",
+   404→        )}
+   405→      >
+   406→        {isUser ? (
+   407→          <span className="text-[10px] font-semibold">J</span>
+   408→        ) : (
+   409→          <ApicalMark className="h-3.5 w-3.5" />
+   410→        )}
+   411→      </div>
+   412→      <div
+   413→        className={cn(
+   414→          "max-w-[78%] rounded-lg px-3 py-2 text-sm leading-relaxed",
+   415→          isUser ? "bg-primary text-primary-foreground" : "bg-card border border-border",
+   416→        )}
+   417→      >
+   418→        <RichText text={message.content} isUser={isUser} />
+   419→        {message.workflowProposal && (
+   420→          <div className="mt-3 border-t border-border/50 pt-3">
+   421→            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+   422→              <Sparkles className="h-3 w-3 text-primary" /> Proposed workflow
+   423→            </div>
+   424→            <div className="rounded-md border border-border bg-muted/30 p-2">
+   425→              <div className="mb-1.5 flex items-center gap-2">
+   426→                <div
+   427→                  className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold text-primary-foreground"
+   428→                  style={{ backgroundColor: `oklch(${agentAvatarLightness(message.workflowProposal.name)} 0.06 155)` }}
+   429→                >
+   430→                  {agentInitials(message.workflowProposal.name)}
+   431→                </div>
+   432→                <div>
+   433→                  <div className="text-xs font-semibold">{message.workflowProposal.name}</div>
+   434→                  <div className="text-[10px] text-muted-foreground">
+   435→                    {message.workflowProposal.title} · {message.workflowProposal.department}
+   436→                  </div>
+   437→                </div>
+   438→              </div>
+   439→              <p className="mb-2 text-[11px] text-muted-foreground">{message.workflowProposal.description}</p>
+   440→              <div className="space-y-1">
+   441→                {message.workflowProposal.steps.steps.map((step, i) => (
+   442→                  <StepMini key={step.id} step={step} index={i + 1} />
+   443→                ))}
+   444→              </div>
+   445→              <div className="mt-2.5 flex gap-1.5">
+   446→                <Button size="sm" className="h-7 flex-1 text-[11px]">
+   447→                  Approve &amp; run
+   448→                </Button>
+   449→                <Button size="sm" variant="outline" className="h-7 text-[11px]">
+   450→                  Edit
+   451→                </Button>
+   452→              </div>
+   453→            </div>
+   454→          </div>
+   455→        )}
+   456→        {/* Live execution trace — shown when agent "does it once" */}
+   457→        {message.executionTrace && message.executionTrace.length > 0 && (
+   458→          <div className="mt-3 border-t border-border/50 pt-3">
+   459→            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+   460→              <PlayCircle className="h-3 w-3 text-primary" /> Working on it
+   461→              <span className="ml-auto text-[9px] tabular-nums">{message.executionTrace.length} steps</span>
+   462→            </div>
+   463→            <div className="space-y-1">
+   464→              {message.executionTrace.map((step, i) => (
+   465→                <TraceStep key={step.id} step={step} index={i + 1} />
+   466→              ))}
+   467→            </div>
+   468→          </div>
+   469→        )}
+   470→        {/* Automate offer — converts the real trace into a workflow */}
+   471→        {message.automateOffer && (
+   472→          <div className="mt-3 border-t border-border/50 pt-3">
+   473→            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+   474→              <Wand2 className="h-3 w-3 text-primary" /> Automate this?
+   475→            </div>
+   476→            <div className="rounded-md border border-primary/30 bg-primary/5 p-2.5">
+   477→              <p className="mb-2 text-[11px] text-foreground">{message.automateOffer.summary}</p>
+   478→              <div className="mb-2 flex items-center gap-1.5">
+   479→                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">{message.automateOffer.department}</span>
+   480→                <span className="text-[10px] text-muted-foreground">Built from {message.automateOffer.steps.steps.length} observed steps</span>
+   481→              </div>
+   482→              <div className="space-y-1">
+   483→                {message.automateOffer.steps.steps.map((step, i) => (
+   484→                  <StepMini key={step.id} step={step} index={i + 1} />
+   485→                ))}
+   486→              </div>
+   487→              <div className="mt-2.5 flex gap-1.5">
+   488→                <Button size="sm" className="h-7 flex-1 text-[11px]">
+   489→                  <Zap className="mr-1 h-3 w-3" /> Automate it
+   490→                </Button>
+   491→                <Button size="sm" variant="outline" className="h-7 text-[11px]">
+   492→                  Tweak first
+   493→                </Button>
+   494→              </div>
+   495→              <p className="mt-2 text-[9px] text-muted-foreground">
+   496→                The workflow starts unhardened. After ~50 consistent runs, reason steps auto-convert to tool steps (cheaper, faster).
+   497→              </p>
+   498→            </div>
+   499→          </div>
+   500→        )}
+   501→      </div>
+   502→    </div>
+   503→  );
+   504→}
+   505→
+   506→function StepMini({ step, index }: { step: WorkflowStep; index: number }) {
+   507→  const Icon =
+   508→    step.hardened ? Lock : step.kind === "reason" ? Brain : step.kind === "gate" ? ShieldCheck : Wrench;
+   509→  const colorClass = step.hardened
+   510→    ? "text-hardened bg-hardened/10"
+   511→    : step.kind === "reason"
+   512→      ? "text-reason bg-reason/10"
+   513→      : step.kind === "gate"
+   514→        ? "text-gate bg-gate/10"
+   515→        : "text-tool-foreground bg-tool";
+   516→  return (
+   517→    <div className="flex items-center gap-1.5 rounded border border-border bg-background px-1.5 py-1">
+   518→      <span className="font-mono text-[9px] text-muted-foreground">{index}</span>
+   519→      <div className={cn("flex h-4 w-4 items-center justify-center rounded", colorClass)}>
+   520→        <Icon className="h-2.5 w-2.5" />
+   521→      </div>
+   522→      <span className="flex-1 truncate text-[10px]">{step.label}</span>
+   523→      {step.hardened && <Lock className="h-2.5 w-2.5 text-hardened" />}
+   524→    </div>
+   525→  );
+   526→}
+   527→
+   528→// ─── Trace step — a single live-execution action with status + result ──────
+   529→function TraceStep({ step, index }: { step: ExecutionStep; index: number }) {
+   530→  const statusConfig: Record<ExecutionStatus, { icon: React.ReactNode; color: string; label: string }> = {
+   531→    running: { icon: <Loader2 className="h-2.5 w-2.5 animate-spin" />, color: "text-primary bg-primary/10", label: "running" },
+   532→    done: { icon: <CheckCircle2 className="h-2.5 w-2.5" />, color: "text-emerald-600 bg-emerald-500/10", label: "done" },
+   533→    flagged: { icon: <AlertCircle className="h-2.5 w-2.5" />, color: "text-gate bg-gate/10", label: "flagged" },
+   534→    gate: { icon: <ShieldCheck className="h-2.5 w-2.5" />, color: "text-gate bg-gate/10", label: "needs input" },
+   535→    error: { icon: <AlertCircle className="h-2.5 w-2.5" />, color: "text-destructive bg-destructive/10", label: "error" },
+   536→  };
+   537→  const cfg = statusConfig[step.status];
+   538→  return (
+   539→    <div
+   540→      className={cn(
+   541→        "rounded border px-2 py-1.5 transition-colors",
+   542→        step.status === "gate"
+   543→          ? "border-gate/40 bg-gate/5"
+   544→          : "border-border bg-background",
+   545→      )}
+   546→    >
+   547→      <div className="flex items-center gap-1.5">
+   548→        <span className="font-mono text-[9px] text-muted-foreground">{index}</span>
+   549→        <div className={cn("flex h-4 w-4 items-center justify-center rounded", cfg.color)}>
+   550→          {cfg.icon}
+   551→        </div>
+   552→        <span className="flex-1 truncate text-[10px] font-medium">{step.action}</span>
+   553→        {step.durationMs && (
+   554→          <span className="font-mono text-[8px] tabular-nums text-muted-foreground">
+   555→            {step.durationMs < 1000 ? `${step.durationMs}ms` : `${(step.durationMs / 1000).toFixed(1)}s`}
+   556→          </span>
+   557→        )}
+   558→      </div>
+   559→      {step.tool && (
+   560→        <div className="ml-6 mt-0.5 font-mono text-[8px] text-muted-foreground/70">{step.tool}</div>
+   561→      )}
+   562→      {step.result && (
+   563→        <div className="ml-6 mt-0.5 truncate text-[9px] text-muted-foreground">{step.result}</div>
+   564→      )}
+   565→      {step.question && (
+   566→        <div className="ml-6 mt-1 flex items-center gap-1.5">
+   567→          <span className="rounded bg-gate/15 px-1.5 py-0.5 text-[9px] font-medium text-gate">
+   568→            {step.question}
+   569→          </span>
+   570→          <button className="text-[9px] font-medium text-primary hover:underline">File under _Unsorted</button>
+   571→          <span className="text-[9px] text-muted-foreground">·</span>
+   572→          <button className="text-[9px] font-medium text-muted-foreground hover:underline">Assign client</button>
+   573→        </div>
+   574→      )}
+   575→    </div>
+   576→  );
+   577→}
+   578→
+   579→function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
+   580→  return (
+   581→    <div className="mx-auto max-w-md py-12 text-center">
+   582→      <ApicalMark className="mx-auto mb-3 h-10 w-10" withGlow />
+   583→      <h3 className="text-base font-semibold">What needs doing?</h3>
+   584→      <p className="mt-1 text-xs text-muted-foreground">
+   585→        Describe a job in plain English. Apical will figure out the steps.
+   586→      </p>
+   587→      <div className="mt-6 grid gap-2 text-left">
+   588→        {DEFAULT_PROMPTS.map((p) => (
+   589→          <button
+   590→            key={p.title}
+   591→            onClick={() => onPick(p.prompt)}
+   592→            className="group rounded-lg border border-border bg-card p-3 text-left transition hover:border-primary/40 hover:bg-accent/30"
+   593→          >
+   594→            <div className="flex items-center justify-between">
+   595→              <span className="text-xs font-semibold">{p.title}</span>
+   596→              <ChevronRight className="h-3 w-3 text-muted-foreground transition group-hover:text-primary" />
+   597→            </div>
+   598→            <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{p.prompt}</p>
+   599→            <p className="mt-1 text-[9px] uppercase tracking-wide text-muted-foreground/60">{p.reason}</p>
+   600→          </button>
+   601→        ))}
+   602→      </div>
+   603→    </div>
+   604→  );
+   605→}
+   606→
+   607→function WorkflowPane() {
+   608→  const workflow = DEMO_WORKFLOWS[0]; // Compass
+   609→  return (
+   610→    <div className="flex h-full flex-col">
+   611→      <div className="border-b border-border p-3">
+   612→        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+   613→          Current workflow
+   614→        </div>
+   615→        <div className="mt-1 flex items-center gap-2">
+   616→          <div
+   617→            className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold text-primary-foreground"
+   618→            style={{ backgroundColor: `oklch(${agentAvatarLightness(workflow.name)} 0.06 155)` }}
+   619→          >
+   620→            {agentInitials(workflow.name)}
+   621→          </div>
+   622→          <div>
+   623→            <div className="text-xs font-semibold">{workflow.name}</div>
+   624→            <div className="text-[10px] text-muted-foreground">{workflow.title}</div>
+   625→          </div>
+   626→          <RuntimeBadge runtime={workflow.runtime} />
+   627→        </div>
+   628→      </div>
+   629→      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+   630→        <div className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+   631→          {workflow.steps.steps.length} steps
+   632→        </div>
+   633→        <div className="space-y-1.5">
+   634→          {workflow.steps.steps.map((step, i) => (
+   635→            <StepCard key={step.id} step={step} index={i + 1} />
+   636→          ))}
+   637→        </div>
+   638→        <div className="mt-4 rounded-md border border-border bg-card p-2.5">
+   639→          <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+   640→            Stats
+   641→          </div>
+   642→          <div className="grid grid-cols-2 gap-2 text-[10px]">
+   643→            <Stat label="Runs" value={workflow.runsCount.toLocaleString()} />
+   644→            <Stat label="Items" value={workflow.itemsProcessed.toLocaleString()} />
+   645→            <Stat label="Auto" value={`${Math.round((workflow.automaticCount / Math.max(workflow.itemsProcessed, 1)) * 100)}%`} />
+   646→            <Stat label="Flagged" value={workflow.flaggedCount.toLocaleString()} />
+   647→          </div>
+   648→        </div>
+   649→      </div>
+   650→    </div>
+   651→  );
+   652→}
+   653→
+   654→function StepCard({ step, index }: { step: WorkflowStep; index: number }) {
+   655→  const Icon = step.hardened ? Lock : step.kind === "reason" ? Brain : step.kind === "gate" ? ShieldCheck : Wrench;
+   656→  const meta = STEP_KIND_META[step.kind];
+   657→  const colorClass = step.hardened
+   658→    ? "border-hardened/40 bg-hardened/10 text-hardened"
+   659→    : step.kind === "reason"
+   660→      ? "border-reason/30 bg-reason/10 text-reason"
+   661→      : step.kind === "gate"
+   662→        ? "border-gate/40 bg-gate/10 text-gate"
+   663→        : "border-border bg-tool text-tool-foreground";
+   664→  return (
+   665→    <div className="rounded-lg border border-border bg-card p-2.5">
+   666→      <div className="flex items-start gap-2">
+   667→        <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-md border font-mono text-[10px] font-semibold", colorClass)}>
+   668→          {index}
+   669→        </div>
+   670→        <div className="min-w-0 flex-1">
+   671→          <div className="flex items-center gap-1.5">
+   672→            <Icon className={cn("h-3 w-3", step.hardened ? "text-hardened" : step.kind === "reason" ? "text-reason" : step.kind === "gate" ? "text-gate" : "text-tool-foreground")} />
+   673→            <span className="truncate text-[11px] font-medium">{step.label}</span>
+   674→          </div>
+   675→          <div className="mt-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">
+   676→            {meta.label}
+   677→            {step.tool && ` · ${step.tool}`}
+   678→            {step.hardened && " · hardened"}
+   679→          </div>
+   680→          {step.note && <div className="mt-1 text-[9px] text-hardened">{step.note}</div>}
+   681→        </div>
+   682→      </div>
+   683→    </div>
+   684→  );
+   685→}
+   686→
+   687→function Stat({ label, value }: { label: string; value: string }) {
+   688→  return (
+   689→    <div>
+   690→      <div className="text-muted-foreground">{label}</div>
+   691→      <div className="font-semibold tabular-nums">{value}</div>
+   692→    </div>
+   693→  );
+   694→}
+   695→
+   696→function Dot({ delay }: { delay: number }) {
+   697→  return (
+   698→    <span
+   699→      className="inline-block h-1 w-1 animate-pulse rounded-full bg-primary"
+   700→      style={{ animationDelay: `${delay}ms` }}
+   701→    />
+   702→  );
+   703→}
+   704→
+   705→/** Tiny inline markdown — supports **bold** + `code` + line breaks. */
+   706→function RichText({ text, isUser }: { text: string; isUser: boolean }) {
+   707→  if (isUser) return <span className="whitespace-pre-wrap">{text}</span>;
+   708→  const lines = text.split("\n");
+   709→  return (
+   710→    <div className="whitespace-pre-wrap">
+   711→      {lines.map((line, i) => (
+   712→        <div key={i} className={line.trim() === "" ? "h-2" : ""}>
+   713→          {renderLine(line)}
+   714→        </div>
+   715→      ))}
+   716→    </div>
+   717→  );
+   718→}
+   719→
+   720→function renderLine(line: string) {
+   721→  const parts = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+   722→  return parts.map((p, i) => {
+   723→    if (p.startsWith("**") && p.endsWith("**")) {
+   724→      return (
+   725→        <strong key={i} className="font-semibold">
+   726→          {p.slice(2, -2)}
+   727→        </strong>
+   728→      );
+   729→    }
+   730→    if (p.startsWith("`") && p.endsWith("`")) {
+   731→      return (
+   732→        <code
+   733→          key={i}
+   734→          className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-primary"
+   735→        >
+   736→          {p.slice(1, -1)}
+   737→        </code>
+   738→      );
+   739→    }
+   740→    return <span key={i}>{p}</span>;
+   741→  });
+   742→}
+   743→
+   744→// Suppress unused import warning
+   745→void X;
+   746→
