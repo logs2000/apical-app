@@ -39,6 +39,16 @@ interface AppState {
   inspectorOpen: boolean;
   setInspectorOpen: (v: boolean) => void;
   toggleInspector: () => void;
+  /** Browser-style open tabs (conversation ids). The active tab is activeConversationId. */
+  openTabs: string[];
+  openTab: (id: string) => void;
+  closeTab: (id: string) => void;
+  /** Split view: when 2 tabs are open, both show side-by-side. */
+  splitView: boolean;
+  setSplitView: (v: boolean) => void;
+  /** The second tab in a split view (null = single view). */
+  splitTabId: string | null;
+  setSplitTabId: (id: string | null) => void;
   vaultSection: VaultSection;
   setVaultSection: (s: VaultSection) => void;
   /** Templates the user has installed from the gallery (demo-only, no backend). */
@@ -62,6 +72,28 @@ export const useAppStore = create<AppState>((set) => ({
   inspectorOpen: true,
   setInspectorOpen: (v) => set({ inspectorOpen: v }),
   toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
+  openTabs: ["orchestrator"],
+  openTab: (id) =>
+    set((s) =>
+      s.openTabs.includes(id)
+        ? { activeConversationId: id }
+        : { openTabs: [...s.openTabs, id], activeConversationId: id },
+    ),
+  closeTab: (id) =>
+    set((s) => {
+      const idx = s.openTabs.indexOf(id);
+      const remaining = s.openTabs.filter((t) => t !== id);
+      if (remaining.length === 0) {
+        return { openTabs: ["orchestrator"], activeConversationId: "orchestrator", splitView: false, splitTabId: null };
+      }
+      const newActive = s.activeConversationId === id ? remaining[Math.max(0, idx - 1)] : s.activeConversationId;
+      const newSplit = s.splitTabId === id ? null : s.splitTabId;
+      return { openTabs: remaining, activeConversationId: newActive, splitTabId: newSplit, splitView: newSplit ? s.splitView : false };
+    }),
+  splitView: false,
+  setSplitView: (v) => set({ splitView: v }),
+  splitTabId: null,
+  setSplitTabId: (id) => set({ splitTabId: id }),
   vaultSection: "connections",
   setVaultSection: (s) => set({ vaultSection: s }),
   installedTemplates: [],

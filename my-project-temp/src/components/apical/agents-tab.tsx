@@ -75,7 +75,7 @@ export function AgentsTab() {
             </p>
           </div>
           <Button size="sm" className="gap-1.5" onClick={() => setMode("chat")}>
-            <Plus className="h-3 w-3" /> Hire an agent
+            <Plus className="h-3 w-3" /> New agent
           </Button>
         </div>
 

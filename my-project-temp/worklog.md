@@ -1198,3 +1198,44 @@ Stage Summary:
   "DEMO" watermark). The real web app (FullscreenApp → AppShell) is fully
   functional with real APIs. They're no longer the same component.
 - Lint clean, types clean, server stable.
+
+---
+Task ID: TABS-1
+Agent: Main (orchestrator)
+Task: White text for user chats. Remove "Hire an agent". Make demo 1:1 with real UI (limited functionality + download gates). Browser-tab-style agent view with side-by-side split (up to 2).
+
+Work Log:
+- USER MESSAGE STYLING (src/components/apical/agents-view.tsx MessageBubble):
+  - Changed user messages from bg-muted text-foreground (hard to read on light bg) to bg-primary text-primary-foreground (white text on forest-green). High contrast, clearly the user's message.
+- "HIRE AN AGENT" REMOVED:
+  - Replaced "Hire an agent" with "New agent" in agents-view.tsx + agents-tab.tsx (sed -i). No more "hire" terminology anywhere.
+- BROWSER-TAB AGENT VIEW (src/components/apical/agents-view.tsx + store.ts):
+  - Store: added openTabs (string[]), openTab(id), closeTab(id), splitView (bool), setSplitView, splitTabId (string|null), setSplitTabId. openTab dedupes + sets active. closeTab removes + picks a neighbor as active. Default openTabs = ["orchestrator"].
+  - AgentsView: added a TabBar at the top of the center pane. Each tab shows the agent avatar + name (or Sparkles for Apical). Click to switch. X to close (hover-revealed). Active tab has bg-background + border; inactive tabs are muted. A "Split" toggle button (Columns2 icon) at the right of the tab bar — enabled when 2+ tabs open. Clicking it shows two CenterPanes side-by-side (the active tab + the first other tab). The inspector is hidden in split view.
+  - TabBar component: browser-style rounded-t-md tabs with border-x border-t, group-hover close button, ring-1 ring-primary/40 on the split tab.
+  - Center pane now renders in a flex row: primary pane (flex-1) + optional split pane (w-1/2) when splitView is on.
+- DEMO 1:1 WITH REAL UI (src/components/landing/DemoAppShell.tsx full rewrite, ~330 lines):
+  - Now mirrors the real AppShell + AgentsView layout EXACTLY: top bar with tabs (Agents/Vault/Data) + Demo badge, left rail (Apical section + Agents section with status dots + flagged badges), center with browser-style tab bar + center-pane header (avatar + name + runtime badge + Chat/Dashboard/Workflow/Config mode tabs) + chat area + composer, right inspector (status/schedule card + LOUD flagged button + workflow steps + stats grid).
+  - Limited functionality: tab switching works, agent selection works, typing works. BUT:
+    - Sending a message → shows a "Download Apical" gate inline in the chat (not a real reply).
+    - Clicking Dashboard/Workflow/Config → gate.
+    - Clicking Split → gate.
+    - Clicking Search/Connect/Disconnect in Vault → gate.
+    - Clicking a data table → gate.
+    - Clicking the flagged button → gate.
+  - Every gate says "X is available in the full app. Download Apical." with a Download button.
+  - The chat shows the same mock conversation (Compass filing demo) + the Apical welcome summary for the Apical tab.
+  - User messages in the demo use bg-primary text-primary-foreground (matching the real app's new white-text style).
+  - Subtle "DEMO" badge in the top-right corner (not a corner watermark — a proper badge in the header).
+- VERIFICATION:
+  - bun run lint → 0 errors, 0 warnings.
+  - bunx tsc --noEmit → 0 errors in any new/edited file.
+  - Server renders HTTP 200. Landing page HTML contains "Demo" + "Split" (the new tab bar + badge).
+  - Real app (FullscreenApp → AppShell → AgentsView) unchanged — still fully functional with real APIs.
+
+Stage Summary:
+- User chat messages now white text on forest-green (bg-primary text-primary-foreground) — high contrast, readable.
+- "Hire an agent" → "New agent" everywhere.
+- Agent view is now browser-tab-style: tab bar at the top, switchable, closeable, + split-view toggle (side-by-side up to 2). Inspector hidden in split view.
+- Landing demo is now a 1:1 visual replica of the real UI (same three-pane layout, same tab bar, same inspector) but with download gates when users try to actually use features. The real app is fully functional; the demo is a faithful look-alike.
+- Lint clean, types clean, server stable.

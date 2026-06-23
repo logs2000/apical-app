@@ -54,6 +54,7 @@ import {
   X,
   ChevronRight,
   Zap,
+  Columns2,
 } from "lucide-react";
 import type { ExecutionStep } from "@/lib/apical";
 
@@ -65,11 +66,17 @@ function agentStatus(agent: Workflow): { color: string; label: string } {
   return { color: "bg-emerald-500", label: "Active" };
 }
 
-// ─── Main view: three-pane layout ──────────────────────────────────────────
+// ─── Main view: three-pane layout with browser-style tabs ──────────────────
 
 export function AgentsView() {
   const activeConversationId = useAppStore((s) => s.activeConversationId);
-  const setActiveConversation = useAppStore((s) => s.setActiveConversation);
+  const openTab = useAppStore((s) => s.openTab);
+  const closeTab = useAppStore((s) => s.closeTab);
+  const openTabs = useAppStore((s) => s.openTabs);
+  const splitView = useAppStore((s) => s.splitView);
+  const setSplitView = useAppStore((s) => s.setSplitView);
+  const splitTabId = useAppStore((s) => s.splitTabId);
+  const setSplitTabId = useAppStore((s) => s.setSplitTabId);
   const inspectorOpen = useAppStore((s) => s.inspectorOpen);
   const toggleInspector = useAppStore((s) => s.toggleInspector);
 
@@ -80,28 +87,167 @@ export function AgentsView() {
     : undefined;
   const isOrchestrator = activeConversationId === "orchestrator";
 
+  // Split view: show two center panes side-by-side. The primary is the active
+  // tab; the secondary is splitTabId (or the previous tab if not set).
+  const splitConvo = splitTabId
+    ? DEMO_CONVERSATIONS.find((c) => c.id === splitTabId)
+    : undefined;
+  const splitAgent = splitConvo?.workflowId
+    ? DEMO_WORKFLOWS.find((w) => w.id === splitConvo.workflowId)
+    : undefined;
+  const splitIsOrchestrator = splitTabId === "orchestrator";
+
   return (
     <div className="flex h-full min-h-0">
       {/* Left rail — agent navigator */}
       <AgentNavigator
         activeId={activeConversationId}
-        onPick={setActiveConversation}
+        onPick={(id) => openTab(id)}
       />
 
-      {/* Center — chat by default, or Dashboard/Workflow/Config modes */}
+      {/* Center — browser-style tab bar + one or two CenterPanes */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <CenterPane
-          agent={activeAgent}
-          isOrchestrator={isOrchestrator}
-          inspectorOpen={inspectorOpen}
-          onToggleInspector={toggleInspector}
+        {/* Tab bar */}
+        <TabBar
+          tabs={openTabs}
+          activeId={activeConversationId}
+          splitTabId={splitView ? splitTabId : null}
+          onPick={(id) => openTab(id)}
+          onClose={closeTab}
+          splitView={splitView}
+          onToggleSplit={() => {
+            if (splitView) {
+              setSplitView(false);
+              setSplitTabId(null);
+            } else if (openTabs.length >= 2) {
+              // Pick the first tab that isn't the active one.
+              const other = openTabs.find((t) => t !== activeConversationId);
+              if (other) {
+                setSplitTabId(other);
+                setSplitView(true);
+              }
+            }
+          }}
         />
+
+        {/* Center pane(s) — single or split */}
+        <div className="flex min-h-0 flex-1">
+          <div className={cn("min-h-0 min-w-0 flex-1", splitView && "border-r border-border")}>
+            <CenterPane
+              agent={activeAgent}
+              isOrchestrator={isOrchestrator}
+              inspectorOpen={inspectorOpen}
+              onToggleInspector={toggleInspector}
+            />
+          </div>
+          {splitView && splitTabId && (
+            <div className="min-h-0 w-1/2 min-w-0">
+              <CenterPane
+                agent={splitAgent}
+                isOrchestrator={splitIsOrchestrator}
+                inspectorOpen={false}
+                onToggleInspector={() => {}}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Right — collapsible inspector (hidden for Orchestrator) */}
-      {inspectorOpen && activeAgent && !isOrchestrator && (
+      {/* Right — collapsible inspector (hidden for Orchestrator + in split view) */}
+      {inspectorOpen && activeAgent && !isOrchestrator && !splitView && (
         <InspectorPane agent={activeAgent} />
       )}
+    </div>
+  );
+}
+
+// ─── Browser-style tab bar ──────────────────────────────────────────────────
+
+function TabBar({
+  tabs,
+  activeId,
+  splitTabId,
+  onPick,
+  onClose,
+  splitView,
+  onToggleSplit,
+}: {
+  tabs: string[];
+  activeId: string | null;
+  splitTabId: string | null;
+  onPick: (id: string) => void;
+  onClose: (id: string) => void;
+  splitView: boolean;
+  onToggleSplit: () => void;
+}) {
+  return (
+    <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-border bg-muted/40 px-1.5">
+      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+        {tabs.map((tabId) => {
+          const convo = DEMO_CONVERSATIONS.find((c) => c.id === tabId);
+          if (!convo) return null;
+          const isApical = tabId === "orchestrator";
+          const agent = convo.workflowId
+            ? DEMO_WORKFLOWS.find((w) => w.id === convo.workflowId)
+            : undefined;
+          const isActive = tabId === activeId;
+          const isSplit = tabId === splitTabId;
+          return (
+            <div
+              key={tabId}
+              onClick={() => onPick(tabId)}
+              className={cn(
+                "group flex shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border-x border-t px-2.5 py-1 text-[11px] transition-colors",
+                isActive
+                  ? "border-border bg-background text-foreground"
+                  : "border-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+                isSplit && "ring-1 ring-primary/40",
+              )}
+              title={isApical ? "Apical — general context" : convo.title}
+            >
+              {isApical ? (
+                <Sparkles className="h-3 w-3 text-primary" />
+              ) : agent ? (
+                <div
+                  className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[7px] font-semibold text-primary-foreground"
+                  style={{ backgroundColor: `oklch(${agentAvatarLightness(agent.name)} 0.06 155)` }}
+                >
+                  {agentInitials(agent.name)}
+                </div>
+              ) : null}
+              <span className="max-w-[100px] truncate">{convo.title}</span>
+              {tabs.length > 1 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose(tabId);
+                  }}
+                  className="ml-0.5 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                  title="Close tab"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {/* Split-view toggle — only enabled when 2+ tabs are open */}
+      <button
+        onClick={onToggleSplit}
+        disabled={tabs.length < 2}
+        className={cn(
+          "flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
+          splitView
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+          tabs.length < 2 && "cursor-not-allowed opacity-40",
+        )}
+        title={splitView ? "Exit split view" : "Split view (side-by-side)"}
+      >
+        <Columns2 className="h-3 w-3" />
+        <span className="hidden sm:inline">{splitView ? "Single" : "Split"}</span>
+      </button>
     </div>
   );
 }
@@ -146,7 +292,7 @@ function AgentNavigator({
           size="sm"
           className="mt-1.5 w-full justify-start gap-1.5 text-[11px] text-muted-foreground"
         >
-          <Plus className="h-3 w-3" /> Hire an agent
+          <Plus className="h-3 w-3" /> New agent
         </Button>
       </div>
 
@@ -721,7 +867,7 @@ function MessageBubble({ message, agentName }: { message: ChatMessage; agentName
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] space-y-1">
-          <div className="rounded-md bg-muted px-3 py-2 text-sm text-foreground">
+          <div className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground">
             <RichText text={message.content} isUser />
           </div>
           <div className="text-right text-[10px] text-muted-foreground">
