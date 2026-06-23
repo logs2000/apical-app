@@ -35,7 +35,7 @@ import {
   Clock,
 } from "lucide-react";
 import { DesktopStage, DraggableWindow } from "@/components/landing/DesktopStage";
-import { AppShell } from "@/components/apical/app-shell";
+import { DemoAppShell } from "@/components/landing/DemoAppShell";
 import { ApicalMark } from "@/components/apical/logo";
 import { AuthProvider, useAuth } from "@/components/auth/AuthDialog";
 import { FullscreenApp } from "@/components/landing/FullscreenApp";
@@ -314,12 +314,12 @@ function Hero({
           </div>
           <DesktopStage>
             <DraggableWindow width={820} height={520}>
-              <AppShell user={null} />
+              <DemoAppShell />
             </DraggableWindow>
           </DesktopStage>
           <p className="mt-3 text-center text-[11px] text-muted-foreground">
-            This is the real app — Chat, Agents, Vault, Data, and Billing tabs. Type a job
-            and watch it propose a workflow. Drag the title bar to move the window.
+            A live look at the app — Agents, Vault, and Data tabs. Type a job and watch
+            it propose a workflow. Drag the title bar to move the window. Sign in for the full app.
           </p>
         </motion.div>
       </div>

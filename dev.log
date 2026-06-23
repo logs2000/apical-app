@@ -51850,3 +51850,2153 @@ prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `m
  GET / 200 in 61ms (compile: 7ms, proxy.ts: 4ms, render: 50ms)
  GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
  GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 112ms (compile: 3ms, proxy.ts: 4ms, render: 105ms)
+ GET / 200 in 60ms (compile: 7ms, proxy.ts: 4ms, render: 49ms)
+ GET / 200 in 86ms (compile: 7ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 107ms (compile: 4ms, proxy.ts: 3ms, render: 100ms)
+ GET / 200 in 97ms (compile: 4ms, proxy.ts: 4ms, render: 89ms)
+ GET / 200 in 56ms (compile: 5ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 3ms, render: 78ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 64ms (compile: 3ms, proxy.ts: 3ms, render: 58ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 58ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 95ms (compile: 5ms, proxy.ts: 4ms, render: 86ms)
+ GET / 200 in 80ms (compile: 5ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 66ms (compile: 4ms, proxy.ts: 3ms, render: 59ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 64ms (compile: 4ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 3ms, render: 87ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 70ms (compile: 3ms, proxy.ts: 3ms, render: 65ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 4ms, render: 47ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 60ms (compile: 3ms, proxy.ts: 3ms, render: 54ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 76ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 3ms, render: 52ms)
+ GET / 200 in 49ms (compile: 3ms, proxy.ts: 3ms, render: 43ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 62ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 65ms (compile: 3ms, proxy.ts: 4ms, render: 58ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 18ms (compile: 3ms, proxy.ts: 4ms, render: 11ms)
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 96ms (compile: 4ms, proxy.ts: 5ms, render: 87ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 48ms (compile: 3ms, proxy.ts: 3ms, render: 42ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 71ms (compile: 3ms, proxy.ts: 3ms, render: 65ms)
+ GET / 200 in 57ms (compile: 4ms, proxy.ts: 4ms, render: 50ms)
+ GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 49ms (compile: 3ms, proxy.ts: 3ms, render: 43ms)
+ GET / 200 in 49ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 2ms, render: 44ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 49ms (compile: 3ms, proxy.ts: 3ms, render: 43ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 99ms (compile: 4ms, proxy.ts: 4ms, render: 91ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 4ms, render: 50ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 51ms (compile: 4ms, proxy.ts: 4ms, render: 44ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 62ms (compile: 3ms, proxy.ts: 4ms, render: 55ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 48ms (compile: 3ms, proxy.ts: 3ms, render: 43ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 5ms, render: 70ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 13ms (compile: 3ms, proxy.ts: 3ms, render: 7ms)
+ GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 60ms (compile: 3ms, proxy.ts: 3ms, render: 54ms)
+ GET / 200 in 65ms (compile: 3ms, proxy.ts: 3ms, render: 59ms)
+ GET / 200 in 111ms (compile: 6ms, proxy.ts: 4ms, render: 101ms)
+ GET / 200 in 106ms (compile: 4ms, proxy.ts: 4ms, render: 98ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 3ms, render: 61ms)
+ GET / 200 in 71ms (compile: 3ms, proxy.ts: 3ms, render: 64ms)
+ GET / 200 in 68ms (compile: 7ms, proxy.ts: 4ms, render: 58ms)
+ GET / 200 in 66ms (compile: 3ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 101ms (compile: 4ms, proxy.ts: 5ms, render: 93ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 3ms, render: 87ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 64ms (compile: 3ms, proxy.ts: 3ms, render: 58ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 13ms (compile: 3ms, proxy.ts: 3ms, render: 7ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 66ms (compile: 3ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 3ms, render: 82ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 5ms, render: 81ms)
+ GET / 200 in 63ms (compile: 4ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 60ms (compile: 4ms, proxy.ts: 4ms, render: 53ms)
+ GET / 200 in 64ms (compile: 3ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 66ms (compile: 3ms, proxy.ts: 3ms, render: 59ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 55ms (compile: 4ms, proxy.ts: 4ms, render: 48ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 69ms (compile: 4ms, proxy.ts: 3ms, render: 63ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 5ms, render: 77ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 49ms (compile: 3ms, proxy.ts: 2ms, render: 43ms)
+ GET / 200 in 65ms (compile: 3ms, proxy.ts: 4ms, render: 58ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 66ms (compile: 4ms, proxy.ts: 3ms, render: 59ms)
+ GET / 200 in 76ms (compile: 4ms, proxy.ts: 4ms, render: 69ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 55ms (compile: 4ms, proxy.ts: 4ms, render: 48ms)
+ GET / 200 in 70ms (compile: 3ms, proxy.ts: 3ms, render: 64ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 109ms (compile: 4ms, proxy.ts: 4ms, render: 101ms)
+ GET / 200 in 65ms (compile: 4ms, proxy.ts: 4ms, render: 58ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 4ms, render: 45ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 92ms (compile: 6ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 69ms (compile: 4ms, proxy.ts: 4ms, render: 61ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 72ms (compile: 3ms, proxy.ts: 3ms, render: 66ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 48ms (compile: 3ms, proxy.ts: 3ms, render: 43ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 48ms (compile: 3ms, proxy.ts: 3ms, render: 43ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 3ms, render: 84ms)
+ GET / 200 in 71ms (compile: 4ms, proxy.ts: 4ms, render: 63ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 62ms (compile: 3ms, proxy.ts: 4ms, render: 55ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 49ms (compile: 3ms, proxy.ts: 3ms, render: 43ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 101ms (compile: 4ms, proxy.ts: 4ms, render: 93ms)
+ GET / 200 in 142ms (compile: 17ms, proxy.ts: 5ms, render: 120ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 66ms (compile: 4ms, proxy.ts: 4ms, render: 59ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 64ms (compile: 4ms, proxy.ts: 4ms, render: 57ms)
+ GET / 200 in 85ms (compile: 3ms, proxy.ts: 3ms, render: 78ms)
+ GET / 200 in 64ms (compile: 3ms, proxy.ts: 3ms, render: 58ms)
+ GET / 200 in 89ms (compile: 5ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 2ms, render: 51ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 3ms, render: 79ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 5ms, render: 50ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 55ms (compile: 4ms, proxy.ts: 4ms, render: 48ms)
+ GET / 200 in 55ms (compile: 6ms, proxy.ts: 4ms, render: 45ms)
+ GET / 200 in 61ms (compile: 6ms, proxy.ts: 4ms, render: 51ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 55ms (compile: 4ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 7ms, render: 47ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 117ms (compile: 5ms, proxy.ts: 5ms, render: 107ms)
+ GET / 200 in 96ms (compile: 4ms, proxy.ts: 4ms, render: 88ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 57ms (compile: 4ms, proxy.ts: 4ms, render: 49ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 7ms, render: 80ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 3ms, render: 76ms)
+ GET / 200 in 69ms (compile: 3ms, proxy.ts: 3ms, render: 63ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 67ms (compile: 4ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 59ms (compile: 4ms, proxy.ts: 3ms, render: 52ms)
+ GET / 200 in 64ms (compile: 3ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 91ms (compile: 6ms, proxy.ts: 3ms, render: 82ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 86ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 4ms, render: 47ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 99ms (compile: 4ms, proxy.ts: 4ms, render: 90ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 122ms (compile: 4ms, proxy.ts: 3ms, render: 116ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 69ms (compile: 3ms, proxy.ts: 4ms, render: 62ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 4ms, render: 49ms)
+ GET / 200 in 48ms (compile: 3ms, proxy.ts: 2ms, render: 43ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 3ms, render: 77ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 66ms (compile: 4ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 72ms (compile: 4ms, proxy.ts: 4ms, render: 65ms)
+ GET / 200 in 92ms (compile: 6ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 52ms (compile: 4ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 5ms, render: 85ms)
+ GET / 200 in 116ms (compile: 5ms, proxy.ts: 5ms, render: 106ms)
+ GET / 200 in 66ms (compile: 3ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 65ms (compile: 4ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 93ms (compile: 5ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 58ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 112ms (compile: 5ms, proxy.ts: 5ms, render: 103ms)
+ GET / 200 in 103ms (compile: 4ms, proxy.ts: 5ms, render: 94ms)
+ GET / 200 in 68ms (compile: 3ms, proxy.ts: 3ms, render: 62ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 3ms, render: 80ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 62ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 3ms, render: 79ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 18ms (compile: 3ms, proxy.ts: 4ms, render: 10ms)
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET / 200 in 52ms (compile: 4ms, proxy.ts: 2ms, render: 45ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 56ms (compile: 5ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 62ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 3ms, render: 87ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 3ms, render: 88ms)
+ GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 48ms (compile: 3ms, proxy.ts: 3ms, render: 43ms)
+ GET / 200 in 60ms (compile: 3ms, proxy.ts: 3ms, render: 54ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 70ms)
+ GET / 200 in 88ms (compile: 5ms, proxy.ts: 3ms, render: 80ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 3ms, render: 84ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 65ms (compile: 4ms, proxy.ts: 4ms, render: 57ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 4ms, render: 45ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 58ms (compile: 4ms, proxy.ts: 4ms, render: 51ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 3ms, render: 61ms)
+ GET / 200 in 56ms (compile: 4ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 92ms (compile: 5ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 112ms (compile: 4ms, proxy.ts: 5ms, render: 103ms)
+ GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 60ms (compile: 4ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 7ms, render: 82ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 67ms (compile: 4ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 76ms (compile: 3ms, proxy.ts: 3ms, render: 69ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 4ms, render: 59ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 52ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 3ms, render: 80ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 19ms (compile: 4ms, proxy.ts: 4ms, render: 11ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 68ms (compile: 3ms, proxy.ts: 3ms, render: 62ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 65ms (compile: 4ms, proxy.ts: 4ms, render: 57ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 3ms, render: 83ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 3ms, render: 76ms)
+ GET / 200 in 122ms (compile: 4ms, proxy.ts: 3ms, render: 116ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 5ms, render: 45ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 2ms, render: 82ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 57ms)
+✓ Compiled in 78ms
+ GET / 200 in 339ms (compile: 63ms, proxy.ts: 3ms, render: 273ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 3ms, render: 81ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w2/messages 404 in 765ms (compile: 745ms, proxy.ts: 3ms, render: 17ms)
+ GET / 200 in 94ms (compile: 5ms, proxy.ts: 3ms, render: 86ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w2/messages 404 in 37ms (compile: 23ms, proxy.ts: 6ms, render: 7ms)
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET / 200 in 88ms (compile: 5ms, proxy.ts: 4ms, render: 80ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 70ms (compile: 4ms, proxy.ts: 3ms, render: 63ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 101ms (compile: 5ms, proxy.ts: 5ms, render: 91ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 3ms, render: 79ms)
+ GET / 200 in 87ms (compile: 3ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 114ms (compile: 5ms, proxy.ts: 5ms, render: 105ms)
+ GET / 200 in 104ms (compile: 4ms, proxy.ts: 4ms, render: 96ms)
+ GET / 200 in 107ms (compile: 4ms, proxy.ts: 4ms, render: 100ms)
+ GET / 200 in 70ms (compile: 3ms, proxy.ts: 3ms, render: 63ms)
+ GET / 200 in 72ms (compile: 3ms, proxy.ts: 3ms, render: 65ms)
+ GET / 200 in 101ms (compile: 7ms, proxy.ts: 4ms, render: 90ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 3ms, render: 85ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 86ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 68ms (compile: 4ms, proxy.ts: 4ms, render: 60ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 17ms (compile: 3ms, proxy.ts: 4ms, render: 10ms)
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET / 200 in 122ms (compile: 17ms, proxy.ts: 4ms, render: 102ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 4ms, render: 46ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 14ms (compile: 3ms, proxy.ts: 3ms, render: 8ms)
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 67ms (compile: 4ms, proxy.ts: 3ms, render: 61ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 3ms, render: 77ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 86ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+✓ Compiled in 145ms
+ GET / 200 in 80ms (compile: 5ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+✓ Compiled in 257ms
+⨯ ReferenceError: AppShell is not defined
+    at Hero (src/app/page.tsx:317:16)
+  315 |           <DesktopStage>
+  316 |             <DraggableWindow width={820} height={520}>
+> 317 |               <AppShell user={null} />
+      |                ^
+  318 |             </DraggableWindow>
+  319 |           </DesktopStage>
+  320 |           <p className="mt-3 text-center text-[11px] text-muted-foreground"> {
+  digest: '1729869487'
+}
+ GET / 500 in 612ms (compile: 334ms, proxy.ts: 3ms, render: 274ms)
+⨯ ReferenceError: AppShell is not defined
+    at Hero (src/app/page.tsx:317:16)
+  315 |           <DesktopStage>
+  316 |             <DraggableWindow width={820} height={520}>
+> 317 |               <AppShell user={null} />
+      |                ^
+  318 |             </DraggableWindow>
+  319 |           </DesktopStage>
+  320 |           <p className="mt-3 text-center text-[11px] text-muted-foreground"> {
+  digest: '1729869487'
+}
+ GET / 500 in 78ms (compile: 4ms, proxy.ts: 5ms, render: 70ms)
+⨯ ReferenceError: AppShell is not defined
+    at Hero (src/app/page.tsx:317:16)
+  315 |           <DesktopStage>
+  316 |             <DraggableWindow width={820} height={520}>
+> 317 |               <AppShell user={null} />
+      |                ^
+  318 |             </DraggableWindow>
+  319 |           </DesktopStage>
+  320 |           <p className="mt-3 text-center text-[11px] text-muted-foreground"> {
+  digest: '1729869487'
+}
+ GET / 500 in 69ms (compile: 4ms, proxy.ts: 4ms, render: 62ms)
+⨯ ReferenceError: AppShell is not defined
+    at Hero (src/app/page.tsx:317:16)
+  315 |           <DesktopStage>
+  316 |             <DraggableWindow width={820} height={520}>
+> 317 |               <AppShell user={null} />
+      |                ^
+  318 |             </DraggableWindow>
+  319 |           </DesktopStage>
+  320 |           <p className="mt-3 text-center text-[11px] text-muted-foreground"> {
+  digest: '1729869487'
+}
+ GET / 500 in 72ms (compile: 4ms, proxy.ts: 5ms, render: 63ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+✓ Compiled in 244ms
+ GET / 500 in 256ms (compile: 240ms, proxy.ts: 4ms, render: 12ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 35ms (compile: 20ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 35ms (compile: 20ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 39ms (compile: 24ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 30ms (compile: 16ms, proxy.ts: 3ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 30ms (compile: 16ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 30ms (compile: 15ms, proxy.ts: 3ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 32ms (compile: 18ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 38ms (compile: 22ms, proxy.ts: 5ms, render: 12ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 33ms (compile: 19ms, proxy.ts: 4ms, render: 10ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 33ms (compile: 19ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 25ms (compile: 15ms, proxy.ts: 3ms, render: 8ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 24ms (compile: 13ms, proxy.ts: 3ms, render: 8ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 30ms (compile: 17ms, proxy.ts: 3ms, render: 10ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 34ms (compile: 19ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 29ms (compile: 19ms, proxy.ts: 3ms, render: 7ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 40ms (compile: 26ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 31ms (compile: 22ms, proxy.ts: 3ms, render: 7ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 39ms (compile: 23ms, proxy.ts: 4ms, render: 13ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 31ms (compile: 18ms, proxy.ts: 3ms, render: 10ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 69ms (compile: 52ms, proxy.ts: 4ms, render: 12ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 36ms (compile: 20ms, proxy.ts: 4ms, render: 13ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 25ms (compile: 16ms, proxy.ts: 3ms, render: 7ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 23ms (compile: 14ms, proxy.ts: 3ms, render: 7ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 28ms (compile: 17ms, proxy.ts: 4ms, render: 8ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 28ms (compile: 17ms, proxy.ts: 3ms, render: 7ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 29ms (compile: 18ms, proxy.ts: 4ms, render: 7ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 34ms (compile: 20ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 30ms (compile: 16ms, proxy.ts: 3ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 28ms (compile: 14ms, proxy.ts: 3ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 31ms (compile: 17ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:4:1
+Module not found: Can't resolve './logo'
+[0m [90m 2 |[39m
+ [90m 3 |[39m [36mimport[39m [33m*[39m [36mas[39m [33mReact[39m [36mfrom[39m [32m"react"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 4 |[39m [36mimport[39m { [33mApicalWordmark[39m } [36mfrom[39m [32m"./logo"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 5 |[39m [36mimport[39m { cn } [36mfrom[39m [32m"@/lib/utils"[39m[33m;[39m
+ [90m 6 |[39m [36mimport[39m {
+ [90m 7 |[39m   [33mBoxes[39m[33m,[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ GET / 500 in 32ms (compile: 18ms, proxy.ts: 4ms, render: 11ms)
+✓ Compiled in 102ms
+ GET / 200 in 225ms (compile: 39ms, proxy.ts: 4ms, render: 181ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 61ms (compile: 4ms, proxy.ts: 3ms, render: 54ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 18ms (compile: 4ms, proxy.ts: 4ms, render: 9ms)
+ GET / 200 in 85ms (compile: 5ms, proxy.ts: 3ms, render: 77ms)
+ GET / 200 in 150ms (compile: 70ms, proxy.ts: 7ms, render: 73ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 5ms, render: 68ms)
+ GET / 200 in 70ms (compile: 4ms, proxy.ts: 3ms, render: 62ms)
+ GET / 200 in 70ms (compile: 3ms, proxy.ts: 3ms, render: 64ms)
+ GET / 200 in 99ms (compile: 4ms, proxy.ts: 3ms, render: 93ms)
+ GET / 200 in 97ms (compile: 4ms, proxy.ts: 3ms, render: 90ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 87ms)
+ GET / 200 in 66ms (compile: 3ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 58ms (compile: 4ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 91ms (compile: 5ms, proxy.ts: 3ms, render: 84ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 49ms (compile: 34ms, proxy.ts: 5ms, render: 11ms)
+ GET / 200 in 91ms (compile: 5ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 80ms (compile: 5ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 70ms (compile: 4ms, proxy.ts: 4ms, render: 62ms)
+ GET / 200 in 101ms (compile: 4ms, proxy.ts: 4ms, render: 93ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 137ms (compile: 28ms, proxy.ts: 3ms, render: 106ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 67ms (compile: 4ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 3ms, render: 77ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 4ms, render: 44ms)
+ GET / 200 in 84ms (compile: 5ms, proxy.ts: 3ms, render: 77ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 51ms (compile: 4ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 94ms (compile: 5ms, proxy.ts: 4ms, render: 86ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 69ms)
+ GET / 200 in 76ms (compile: 4ms, proxy.ts: 3ms, render: 68ms)
+ GET / 200 in 59ms (compile: 4ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 76ms (compile: 4ms, proxy.ts: 4ms, render: 69ms)
+ GET / 200 in 49ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 48ms (compile: 3ms, proxy.ts: 3ms, render: 41ms)

@@ -1130,3 +1130,71 @@ Stage Summary:
 - Each chat correlates to its own agent (workflowId linkage). Orchestrator chat = general context.
 - Login bug fixed: useSession() syncs user state with NextAuth session, auto-launches on reload when authenticated, signOut clears the cookie.
 - Lint clean, types clean, server stable.
+
+---
+Task ID: HISTORY-1
+Agent: Main (orchestrator)
+Task: Wire chat history to real backend (load + persist). Show history above the Apical welcome. Make landing preview distinct from real web app.
+
+Work Log:
+- CHAT HISTORY WIRING (src/components/apical/agents-view.tsx ChatPane rewrite):
+  - Replaced the hardcoded messagesForAgent() useEffect with a real API fetch:
+    useEffect calls GET /api/agents/[agent.id]/messages on mount. If the API
+    returns history, that's what's shown. If empty (new agent, first visit),
+    falls back to messagesForAgent() so the UI isn't blank. If the API errors,
+    also falls back. Loading spinner while fetching.
+  - Added persistMessage(msg) — POSTs each user message + agent reply to
+    /api/agents/[id]/messages so they survive page reloads. The orchestrator
+    chat skips persistence (no agent row).
+  - sendPlan() + sendDo() now call persistMessage() on every reply.
+  - The "all agent chats show the same messages" bug is fixed: each agent
+    loads its OWN persisted history. Switching agents re-fetches.
+- APICAL WELCOME + HISTORY:
+  - The Apical (orchestrator) chat shows the welcome summary (apicalWelcomeMessage)
+    as the FIRST message, then any subsequent conversation flows below it.
+    The welcome is prepended, not replacing — so the user sees "Good afternoon,
+    Jordan. 19 items need your review..." at the top, then their ongoing chat.
+  - For real agents, the history IS the chat — no greeting prepended (the
+    agent's first message is whatever was said first, persisted or demo).
+- LANDING PREVIEW vs REAL WEB APP — now distinctly different:
+  - NEW: src/components/landing/DemoAppShell.tsx (~200 lines) — a lightweight,
+    self-contained look-alike for the landing page preview only. NO API calls
+    (all data inline mock). NO auth (generic "Jordan" user). NO interactivity
+    beyond tab switching + typing a canned reply. A subtle "DEMO" watermark in
+    the corner. Curated demo data (6 agents, 3-message chat thread, mock vault
+    connections, mock data tables) so it always looks populated.
+  - src/app/page.tsx: replaced <AppShell user={null} /> with <DemoAppShell />.
+    The landing preview no longer makes real API calls that could fail/hang
+    or show empty data. The copy changed from "This is the real app" to
+    "A live look at the app... Sign in for the full app."
+  - src/components/landing/FullscreenApp.tsx: UNCHANGED — still uses the real
+    <AppShell user={user} /> when the user launches the web app after login.
+    So: landing = DemoAppShell (mock), launched app = AppShell (real APIs).
+- REAL WEB APP FUNCTIONALITY AUDIT:
+  - Vault tab: hits /api/oauth/providers, /api/credentials, /api/oauth/start,
+    /api/oauth/demo-connect, /api/oauth/disconnect, /api/integrations,
+    /api/tokens. All real, all scoped to the current user. ✓
+  - Settings (Models): hits /api/llm/models, /api/byok. Real. ✓
+  - Agents view: hits /api/agents/[id]/messages (load + persist),
+    /api/workflows/[id] (config save). Real. ✓
+  - Data tab: hits /api/tables/* (existing). Real. ✓
+  - The real web app is fully functional — every tab wires to real APIs.
+- VERIFICATION:
+  - bun run lint → 0 errors, 0 warnings.
+  - bunx tsc --noEmit → 0 errors in any new/edited file.
+  - Server renders HTTP 200. Landing page HTML contains "Demo" watermark +
+    does NOT contain AppShell/AgentsView (confirmed the real shell isn't
+    loaded on the landing).
+  - GET /api/agents/w1/messages → { messages: [] } (empty but works — will
+    populate as users chat).
+
+Stage Summary:
+- Chat history is now real: loaded from /api/agents/[id]/messages on mount,
+  persisted on every send. Each agent has its own thread. The "all chats same"
+  bug is fixed. History survives reloads.
+- Apical welcome summary appears at the TOP of the Apical chat, with the real
+  conversation history flowing below it.
+- Landing preview is now a distinct DemoAppShell (mock data, no API calls,
+  "DEMO" watermark). The real web app (FullscreenApp → AppShell) is fully
+  functional with real APIs. They're no longer the same component.
+- Lint clean, types clean, server stable.
