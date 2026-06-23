@@ -1239,3 +1239,45 @@ Stage Summary:
 - Agent view is now browser-tab-style: tab bar at the top, switchable, closeable, + split-view toggle (side-by-side up to 2). Inspector hidden in split view.
 - Landing demo is now a 1:1 visual replica of the real UI (same three-pane layout, same tab bar, same inspector) but with download gates when users try to actually use features. The real app is fully functional; the demo is a faithful look-alike.
 - Lint clean, types clean, server stable.
+
+---
+Task ID: NORAILS-1
+Agent: Main (orchestrator)
+Task: Remove browser tabs. Move Dashboard/Workflow/Config into the right rail (not center mode tabs). Slate background + white text for user chats. Build mobile-specific architecture from scratch.
+
+Work Log:
+- REMOVED BROWSER TABS:
+  - Store: removed openTabs, openTab, closeTab, splitView, setSplitView, splitTabId, setSplitTabId. Added mobilePane + setMobilePane for the mobile architecture. Removed AgentCenterMode type (no longer needed); added InspectorSection type.
+  - agents-view.tsx: removed the TabBar component + all tab/split logic from AgentsView. The center pane is now single (no tabs, no split).
+- DASHBOARD/WORKFLOW/CONFIG MOVED TO RIGHT RAIL:
+  - CenterPane: removed the Chat/Dashboard/Workflow/Config mode tabs from the sub-header. Center pane is now CHAT ONLY.
+  - InspectorPane: now has a section switcher at the top — Overview / Dashboard / Workflow / Config as tabs WITHIN the right rail. Overview shows the existing summary (status, flagged button, workflow steps, stats, recent runs, quick links). Dashboard/Workflow/Config render the full AgentDashboard/AgentWorkflow/AgentConfig components inline in the right rail.
+  - InspectorOverview extracted as its own component (takes onGoSection callback so the flagged button + "Full dashboard →" / "Edit config →" links switch the section).
+  - On narrow desktops (below lg), the right rail collapses (hidden lg:flex). The inspector toggle in the center header shows/hides it.
+- SLATE USER MESSAGES:
+  - MessageBubble: user messages changed from bg-primary text-primary-foreground (green) to bg-slate-600 text-white (slate gray + white text). High contrast, neutral, clearly the user's message. Agent messages unchanged (plain text, no bubble).
+- MOBILE ARCHITECTURE (built from scratch):
+  - AgentsView now detects mobile via window.matchMedia('(max-width: 767px)'). Below md, renders MobileAgentsView; at md+, renders DesktopAgentsView.
+  - MobileAgentsView: completely different from desktop. Three panes (Agents / Chat / Detail), one visible at a time, switched via a BOTTOM TAB BAR (h-14, fixed at the bottom). Each tab has an icon + label + optional badge (the Agents tab shows the total flagged count across all agents as a red badge). The Detail tab is disabled when on the Apical (orchestrator) chat (no agent details to show).
+  - MobileAgentList: full-width agent rows (h-9 avatars, larger touch targets), Apical pinned at top, agents below with status dots + flagged badges. Tapping a row sets the active conversation + switches to the Chat pane.
+  - MobileDetailPane: a full-pane view with the same Overview/Dashboard/Workflow/Config section tabs as the desktop right rail. Renders InspectorOverview / AgentDashboard / AgentWorkflow / AgentConfig inline.
+  - MobileTabButton: flex-1, column layout (icon over label), active = text-primary, badge = red dot with count.
+  - Top bar: ApicalMark + current agent name + department. Minimal — mobile screens are narrow.
+- DEMO APP SHELL UPDATED TO MATCH:
+  - Removed the browser tab bar from the demo (no more TabBar in the center).
+  - Removed the Chat/Dashboard/Workflow/Config mode tabs from the center header (center is chat only).
+  - Added Overview/Dashboard/Workflow/Config section tabs to the right inspector (mirrors the real layout). Clicking Dashboard/Workflow/Config triggers the download gate.
+  - User messages: bg-slate-600 text-white (matches the real app).
+  - Removed the unused Columns2 import.
+- VERIFICATION:
+  - bun run lint → 0 errors, 0 warnings.
+  - bunx tsc --noEmit → 0 errors in any new/edited file.
+  - Server renders HTTP 200. Landing page HTML contains bg-slate-600 + the overview/dashboard/workflow/config section tabs in the right rail.
+
+Stage Summary:
+- No more browser tabs. Single center pane = chat only.
+- Dashboard/Workflow/Config now live in the right rail as section tabs (Overview/Dashboard/Workflow/Config). The right rail collapses below lg.
+- User chat messages: slate background (bg-slate-600) + white text.
+- Mobile architecture built from scratch: bottom tab bar (Agents/Chat/Detail), one pane at a time, slide-in detail with the same D/W/C sections. Completely different from desktop 3-rail.
+- Demo shell updated to match (no tabs, slate msgs, right-rail D/W/C sections).
+- Lint clean, types clean, server stable.

@@ -14,7 +14,6 @@ import {
   Plus,
   ArrowUp,
   X,
-  Columns2,
   ShieldCheck,
   AlertTriangle,
   CheckCircle2,
@@ -214,65 +213,9 @@ export function DemoAppShell() {
               </div>
             </aside>
 
-            {/* Center — tab bar + chat (mirrors real AgentsView) */}
+            {/* Center — chat only (no tab bar; D/W/C live in the right rail) */}
             <div className="flex min-w-0 flex-1 flex-col">
-              {/* Browser-style tab bar */}
-              <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-border bg-muted/40 px-1.5">
-                <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-                  {openTabs.map((tabId) => {
-                    const isApical = tabId === "apical";
-                    const agent = DEMO_AGENTS.find((a) => a.id === tabId);
-                    const isActive = tabId === activeTab;
-                    return (
-                      <div
-                        key={tabId}
-                        onClick={() => setActiveTab(tabId)}
-                        className={cn(
-                          "group flex shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border-x border-t px-2.5 py-1 text-[11px] transition-colors",
-                          isActive ? "border-border bg-background text-foreground" : "border-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-                        )}
-                      >
-                        {isApical ? (
-                          <Sparkles className="h-3 w-3 text-primary" />
-                        ) : agent ? (
-                          <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary/20 text-[7px] font-semibold text-primary">
-                            {agent.name[0]}
-                          </div>
-                        ) : null}
-                        <span className="max-w-[100px] truncate">{isApical ? "Apical" : agent?.name ?? tabId}</span>
-                        {openTabs.length > 1 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const remaining = openTabs.filter((t) => t !== tabId);
-                              setOpenTabs(remaining.length ? remaining : ["apical"]);
-                              if (activeTab === tabId) setActiveTab(remaining[0] ?? "apical");
-                            }}
-                            className="ml-0.5 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
-                          >
-                            <X className="h-2.5 w-2.5" />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                <button
-                  onClick={() => showGate("Split view is available in the full app. Download Apical to use it.")}
-                  disabled={openTabs.length < 2}
-                  className={cn(
-                    "flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
-                    "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-                    openTabs.length < 2 && "cursor-not-allowed opacity-40",
-                  )}
-                  title="Split view (side-by-side)"
-                >
-                  <Columns2 className="h-3 w-3" />
-                  <span className="hidden sm:inline">Split</span>
-                </button>
-              </div>
-
-              {/* Center pane header */}
+              {/* Center pane header — agent identity only, no mode tabs */}
               <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
                 {activeTab === "apical" ? (
                   <div className="flex items-center gap-2">
@@ -305,22 +248,6 @@ export function DemoAppShell() {
                     </div>
                   </div>
                 )}
-                {activeTab !== "apical" && (
-                  <div className="ml-auto flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-0.5">
-                    {(["chat", "dashboard", "workflow", "config"] as const).map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => m !== "chat" && showGate(`${m.charAt(0).toUpperCase() + m.slice(1)} view is available in the full app. Download Apical to use it.`)}
-                        className={cn(
-                          "rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors",
-                          m === "chat" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        {m}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
 
               {/* Chat area */}
@@ -341,7 +268,7 @@ export function DemoAppShell() {
                     {m.role === "user" ? (
                       <div className="flex justify-end">
                         <div className="max-w-[85%] space-y-1">
-                          <div className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground">
+                          <div className="rounded-md bg-slate-600 px-3 py-2 text-sm text-white">
                             {m.content}
                           </div>
                         </div>
@@ -395,10 +322,25 @@ export function DemoAppShell() {
               </div>
             </div>
 
-            {/* Right inspector — mirrors real InspectorPane (static) */}
+            {/* Right inspector — mirrors real InspectorPane. Houses Overview/Dashboard/Workflow/Config as section tabs. */}
             {activeTab !== "apical" && (
-              <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-l border-border bg-muted/30 lg:flex">
-                <div className="space-y-3 p-3">
+              <aside className="hidden w-72 shrink-0 flex-col overflow-hidden border-l border-border bg-muted/30 lg:flex">
+                {/* Section tabs — Overview / Dashboard / Workflow / Config */}
+                <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background/50 p-1">
+                  {(["overview", "dashboard", "workflow", "config"] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => s !== "overview" && showGate(`${s.charAt(0).toUpperCase() + s.slice(1)} view is available in the full app. Download Apical.`)}
+                      className={cn(
+                        "flex-1 rounded-md px-2 py-1 text-[10px] font-medium capitalize transition-colors",
+                        s === "overview" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+                      )}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
                   <div className="rounded-lg border border-border bg-card p-3">
                     <div className="mb-2 flex items-center gap-2">
                       <span className={cn("h-2 w-2 rounded-full", selectedAgent.color)} />

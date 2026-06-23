@@ -54566,3 +54566,1538 @@ prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `m
  GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 57ms)
  GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
  GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 181ms (compile: 4ms, proxy.ts: 4ms, render: 173ms)
+ GET / 200 in 111ms (compile: 8ms, proxy.ts: 6ms, render: 97ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 4ms, render: 47ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 59ms (compile: 4ms, proxy.ts: 4ms, render: 52ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 4ms, render: 60ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 3ms, render: 77ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 70ms (compile: 3ms, proxy.ts: 3ms, render: 64ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 91ms (compile: 5ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 55ms (compile: 4ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 52ms (compile: 5ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 98ms (compile: 4ms, proxy.ts: 5ms, render: 89ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 73ms (compile: 3ms, proxy.ts: 3ms, render: 66ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 3ms, render: 77ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 49ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 60ms (compile: 3ms, proxy.ts: 4ms, render: 53ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 55ms (compile: 4ms, proxy.ts: 4ms, render: 47ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 3ms, render: 61ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 17ms (compile: 3ms, proxy.ts: 4ms, render: 9ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 65ms (compile: 4ms, proxy.ts: 3ms, render: 58ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 76ms (compile: 4ms, proxy.ts: 3ms, render: 68ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 63ms (compile: 5ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 12ms (compile: 3ms, proxy.ts: 3ms, render: 7ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 40ms (compile: 25ms, proxy.ts: 4ms, render: 11ms)
+ GET / 200 in 87ms (compile: 5ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 85ms (compile: 3ms, proxy.ts: 3ms, render: 78ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`OAuthProvider`.`id`, `main`.`OAuthProvider`.`key`, `main`.`OAuthProvider`.`name`, `main`.`OAuthProvider`.`icon`, `main`.`OAuthProvider`.`category`, `main`.`OAuthProvider`.`description`, `main`.`OAuthProvider`.`authorizationUrl`, `main`.`OAuthProvider`.`tokenUrl`, `main`.`OAuthProvider`.`scopes`, `main`.`OAuthProvider`.`clientId`, `main`.`OAuthProvider`.`clientSecret`, `main`.`OAuthProvider`.`supportsCustomCreds`, `main`.`OAuthProvider`.`demoMode`, `main`.`OAuthProvider`.`status`, `main`.`OAuthProvider`.`createdAt`, `main`.`OAuthProvider`.`updatedAt` FROM `main`.`OAuthProvider` WHERE 1=1 ORDER BY `main`.`OAuthProvider`.`category` ASC, `main`.`OAuthProvider`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/oauth/providers 200 in 15ms (compile: 6ms, proxy.ts: 3ms, render: 6ms)
+ GET /api/credentials 200 in 21ms (compile: 6ms, proxy.ts: 3ms, render: 12ms)
+prisma:query SELECT `main`.`Credential`.`id`, `main`.`Credential`.`userId`, `main`.`Credential`.`service`, `main`.`Credential`.`label`, `main`.`Credential`.`kind`, `main`.`Credential`.`status`, `main`.`Credential`.`metaJson`, `main`.`Credential`.`agentProvisioned`, `main`.`Credential`.`canPay`, `main`.`Credential`.`oauthProvider`, `main`.`Credential`.`oauthAccessToken`, `main`.`Credential`.`oauthRefreshToken`, `main`.`Credential`.`oauthExpiresAt`, `main`.`Credential`.`createdAt`, `main`.`Credential`.`updatedAt` FROM `main`.`Credential` WHERE `main`.`Credential`.`userId` = ? ORDER BY `main`.`Credential`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 3ms, render: 47ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Credential`.`id`, `main`.`Credential`.`userId`, `main`.`Credential`.`service`, `main`.`Credential`.`label`, `main`.`Credential`.`kind`, `main`.`Credential`.`status`, `main`.`Credential`.`metaJson`, `main`.`Credential`.`agentProvisioned`, `main`.`Credential`.`canPay`, `main`.`Credential`.`oauthProvider`, `main`.`Credential`.`oauthAccessToken`, `main`.`Credential`.`oauthRefreshToken`, `main`.`Credential`.`oauthExpiresAt`, `main`.`Credential`.`createdAt`, `main`.`Credential`.`updatedAt` FROM `main`.`Credential` WHERE `main`.`Credential`.`userId` = ? ORDER BY `main`.`Credential`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET /api/credentials 200 in 12ms (compile: 3ms, proxy.ts: 3ms, render: 7ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`OAuthProvider`.`id`, `main`.`OAuthProvider`.`key`, `main`.`OAuthProvider`.`name`, `main`.`OAuthProvider`.`icon`, `main`.`OAuthProvider`.`category`, `main`.`OAuthProvider`.`description`, `main`.`OAuthProvider`.`authorizationUrl`, `main`.`OAuthProvider`.`tokenUrl`, `main`.`OAuthProvider`.`scopes`, `main`.`OAuthProvider`.`clientId`, `main`.`OAuthProvider`.`clientSecret`, `main`.`OAuthProvider`.`supportsCustomCreds`, `main`.`OAuthProvider`.`demoMode`, `main`.`OAuthProvider`.`status`, `main`.`OAuthProvider`.`createdAt`, `main`.`OAuthProvider`.`updatedAt` FROM `main`.`OAuthProvider` WHERE 1=1 ORDER BY `main`.`OAuthProvider`.`category` ASC, `main`.`OAuthProvider`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/oauth/providers 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 38ms (compile: 26ms, proxy.ts: 4ms, render: 9ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 18ms (compile: 6ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 3ms, render: 79ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 64ms (compile: 4ms, proxy.ts: 3ms, render: 57ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w2/messages 404 in 47ms (compile: 33ms, proxy.ts: 3ms, render: 11ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 65ms (compile: 3ms, proxy.ts: 3ms, render: 59ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 35ms (compile: 23ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 67ms (compile: 6ms, proxy.ts: 3ms, render: 58ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 68ms (compile: 3ms, proxy.ts: 3ms, render: 62ms)
+ GET / 200 in 56ms (compile: 4ms, proxy.ts: 4ms, render: 49ms)
+ GET / 200 in 52ms (compile: 4ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 55ms (compile: 4ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 62ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 33ms (compile: 21ms, proxy.ts: 3ms, render: 9ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 17ms (compile: 5ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 82ms (compile: 6ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 3ms, render: 85ms)
+ GET / 200 in 118ms (compile: 5ms, proxy.ts: 5ms, render: 109ms)
+ GET / 200 in 66ms (compile: 3ms, proxy.ts: 3ms, render: 60ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 33ms (compile: 22ms, proxy.ts: 3ms, render: 8ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 14ms (compile: 4ms, proxy.ts: 3ms, render: 6ms)
+ GET / 200 in 65ms (compile: 5ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 60ms (compile: 4ms, proxy.ts: 4ms, render: 53ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 65ms (compile: 4ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 57ms (compile: 4ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 86ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 3ms, render: 61ms)
+ GET / 200 in 77ms (compile: 3ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 118ms (compile: 5ms, proxy.ts: 5ms, render: 108ms)
+ GET / 200 in 95ms (compile: 4ms, proxy.ts: 4ms, render: 88ms)
+ GET / 200 in 67ms (compile: 5ms, proxy.ts: 3ms, render: 59ms)
+ GET / 200 in 85ms (compile: 3ms, proxy.ts: 3ms, render: 79ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 100ms (compile: 4ms, proxy.ts: 4ms, render: 91ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 62ms (compile: 4ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 98ms (compile: 5ms, proxy.ts: 4ms, render: 90ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 58ms (compile: 4ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 99ms (compile: 6ms, proxy.ts: 4ms, render: 89ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 62ms (compile: 4ms, proxy.ts: 4ms, render: 54ms)
+ GET / 200 in 95ms (compile: 4ms, proxy.ts: 4ms, render: 87ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 100ms (compile: 5ms, proxy.ts: 4ms, render: 91ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 3ms, render: 85ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 3ms, render: 77ms)
+ GET / 200 in 97ms (compile: 4ms, proxy.ts: 4ms, render: 89ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 83ms (compile: 3ms, proxy.ts: 3ms, render: 76ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 87ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 3ms, render: 79ms)
+ GET / 200 in 97ms (compile: 5ms, proxy.ts: 4ms, render: 88ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 5ms, render: 76ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 38ms (compile: 24ms, proxy.ts: 3ms, render: 10ms)
+ GET / 200 in 91ms (compile: 6ms, proxy.ts: 3ms, render: 82ms)
+ GET / 200 in 100ms (compile: 5ms, proxy.ts: 4ms, render: 92ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 3ms, render: 80ms)
+ GET / 200 in 60ms (compile: 4ms, proxy.ts: 4ms, render: 53ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 110ms (compile: 4ms, proxy.ts: 4ms, render: 102ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 3ms, render: 76ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 3ms, render: 86ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 3ms, render: 78ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 86ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 4ms, render: 47ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 4ms, render: 46ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 4ms, render: 46ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 101ms (compile: 4ms, proxy.ts: 4ms, render: 94ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 106ms (compile: 4ms, proxy.ts: 4ms, render: 98ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 5ms, render: 83ms)
+ GET / 200 in 84ms (compile: 5ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 96ms (compile: 4ms, proxy.ts: 3ms, render: 90ms)
+ GET / 200 in 83ms (compile: 5ms, proxy.ts: 5ms, render: 73ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 3ms, render: 88ms)
+ GET / 200 in 91ms (compile: 6ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 93ms (compile: 5ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 114ms (compile: 5ms, proxy.ts: 5ms, render: 105ms)
+ GET / 200 in 75ms (compile: 4ms, proxy.ts: 3ms, render: 68ms)
+ GET / 200 in 104ms (compile: 4ms, proxy.ts: 5ms, render: 95ms)
+ GET / 200 in 70ms (compile: 3ms, proxy.ts: 3ms, render: 64ms)
+ GET / 200 in 67ms (compile: 6ms, proxy.ts: 3ms, render: 58ms)
+ GET / 200 in 100ms (compile: 4ms, proxy.ts: 3ms, render: 94ms)
+ GET / 200 in 95ms (compile: 5ms, proxy.ts: 3ms, render: 87ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 4ms, render: 51ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 57ms (compile: 4ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 72ms (compile: 6ms, proxy.ts: 3ms, render: 63ms)
+ GET / 200 in 87ms (compile: 5ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 104ms (compile: 4ms, proxy.ts: 4ms, render: 96ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 65ms (compile: 3ms, proxy.ts: 3ms, render: 59ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 62ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 67ms (compile: 4ms, proxy.ts: 3ms, render: 59ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 62ms (compile: 3ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 63ms (compile: 4ms, proxy.ts: 4ms, render: 56ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 14ms (compile: 3ms, proxy.ts: 3ms, render: 8ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 98ms (compile: 4ms, proxy.ts: 4ms, render: 90ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 92ms (compile: 5ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 91ms (compile: 5ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 102ms (compile: 4ms, proxy.ts: 4ms, render: 94ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 3ms, render: 80ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 73ms (compile: 4ms, proxy.ts: 3ms, render: 66ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 4ms, render: 45ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 49ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 3ms, render: 85ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 95ms (compile: 4ms, proxy.ts: 4ms, render: 88ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 56ms (compile: 4ms, proxy.ts: 4ms, render: 49ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 3ms, render: 76ms)
+ GET / 200 in 57ms (compile: 4ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 95ms (compile: 4ms, proxy.ts: 4ms, render: 87ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 4ms, render: 86ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 4ms, render: 47ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 58ms (compile: 5ms, proxy.ts: 4ms, render: 49ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 52ms (compile: 4ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 72ms (compile: 4ms, proxy.ts: 3ms, render: 65ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 64ms (compile: 3ms, proxy.ts: 4ms, render: 57ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 4ms, render: 46ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 76ms (compile: 4ms, proxy.ts: 4ms, render: 68ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 99ms (compile: 4ms, proxy.ts: 4ms, render: 91ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 60ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 63ms (compile: 4ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 83ms (compile: 5ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 99ms (compile: 4ms, proxy.ts: 4ms, render: 92ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 17ms (compile: 4ms, proxy.ts: 5ms, render: 9ms)
+ GET / 200 in 52ms (compile: 4ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 4ms, render: 47ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 63ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 64ms (compile: 4ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 82ms (compile: 5ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 71ms (compile: 4ms, proxy.ts: 3ms, render: 63ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 4ms, render: 48ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 65ms (compile: 4ms, proxy.ts: 4ms, render: 58ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 64ms (compile: 3ms, proxy.ts: 3ms, render: 58ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 17ms (compile: 3ms, proxy.ts: 4ms, render: 9ms)
+ GET / 200 in 82ms (compile: 5ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 3ms, render: 80ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 97ms (compile: 4ms, proxy.ts: 3ms, render: 90ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 12ms (compile: 3ms, proxy.ts: 3ms, render: 6ms)
+ GET / 200 in 86ms (compile: 8ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 3ms, render: 62ms)
+ GET / 200 in 58ms (compile: 4ms, proxy.ts: 3ms, render: 52ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 4ms, render: 46ms)
+ GET / 200 in 55ms (compile: 4ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+✓ Compiled in 119ms
+ GET / 200 in 214ms (compile: 43ms, proxy.ts: 4ms, render: 167ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 76ms (compile: 3ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 83ms (compile: 5ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 3ms, render: 76ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 98ms (compile: 4ms, proxy.ts: 4ms, render: 90ms)
+ GET / 200 in 108ms (compile: 5ms, proxy.ts: 5ms, render: 99ms)
+ GET / 200 in 96ms (compile: 4ms, proxy.ts: 4ms, render: 88ms)
+ GET / 200 in 60ms (compile: 5ms, proxy.ts: 4ms, render: 51ms)
+ GET / 200 in 92ms (compile: 5ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 101ms (compile: 4ms, proxy.ts: 3ms, render: 94ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 68ms (compile: 4ms, proxy.ts: 4ms, render: 60ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 118ms (compile: 5ms, proxy.ts: 7ms, render: 106ms)
+ GET / 200 in 100ms (compile: 6ms, proxy.ts: 4ms, render: 90ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 86ms)
+✓ Compiled in 197ms
+⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ GET / 200 in 96ms (compile: 5ms, proxy.ts: 4ms, render: 87ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 86ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 18ms (compile: 3ms, proxy.ts: 4ms, render: 10ms)
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 86ms)
+✓ Compiled in 371ms
+ GET / 200 in 726ms (compile: 429ms, proxy.ts: 3ms, render: 294ms)
+⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ GET / 200 in 95ms (compile: 4ms, proxy.ts: 5ms, render: 86ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 4ms, render: 54ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 14ms (compile: 3ms, proxy.ts: 3ms, render: 8ms)
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET / 200 in 100ms (compile: 4ms, proxy.ts: 4ms, render: 92ms)
+ GET / 200 in 60ms (compile: 3ms, proxy.ts: 3ms, render: 54ms)
+ GET / 200 in 78ms (compile: 5ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 101ms (compile: 4ms, proxy.ts: 4ms, render: 93ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 67ms (compile: 4ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 3ms, render: 86ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 3ms, render: 80ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 4ms, render: 50ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 71ms (compile: 4ms, proxy.ts: 3ms, render: 65ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 4ms, render: 51ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 70ms (compile: 4ms, proxy.ts: 4ms, render: 62ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 63ms (compile: 4ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 3ms, render: 83ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 92ms (compile: 5ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 3ms, render: 78ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 74ms (compile: 3ms, proxy.ts: 3ms, render: 68ms)
+ GET / 200 in 95ms (compile: 4ms, proxy.ts: 5ms, render: 86ms)
+✓ Compiled in 267ms
+ GET / 200 in 343ms (compile: 68ms, proxy.ts: 4ms, render: 271ms)
+⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 3ms, render: 83ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 100ms (compile: 4ms, proxy.ts: 4ms, render: 93ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 61ms (compile: 8ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 120ms (compile: 4ms, proxy.ts: 5ms, render: 111ms)
+ GET / 200 in 68ms (compile: 4ms, proxy.ts: 4ms, render: 61ms)
+ GET / 200 in 91ms (compile: 6ms, proxy.ts: 3ms, render: 82ms)
+ GET / 200 in 60ms (compile: 4ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 86ms (compile: 3ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 106ms (compile: 4ms, proxy.ts: 4ms, render: 99ms)
+ GET / 200 in 89ms (compile: 5ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 106ms (compile: 5ms, proxy.ts: 4ms, render: 97ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 3ms, render: 61ms)
+✓ Compiled in 191ms
+ GET / 200 in 385ms (compile: 67ms, proxy.ts: 3ms, render: 315ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 60ms (compile: 3ms, proxy.ts: 3ms, render: 54ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 3ms, render: 52ms)
+ GET / 200 in 110ms (compile: 3ms, proxy.ts: 3ms, render: 105ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 120ms (compile: 5ms, proxy.ts: 4ms, render: 111ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 4ms, render: 49ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 3ms, render: 85ms)
+ GET / 200 in 61ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 59ms (compile: 4ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 64ms (compile: 4ms, proxy.ts: 4ms, render: 57ms)
+ GET / 200 in 55ms (compile: 4ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 69ms (compile: 3ms, proxy.ts: 3ms, render: 64ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 57ms (compile: 4ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 3ms, render: 52ms)
+ GET / 200 in 64ms (compile: 4ms, proxy.ts: 4ms, render: 56ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 3ms, render: 83ms)
+ GET / 200 in 107ms (compile: 4ms, proxy.ts: 4ms, render: 99ms)
+ GET / 200 in 66ms (compile: 3ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 4ms, render: 85ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 108ms (compile: 4ms, proxy.ts: 4ms, render: 100ms)
+ GET / 200 in 87ms (compile: 6ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 66ms (compile: 3ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 73ms (compile: 3ms, proxy.ts: 3ms, render: 66ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 3ms, render: 61ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 76ms (compile: 4ms, proxy.ts: 3ms, render: 69ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 66ms (compile: 3ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 4ms, render: 47ms)
+ GET / 200 in 75ms (compile: 3ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 86ms (compile: 6ms, proxy.ts: 4ms, render: 76ms)
+✓ Compiled in 120ms
+ GET / 200 in 303ms (compile: 67ms, proxy.ts: 3ms, render: 233ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 81ms)
+ GET / 200 in 120ms (compile: 4ms, proxy.ts: 4ms, render: 112ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 56ms (compile: 4ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 79ms)
+ GET / 200 in 81ms (compile: 3ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 104ms (compile: 5ms, proxy.ts: 5ms, render: 94ms)
+ GET / 200 in 67ms (compile: 4ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 95ms (compile: 7ms, proxy.ts: 3ms, render: 86ms)
+ GET / 200 in 71ms (compile: 4ms, proxy.ts: 3ms, render: 64ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 62ms (compile: 3ms, proxy.ts: 3ms, render: 56ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 97ms (compile: 4ms, proxy.ts: 5ms, render: 87ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 3ms, render: 78ms)
+ GET / 200 in 67ms (compile: 4ms, proxy.ts: 3ms, render: 60ms)
+ GET / 200 in 91ms (compile: 6ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 3ms, render: 52ms)
+ GET / 200 in 118ms (compile: 5ms, proxy.ts: 5ms, render: 109ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 3ms, render: 61ms)
+ GET / 200 in 66ms (compile: 5ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 73ms (compile: 4ms, proxy.ts: 3ms, render: 65ms)
+✓ Compiled in 88ms
+ GET / 200 in 334ms (compile: 66ms, proxy.ts: 4ms, render: 264ms)
+ GET / 200 in 92ms (compile: 5ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 57ms (compile: 3ms, proxy.ts: 3ms, render: 52ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 52ms)
+ GET / 200 in 100ms (compile: 5ms, proxy.ts: 4ms, render: 91ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 96ms (compile: 4ms, proxy.ts: 3ms, render: 88ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+✓ Compiled in 96ms
+⨯ ./src/components/landing/DemoAppShell.tsx:256:23
+Parsing ecmascript source code failed
+[0m [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+ [90m 255 |[39m                         )}
+[31m[1m>[22m[39m[90m 256 |[39m                       [33m>[39m
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+ [90m 259 |[39m                     ))}[0m
+
+Unexpected token. Did you mean `{'>'}` or `&gt;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:255:26
+Parsing ecmascript source code failed
+[0m [90m 253 |[39m                           [32m"rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors"[39m[33m,[39m
+ [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+[31m[1m>[22m[39m[90m 255 |[39m                         )}
+ [90m     |[39m                          [31m[1m^[22m[39m
+ [90m 256 |[39m                       [33m>[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:259:23
+Parsing ecmascript source code failed
+[0m [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+[31m[1m>[22m[39m[90m 259 |[39m                     ))}
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 260 |[39m                   [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m
+ [90m 261 |[39m                 )}
+ [90m 262 |[39m               [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+ GET / 500 in 73ms (compile: 57ms, proxy.ts: 3ms, render: 12ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:256:23
+Parsing ecmascript source code failed
+[0m [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+ [90m 255 |[39m                         )}
+[31m[1m>[22m[39m[90m 256 |[39m                       [33m>[39m
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+ [90m 259 |[39m                     ))}[0m
+
+Unexpected token. Did you mean `{'>'}` or `&gt;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:255:26
+Parsing ecmascript source code failed
+[0m [90m 253 |[39m                           [32m"rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors"[39m[33m,[39m
+ [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+[31m[1m>[22m[39m[90m 255 |[39m                         )}
+ [90m     |[39m                          [31m[1m^[22m[39m
+ [90m 256 |[39m                       [33m>[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:259:23
+Parsing ecmascript source code failed
+[0m [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+[31m[1m>[22m[39m[90m 259 |[39m                     ))}
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 260 |[39m                   [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m
+ [90m 261 |[39m                 )}
+ [90m 262 |[39m               [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+ GET / 500 in 44ms (compile: 30ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:256:23
+Parsing ecmascript source code failed
+[0m [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+ [90m 255 |[39m                         )}
+[31m[1m>[22m[39m[90m 256 |[39m                       [33m>[39m
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+ [90m 259 |[39m                     ))}[0m
+
+Unexpected token. Did you mean `{'>'}` or `&gt;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:255:26
+Parsing ecmascript source code failed
+[0m [90m 253 |[39m                           [32m"rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors"[39m[33m,[39m
+ [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+[31m[1m>[22m[39m[90m 255 |[39m                         )}
+ [90m     |[39m                          [31m[1m^[22m[39m
+ [90m 256 |[39m                       [33m>[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:259:23
+Parsing ecmascript source code failed
+[0m [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+[31m[1m>[22m[39m[90m 259 |[39m                     ))}
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 260 |[39m                   [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m
+ [90m 261 |[39m                 )}
+ [90m 262 |[39m               [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+ GET / 500 in 49ms (compile: 35ms, proxy.ts: 3ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:256:23
+Parsing ecmascript source code failed
+[0m [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+ [90m 255 |[39m                         )}
+[31m[1m>[22m[39m[90m 256 |[39m                       [33m>[39m
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+ [90m 259 |[39m                     ))}[0m
+
+Unexpected token. Did you mean `{'>'}` or `&gt;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:255:26
+Parsing ecmascript source code failed
+[0m [90m 253 |[39m                           [32m"rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors"[39m[33m,[39m
+ [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+[31m[1m>[22m[39m[90m 255 |[39m                         )}
+ [90m     |[39m                          [31m[1m^[22m[39m
+ [90m 256 |[39m                       [33m>[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:259:23
+Parsing ecmascript source code failed
+[0m [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+[31m[1m>[22m[39m[90m 259 |[39m                     ))}
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 260 |[39m                   [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m
+ [90m 261 |[39m                 )}
+ [90m 262 |[39m               [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+ GET / 500 in 31ms (compile: 21ms, proxy.ts: 3ms, render: 7ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:256:23
+Parsing ecmascript source code failed
+[0m [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+ [90m 255 |[39m                         )}
+[31m[1m>[22m[39m[90m 256 |[39m                       [33m>[39m
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+ [90m 259 |[39m                     ))}[0m
+
+Unexpected token. Did you mean `{'>'}` or `&gt;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:255:26
+Parsing ecmascript source code failed
+[0m [90m 253 |[39m                           [32m"rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors"[39m[33m,[39m
+ [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+[31m[1m>[22m[39m[90m 255 |[39m                         )}
+ [90m     |[39m                          [31m[1m^[22m[39m
+ [90m 256 |[39m                       [33m>[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:259:23
+Parsing ecmascript source code failed
+[0m [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+[31m[1m>[22m[39m[90m 259 |[39m                     ))}
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 260 |[39m                   [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m
+ [90m 261 |[39m                 )}
+ [90m 262 |[39m               [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+ GET / 500 in 42ms (compile: 30ms, proxy.ts: 4ms, render: 8ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:256:23
+Parsing ecmascript source code failed
+[0m [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+ [90m 255 |[39m                         )}
+[31m[1m>[22m[39m[90m 256 |[39m                       [33m>[39m
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+ [90m 259 |[39m                     ))}[0m
+
+Unexpected token. Did you mean `{'>'}` or `&gt;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:255:26
+Parsing ecmascript source code failed
+[0m [90m 253 |[39m                           [32m"rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors"[39m[33m,[39m
+ [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+[31m[1m>[22m[39m[90m 255 |[39m                         )}
+ [90m     |[39m                          [31m[1m^[22m[39m
+ [90m 256 |[39m                       [33m>[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:259:23
+Parsing ecmascript source code failed
+[0m [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+[31m[1m>[22m[39m[90m 259 |[39m                     ))}
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 260 |[39m                   [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m
+ [90m 261 |[39m                 )}
+ [90m 262 |[39m               [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+ GET / 500 in 46ms (compile: 30ms, proxy.ts: 4ms, render: 11ms)
+⨯ ./src/components/landing/DemoAppShell.tsx:256:23
+Parsing ecmascript source code failed
+[0m [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+ [90m 255 |[39m                         )}
+[31m[1m>[22m[39m[90m 256 |[39m                       [33m>[39m
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+ [90m 259 |[39m                     ))}[0m
+
+Unexpected token. Did you mean `{'>'}` or `&gt;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:255:26
+Parsing ecmascript source code failed
+[0m [90m 253 |[39m                           [32m"rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors"[39m[33m,[39m
+ [90m 254 |[39m                           m [33m===[39m [32m"chat"[39m [33m?[39m [32m"bg-background text-foreground shadow-sm"[39m [33m:[39m [32m"text-muted-foreground hover:text-foreground"[39m[33m,[39m
+[31m[1m>[22m[39m[90m 255 |[39m                         )}
+ [90m     |[39m                          [31m[1m^[22m[39m
+ [90m 256 |[39m                       [33m>[39m
+ [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+
+./src/components/landing/DemoAppShell.tsx:259:23
+Parsing ecmascript source code failed
+[0m [90m 257 |[39m                         {m}
+ [90m 258 |[39m                       [33m<[39m[33m/[39m[33mbutton[39m[33m>[39m
+[31m[1m>[22m[39m[90m 259 |[39m                     ))}
+ [90m     |[39m                       [31m[1m^[22m[39m
+ [90m 260 |[39m                   [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m
+ [90m 261 |[39m                 )}
+ [90m 262 |[39m               [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m[0m
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import traces:
+  Client Component Browser:
+    ./src/components/landing/DemoAppShell.tsx [Client Component Browser]
+    ./src/app/page.tsx [Client Component Browser]
+    ./src/app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/landing/DemoAppShell.tsx [Client Component SSR]
+    ./src/app/page.tsx [Client Component SSR]
+    ./src/app/page.tsx [Server Component]
+
+
+ GET / 500 in 40ms (compile: 29ms, proxy.ts: 3ms, render: 8ms)
+✓ Compiled in 159ms
+ GET / 200 in 106ms (compile: 62ms, proxy.ts: 5ms, render: 39ms)
+ GET / 200 in 227ms (compile: 4ms, proxy.ts: 3ms, render: 219ms)
+ GET / 200 in 60ms (compile: 3ms, proxy.ts: 3ms, render: 54ms)
+ GET / 200 in 65ms (compile: 5ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 95ms (compile: 4ms, proxy.ts: 4ms, render: 87ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 72ms (compile: 4ms, proxy.ts: 3ms, render: 65ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 106ms (compile: 4ms, proxy.ts: 4ms, render: 98ms)
+ GET / 200 in 87ms (compile: 5ms, proxy.ts: 4ms, render: 78ms)
+✓ Compiled in 94ms
+ GET / 200 in 184ms (compile: 43ms, proxy.ts: 3ms, render: 139ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 65ms (compile: 3ms, proxy.ts: 3ms, render: 59ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+✓ Compiled in 80ms
+ GET / 200 in 195ms (compile: 45ms, proxy.ts: 3ms, render: 147ms)
+ GET / 200 in 72ms (compile: 3ms, proxy.ts: 3ms, render: 66ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 3ms, render: 78ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 3ms, render: 76ms)
+ GET / 200 in 86ms (compile: 7ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 3ms, render: 61ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 68ms (compile: 3ms, proxy.ts: 3ms, render: 62ms)
+ GET / 200 in 118ms (compile: 5ms, proxy.ts: 6ms, render: 108ms)
+ GET / 200 in 96ms (compile: 4ms, proxy.ts: 4ms, render: 89ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 92ms (compile: 5ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 7ms, render: 78ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 3ms, render: 52ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 3ms, render: 85ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 86ms (compile: 5ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 60ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 58ms (compile: 3ms, proxy.ts: 4ms, render: 51ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 3ms, render: 82ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 5ms, render: 73ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 65ms (compile: 4ms, proxy.ts: 3ms, render: 58ms)
+ GET / 200 in 59ms (compile: 3ms, proxy.ts: 3ms, render: 53ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 7ms, render: 78ms)
+ GET / 200 in 62ms (compile: 4ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 60ms (compile: 3ms, proxy.ts: 4ms, render: 53ms)
+ GET / 200 in 60ms (compile: 4ms, proxy.ts: 3ms, render: 54ms)
+ GET / 200 in 56ms (compile: 4ms, proxy.ts: 3ms, render: 50ms)
+ GET / 200 in 62ms (compile: 3ms, proxy.ts: 3ms, render: 55ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 95ms (compile: 5ms, proxy.ts: 3ms, render: 87ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 177ms (compile: 4ms, proxy.ts: 4ms, render: 168ms)
+ GET / 200 in 142ms (compile: 7ms, proxy.ts: 10ms, render: 125ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 75ms (compile: 3ms, proxy.ts: 3ms, render: 69ms)
+ GET / 200 in 88ms (compile: 4ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 99ms (compile: 5ms, proxy.ts: 4ms, render: 90ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 3ms, render: 81ms)
+ GET / 200 in 100ms (compile: 4ms, proxy.ts: 4ms, render: 91ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 70ms (compile: 3ms, proxy.ts: 4ms, render: 63ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 87ms)
+ GET / 200 in 92ms (compile: 5ms, proxy.ts: 4ms, render: 83ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 87ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 90ms (compile: 4ms, proxy.ts: 4ms, render: 82ms)
+ GET / 200 in 57ms (compile: 4ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 102ms (compile: 5ms, proxy.ts: 4ms, render: 94ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 72ms (compile: 4ms, proxy.ts: 4ms, render: 63ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 112ms (compile: 4ms, proxy.ts: 3ms, render: 104ms)
+ GET / 200 in 56ms (compile: 5ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 83ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 103ms (compile: 6ms, proxy.ts: 3ms, render: 94ms)
+ GET / 200 in 87ms (compile: 5ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 4ms, render: 46ms)
+ GET / 200 in 96ms (compile: 4ms, proxy.ts: 4ms, render: 89ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 51ms (compile: 4ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 4ms, render: 47ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 100ms (compile: 4ms, proxy.ts: 4ms, render: 93ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+ GET / 200 in 84ms (compile: 5ms, proxy.ts: 4ms, render: 76ms)
+ GET / 200 in 101ms (compile: 4ms, proxy.ts: 4ms, render: 93ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 79ms (compile: 5ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 96ms (compile: 4ms, proxy.ts: 4ms, render: 89ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 2ms, render: 73ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 92ms (compile: 4ms, proxy.ts: 4ms, render: 84ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 105ms (compile: 4ms, proxy.ts: 4ms, render: 97ms)
+ GET / 200 in 86ms (compile: 4ms, proxy.ts: 4ms, render: 78ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 83ms (compile: 6ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 65ms (compile: 4ms, proxy.ts: 4ms, render: 58ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 97ms (compile: 4ms, proxy.ts: 4ms, render: 90ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 76ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 100ms (compile: 4ms, proxy.ts: 3ms, render: 92ms)
+ GET / 200 in 56ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 55ms (compile: 3ms, proxy.ts: 3ms, render: 49ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 70ms)
+ GET / 200 in 65ms (compile: 3ms, proxy.ts: 3ms, render: 59ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 52ms (compile: 4ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 97ms (compile: 4ms, proxy.ts: 3ms, render: 91ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 98ms (compile: 4ms, proxy.ts: 3ms, render: 91ms)
+ GET / 200 in 59ms (compile: 4ms, proxy.ts: 4ms, render: 51ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 49ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 52ms (compile: 3ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 3ms, render: 84ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 53ms (compile: 3ms, proxy.ts: 4ms, render: 45ms)
+ GET / 200 in 50ms (compile: 3ms, proxy.ts: 3ms, render: 44ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 93ms (compile: 4ms, proxy.ts: 3ms, render: 87ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 4ms, render: 47ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 4ms, render: 69ms)
+ GET / 200 in 54ms (compile: 4ms, proxy.ts: 3ms, render: 47ms)
+ GET / 200 in 67ms (compile: 3ms, proxy.ts: 3ms, render: 61ms)
+ GET / 200 in 89ms (compile: 4ms, proxy.ts: 4ms, render: 80ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 69ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 67ms (compile: 4ms, proxy.ts: 3ms, render: 61ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 73ms (compile: 4ms, proxy.ts: 4ms, render: 66ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 3ms, render: 46ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 68ms (compile: 3ms, proxy.ts: 3ms, render: 62ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 18ms (compile: 4ms, proxy.ts: 4ms, render: 10ms)
+ GET / 200 in 60ms (compile: 6ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 85ms (compile: 4ms, proxy.ts: 4ms, render: 77ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 52ms (compile: 4ms, proxy.ts: 4ms, render: 45ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 94ms (compile: 4ms, proxy.ts: 4ms, render: 87ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`UserProfile`.`id`, `main`.`UserProfile`.`userId`, `main`.`UserProfile`.`companyName`, `main`.`UserProfile`.`industry`, `main`.`UserProfile`.`notes`, `main`.`UserProfile`.`dataSourcesJson`, `main`.`UserProfile`.`agentNameStyle`, `main`.`UserProfile`.`notificationPrefsJson`, `main`.`UserProfile`.`createdAt`, `main`.`UserProfile`.`updatedAt` FROM `main`.`UserProfile` WHERE `main`.`UserProfile`.`userId` = ? LIMIT ? OFFSET ?
+ GET /api/auth/session 200 in 13ms (compile: 3ms, proxy.ts: 3ms, render: 6ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 70ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 40ms (compile: 26ms, proxy.ts: 4ms, render: 10ms)
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 18ms (compile: 6ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 113ms (compile: 4ms, proxy.ts: 4ms, render: 104ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w5/messages 404 in 37ms (compile: 23ms, proxy.ts: 4ms, render: 9ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w5/messages 404 in 19ms (compile: 6ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 82ms (compile: 6ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 77ms (compile: 4ms, proxy.ts: 3ms, render: 70ms)
+ GET / 200 in 101ms (compile: 4ms, proxy.ts: 4ms, render: 94ms)
+ GET / 200 in 58ms (compile: 4ms, proxy.ts: 3ms, render: 51ms)
+ GET / 200 in 51ms (compile: 3ms, proxy.ts: 3ms, render: 45ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w5/messages 404 in 44ms (compile: 29ms, proxy.ts: 4ms, render: 11ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w5/messages 404 in 18ms (compile: 6ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 86ms (compile: 6ms, proxy.ts: 5ms, render: 75ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`OAuthProvider`.`id`, `main`.`OAuthProvider`.`key`, `main`.`OAuthProvider`.`name`, `main`.`OAuthProvider`.`icon`, `main`.`OAuthProvider`.`category`, `main`.`OAuthProvider`.`description`, `main`.`OAuthProvider`.`authorizationUrl`, `main`.`OAuthProvider`.`tokenUrl`, `main`.`OAuthProvider`.`scopes`, `main`.`OAuthProvider`.`clientId`, `main`.`OAuthProvider`.`clientSecret`, `main`.`OAuthProvider`.`supportsCustomCreds`, `main`.`OAuthProvider`.`demoMode`, `main`.`OAuthProvider`.`status`, `main`.`OAuthProvider`.`createdAt`, `main`.`OAuthProvider`.`updatedAt` FROM `main`.`OAuthProvider` WHERE 1=1 ORDER BY `main`.`OAuthProvider`.`category` ASC, `main`.`OAuthProvider`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/oauth/providers 200 in 17ms (compile: 4ms, proxy.ts: 4ms, render: 9ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Credential`.`id`, `main`.`Credential`.`userId`, `main`.`Credential`.`service`, `main`.`Credential`.`label`, `main`.`Credential`.`kind`, `main`.`Credential`.`status`, `main`.`Credential`.`metaJson`, `main`.`Credential`.`agentProvisioned`, `main`.`Credential`.`canPay`, `main`.`Credential`.`oauthProvider`, `main`.`Credential`.`oauthAccessToken`, `main`.`Credential`.`oauthRefreshToken`, `main`.`Credential`.`oauthExpiresAt`, `main`.`Credential`.`createdAt`, `main`.`Credential`.`updatedAt` FROM `main`.`Credential` WHERE `main`.`Credential`.`userId` = ? ORDER BY `main`.`Credential`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET /api/credentials 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/oauth/providers 200 in 19ms (compile: 5ms, proxy.ts: 4ms, render: 10ms)
+prisma:query SELECT `main`.`OAuthProvider`.`id`, `main`.`OAuthProvider`.`key`, `main`.`OAuthProvider`.`name`, `main`.`OAuthProvider`.`icon`, `main`.`OAuthProvider`.`category`, `main`.`OAuthProvider`.`description`, `main`.`OAuthProvider`.`authorizationUrl`, `main`.`OAuthProvider`.`tokenUrl`, `main`.`OAuthProvider`.`scopes`, `main`.`OAuthProvider`.`clientId`, `main`.`OAuthProvider`.`clientSecret`, `main`.`OAuthProvider`.`supportsCustomCreds`, `main`.`OAuthProvider`.`demoMode`, `main`.`OAuthProvider`.`status`, `main`.`OAuthProvider`.`createdAt`, `main`.`OAuthProvider`.`updatedAt` FROM `main`.`OAuthProvider` WHERE 1=1 ORDER BY `main`.`OAuthProvider`.`category` ASC, `main`.`OAuthProvider`.`name` ASC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Credential`.`id`, `main`.`Credential`.`userId`, `main`.`Credential`.`service`, `main`.`Credential`.`label`, `main`.`Credential`.`kind`, `main`.`Credential`.`status`, `main`.`Credential`.`metaJson`, `main`.`Credential`.`agentProvisioned`, `main`.`Credential`.`canPay`, `main`.`Credential`.`oauthProvider`, `main`.`Credential`.`oauthAccessToken`, `main`.`Credential`.`oauthRefreshToken`, `main`.`Credential`.`oauthExpiresAt`, `main`.`Credential`.`createdAt`, `main`.`Credential`.`updatedAt` FROM `main`.`Credential` WHERE `main`.`Credential`.`userId` = ? ORDER BY `main`.`Credential`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET /api/credentials 200 in 23ms (compile: 7ms, proxy.ts: 9ms, render: 8ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 66ms (compile: 4ms, proxy.ts: 4ms, render: 58ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`OAuthProvider`.`id`, `main`.`OAuthProvider`.`key`, `main`.`OAuthProvider`.`name`, `main`.`OAuthProvider`.`icon`, `main`.`OAuthProvider`.`category`, `main`.`OAuthProvider`.`description`, `main`.`OAuthProvider`.`authorizationUrl`, `main`.`OAuthProvider`.`tokenUrl`, `main`.`OAuthProvider`.`scopes`, `main`.`OAuthProvider`.`clientId`, `main`.`OAuthProvider`.`clientSecret`, `main`.`OAuthProvider`.`supportsCustomCreds`, `main`.`OAuthProvider`.`demoMode`, `main`.`OAuthProvider`.`status`, `main`.`OAuthProvider`.`createdAt`, `main`.`OAuthProvider`.`updatedAt` FROM `main`.`OAuthProvider` WHERE 1=1 ORDER BY `main`.`OAuthProvider`.`category` ASC, `main`.`OAuthProvider`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/oauth/providers 200 in 16ms (compile: 3ms, proxy.ts: 4ms, render: 9ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Credential`.`id`, `main`.`Credential`.`userId`, `main`.`Credential`.`service`, `main`.`Credential`.`label`, `main`.`Credential`.`kind`, `main`.`Credential`.`status`, `main`.`Credential`.`metaJson`, `main`.`Credential`.`agentProvisioned`, `main`.`Credential`.`canPay`, `main`.`Credential`.`oauthProvider`, `main`.`Credential`.`oauthAccessToken`, `main`.`Credential`.`oauthRefreshToken`, `main`.`Credential`.`oauthExpiresAt`, `main`.`Credential`.`createdAt`, `main`.`Credential`.`updatedAt` FROM `main`.`Credential` WHERE `main`.`Credential`.`userId` = ? ORDER BY `main`.`Credential`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET /api/credentials 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 96ms (compile: 6ms, proxy.ts: 3ms, render: 87ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Integration`.`id`, `main`.`Integration`.`name`, `main`.`Integration`.`kind`, `main`.`Integration`.`description`, `main`.`Integration`.`config`, `main`.`Integration`.`tools`, `main`.`Integration`.`status`, `main`.`Integration`.`category`, `main`.`Integration`.`color`, `main`.`Integration`.`source`, `main`.`Integration`.`visibility`, `main`.`Integration`.`authorLabel`, `main`.`Integration`.`installs`, `main`.`Integration`.`createdAt`, `main`.`Integration`.`updatedAt` FROM `main`.`Integration` WHERE 1=1 ORDER BY `main`.`Integration`.`category` ASC, `main`.`Integration`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/integrations 200 in 364ms (compile: 348ms, proxy.ts: 4ms, render: 12ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Integration`.`id`, `main`.`Integration`.`name`, `main`.`Integration`.`kind`, `main`.`Integration`.`description`, `main`.`Integration`.`config`, `main`.`Integration`.`tools`, `main`.`Integration`.`status`, `main`.`Integration`.`category`, `main`.`Integration`.`color`, `main`.`Integration`.`source`, `main`.`Integration`.`visibility`, `main`.`Integration`.`authorLabel`, `main`.`Integration`.`installs`, `main`.`Integration`.`createdAt`, `main`.`Integration`.`updatedAt` FROM `main`.`Integration` WHERE 1=1 ORDER BY `main`.`Integration`.`category` ASC, `main`.`Integration`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/integrations 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`PersonalAccessToken`.`id`, `main`.`PersonalAccessToken`.`userId`, `main`.`PersonalAccessToken`.`label`, `main`.`PersonalAccessToken`.`tokenHash`, `main`.`PersonalAccessToken`.`tokenPrefix`, `main`.`PersonalAccessToken`.`lastUsedAt`, `main`.`PersonalAccessToken`.`status`, `main`.`PersonalAccessToken`.`createdAt` FROM `main`.`PersonalAccessToken` WHERE `main`.`PersonalAccessToken`.`userId` = ? ORDER BY `main`.`PersonalAccessToken`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET /api/tokens 200 in 274ms (compile: 258ms, proxy.ts: 4ms, render: 12ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 75ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`PersonalAccessToken`.`id`, `main`.`PersonalAccessToken`.`userId`, `main`.`PersonalAccessToken`.`label`, `main`.`PersonalAccessToken`.`tokenHash`, `main`.`PersonalAccessToken`.`tokenPrefix`, `main`.`PersonalAccessToken`.`lastUsedAt`, `main`.`PersonalAccessToken`.`status`, `main`.`PersonalAccessToken`.`createdAt` FROM `main`.`PersonalAccessToken` WHERE `main`.`PersonalAccessToken`.`userId` = ? ORDER BY `main`.`PersonalAccessToken`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET /api/tokens 200 in 16ms (compile: 3ms, proxy.ts: 4ms, render: 9ms)
+ GET / 200 in 65ms (compile: 4ms, proxy.ts: 3ms, render: 57ms)
+ GET / 200 in 73ms (compile: 3ms, proxy.ts: 3ms, render: 66ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w5/messages 404 in 35ms (compile: 22ms, proxy.ts: 3ms, render: 10ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w5/messages 404 in 17ms (compile: 6ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 3ms, render: 75ms)
+ GET / 200 in 106ms (compile: 4ms, proxy.ts: 4ms, render: 98ms)
+ GET / 200 in 54ms (compile: 3ms, proxy.ts: 3ms, render: 48ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 91ms (compile: 4ms, proxy.ts: 3ms, render: 84ms)
+ GET / 200 in 91ms (compile: 5ms, proxy.ts: 5ms, render: 82ms)
+ GET / 200 in 84ms (compile: 4ms, proxy.ts: 5ms, render: 75ms)
+ GET / 200 in 81ms (compile: 4ms, proxy.ts: 3ms, render: 74ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 73ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 4ms, render: 70ms)
+ GET / 200 in 82ms (compile: 4ms, proxy.ts: 4ms, render: 74ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 46ms (compile: 32ms, proxy.ts: 4ms, render: 11ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 18ms (compile: 6ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET / 200 in 95ms (compile: 4ms, proxy.ts: 3ms, render: 88ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 72ms)
+ GET / 200 in 78ms (compile: 4ms, proxy.ts: 3ms, render: 71ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 3ms, render: 72ms)
+ GET / 200 in 79ms (compile: 4ms, proxy.ts: 4ms, render: 71ms)
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`PersonalAccessToken`.`id`, `main`.`PersonalAccessToken`.`userId`, `main`.`PersonalAccessToken`.`label`, `main`.`PersonalAccessToken`.`tokenHash`, `main`.`PersonalAccessToken`.`tokenPrefix`, `main`.`PersonalAccessToken`.`lastUsedAt`, `main`.`PersonalAccessToken`.`status`, `main`.`PersonalAccessToken`.`createdAt` FROM `main`.`PersonalAccessToken` WHERE `main`.`PersonalAccessToken`.`userId` = ? ORDER BY `main`.`PersonalAccessToken`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET /api/tokens 200 in 17ms (compile: 3ms, proxy.ts: 4ms, render: 10ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`PersonalAccessToken`.`id`, `main`.`PersonalAccessToken`.`userId`, `main`.`PersonalAccessToken`.`label`, `main`.`PersonalAccessToken`.`tokenHash`, `main`.`PersonalAccessToken`.`tokenPrefix`, `main`.`PersonalAccessToken`.`lastUsedAt`, `main`.`PersonalAccessToken`.`status`, `main`.`PersonalAccessToken`.`createdAt` FROM `main`.`PersonalAccessToken` WHERE `main`.`PersonalAccessToken`.`userId` = ? ORDER BY `main`.`PersonalAccessToken`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET /api/tokens 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Integration`.`id`, `main`.`Integration`.`name`, `main`.`Integration`.`kind`, `main`.`Integration`.`description`, `main`.`Integration`.`config`, `main`.`Integration`.`tools`, `main`.`Integration`.`status`, `main`.`Integration`.`category`, `main`.`Integration`.`color`, `main`.`Integration`.`source`, `main`.`Integration`.`visibility`, `main`.`Integration`.`authorLabel`, `main`.`Integration`.`installs`, `main`.`Integration`.`createdAt`, `main`.`Integration`.`updatedAt` FROM `main`.`Integration` WHERE 1=1 ORDER BY `main`.`Integration`.`category` ASC, `main`.`Integration`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/integrations 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 101ms (compile: 4ms, proxy.ts: 3ms, render: 93ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Integration`.`id`, `main`.`Integration`.`name`, `main`.`Integration`.`kind`, `main`.`Integration`.`description`, `main`.`Integration`.`config`, `main`.`Integration`.`tools`, `main`.`Integration`.`status`, `main`.`Integration`.`category`, `main`.`Integration`.`color`, `main`.`Integration`.`source`, `main`.`Integration`.`visibility`, `main`.`Integration`.`authorLabel`, `main`.`Integration`.`installs`, `main`.`Integration`.`createdAt`, `main`.`Integration`.`updatedAt` FROM `main`.`Integration` WHERE 1=1 ORDER BY `main`.`Integration`.`category` ASC, `main`.`Integration`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/integrations 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`OAuthProvider`.`id`, `main`.`OAuthProvider`.`key`, `main`.`OAuthProvider`.`name`, `main`.`OAuthProvider`.`icon`, `main`.`OAuthProvider`.`category`, `main`.`OAuthProvider`.`description`, `main`.`OAuthProvider`.`authorizationUrl`, `main`.`OAuthProvider`.`tokenUrl`, `main`.`OAuthProvider`.`scopes`, `main`.`OAuthProvider`.`clientId`, `main`.`OAuthProvider`.`clientSecret`, `main`.`OAuthProvider`.`supportsCustomCreds`, `main`.`OAuthProvider`.`demoMode`, `main`.`OAuthProvider`.`status`, `main`.`OAuthProvider`.`createdAt`, `main`.`OAuthProvider`.`updatedAt` FROM `main`.`OAuthProvider` WHERE 1=1 ORDER BY `main`.`OAuthProvider`.`category` ASC, `main`.`OAuthProvider`.`name` ASC LIMIT ? OFFSET ?
+ GET /api/oauth/providers 200 in 14ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Credential`.`id`, `main`.`Credential`.`userId`, `main`.`Credential`.`service`, `main`.`Credential`.`label`, `main`.`Credential`.`kind`, `main`.`Credential`.`status`, `main`.`Credential`.`metaJson`, `main`.`Credential`.`agentProvisioned`, `main`.`Credential`.`canPay`, `main`.`Credential`.`oauthProvider`, `main`.`Credential`.`oauthAccessToken`, `main`.`Credential`.`oauthRefreshToken`, `main`.`Credential`.`oauthExpiresAt`, `main`.`Credential`.`createdAt`, `main`.`Credential`.`updatedAt` FROM `main`.`Credential` WHERE `main`.`Credential`.`userId` = ? ORDER BY `main`.`Credential`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET /api/credentials 200 in 11ms (compile: 2ms, proxy.ts: 3ms, render: 6ms)
+prisma:query SELECT 1
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/oauth/providers 200 in 15ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`OAuthProvider`.`id`, `main`.`OAuthProvider`.`key`, `main`.`OAuthProvider`.`name`, `main`.`OAuthProvider`.`icon`, `main`.`OAuthProvider`.`category`, `main`.`OAuthProvider`.`description`, `main`.`OAuthProvider`.`authorizationUrl`, `main`.`OAuthProvider`.`tokenUrl`, `main`.`OAuthProvider`.`scopes`, `main`.`OAuthProvider`.`clientId`, `main`.`OAuthProvider`.`clientSecret`, `main`.`OAuthProvider`.`supportsCustomCreds`, `main`.`OAuthProvider`.`demoMode`, `main`.`OAuthProvider`.`status`, `main`.`OAuthProvider`.`createdAt`, `main`.`OAuthProvider`.`updatedAt` FROM `main`.`OAuthProvider` WHERE 1=1 ORDER BY `main`.`OAuthProvider`.`category` ASC, `main`.`OAuthProvider`.`name` ASC LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Credential`.`id`, `main`.`Credential`.`userId`, `main`.`Credential`.`service`, `main`.`Credential`.`label`, `main`.`Credential`.`kind`, `main`.`Credential`.`status`, `main`.`Credential`.`metaJson`, `main`.`Credential`.`agentProvisioned`, `main`.`Credential`.`canPay`, `main`.`Credential`.`oauthProvider`, `main`.`Credential`.`oauthAccessToken`, `main`.`Credential`.`oauthRefreshToken`, `main`.`Credential`.`oauthExpiresAt`, `main`.`Credential`.`createdAt`, `main`.`Credential`.`updatedAt` FROM `main`.`Credential` WHERE `main`.`Credential`.`userId` = ? ORDER BY `main`.`Credential`.`createdAt` DESC LIMIT ? OFFSET ?
+ GET /api/credentials 200 in 16ms (compile: 3ms, proxy.ts: 4ms, render: 8ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 43ms (compile: 30ms, proxy.ts: 4ms, render: 9ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 17ms (compile: 6ms, proxy.ts: 3ms, render: 8ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 17ms (compile: 6ms, proxy.ts: 4ms, render: 8ms)
+ GET / 200 in 53ms (compile: 4ms, proxy.ts: 3ms, render: 46ms)
+prisma:query SELECT `main`.`User`.`id`, `main`.`User`.`email`, `main`.`User`.`name`, `main`.`User`.`emailVerified`, `main`.`User`.`image`, `main`.`User`.`passwordHash`, `main`.`User`.`provider`, `main`.`User`.`createdAt`, `main`.`User`.`updatedAt` FROM `main`.`User` WHERE (`main`.`User`.`email` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET /api/agents/w1/messages 404 in 38ms (compile: 26ms, proxy.ts: 3ms, render: 8ms)
+prisma:query SELECT `main`.`Workflow`.`id`, `main`.`Workflow`.`userId` FROM `main`.`Workflow` WHERE (`main`.`Workflow`.`id` = ? AND 1=1) LIMIT ? OFFSET ?
+ GET / 200 in 80ms (compile: 4ms, proxy.ts: 4ms, render: 73ms)

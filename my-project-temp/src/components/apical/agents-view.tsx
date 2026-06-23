@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useAppStore, type AgentCenterMode } from "@/lib/apical/store";
+import { useAppStore } from "@/lib/apical/store";
 import {
   DEMO_CONVERSATIONS,
   DEMO_MESSAGES,
@@ -66,188 +66,64 @@ function agentStatus(agent: Workflow): { color: string; label: string } {
   return { color: "bg-emerald-500", label: "Active" };
 }
 
-// ─── Main view: three-pane layout with browser-style tabs ──────────────────
+// ─── Main view: responsive 3-rail (desktop) / stacked (mobile) ─────────────
+//
+// DESKTOP (lg+): left rail (agent navigator) + center (chat) + right rail
+// (inspector with Overview/Dashboard/Workflow/Config as collapsible sections).
+// On narrow desktops (below lg), the right rail collapses to a toggle.
+//
+// MOBILE (below md): completely different architecture — bottom tab bar with
+// Agents / Chat / Detail tabs. Each shows one pane at a time. The Detail pane
+// slides up from the bottom when tapped. No 3-rail layout on mobile.
 
 export function AgentsView() {
+  // Mobile detection — below the md breakpoint, use the mobile architecture.
+  const [isMobile, setIsMobile] = React.useState(false);
+  React.useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
+  if (isMobile) return <MobileAgentsView />;
+  return <DesktopAgentsView />;
+}
+
+// ─── Desktop: 3-rail layout ─────────────────────────────────────────────────
+
+function DesktopAgentsView() {
   const activeConversationId = useAppStore((s) => s.activeConversationId);
-  const openTab = useAppStore((s) => s.openTab);
-  const closeTab = useAppStore((s) => s.closeTab);
-  const openTabs = useAppStore((s) => s.openTabs);
-  const splitView = useAppStore((s) => s.splitView);
-  const setSplitView = useAppStore((s) => s.setSplitView);
-  const splitTabId = useAppStore((s) => s.splitTabId);
-  const setSplitTabId = useAppStore((s) => s.setSplitTabId);
+  const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const inspectorOpen = useAppStore((s) => s.inspectorOpen);
   const toggleInspector = useAppStore((s) => s.toggleInspector);
 
-  // Resolve the active conversation → agent (if it has a workflowId).
   const activeConvo = DEMO_CONVERSATIONS.find((c) => c.id === activeConversationId);
   const activeAgent = activeConvo?.workflowId
     ? DEMO_WORKFLOWS.find((w) => w.id === activeConvo.workflowId)
     : undefined;
   const isOrchestrator = activeConversationId === "orchestrator";
 
-  // Split view: show two center panes side-by-side. The primary is the active
-  // tab; the secondary is splitTabId (or the previous tab if not set).
-  const splitConvo = splitTabId
-    ? DEMO_CONVERSATIONS.find((c) => c.id === splitTabId)
-    : undefined;
-  const splitAgent = splitConvo?.workflowId
-    ? DEMO_WORKFLOWS.find((w) => w.id === splitConvo.workflowId)
-    : undefined;
-  const splitIsOrchestrator = splitTabId === "orchestrator";
-
   return (
     <div className="flex h-full min-h-0">
       {/* Left rail — agent navigator */}
-      <AgentNavigator
-        activeId={activeConversationId}
-        onPick={(id) => openTab(id)}
-      />
+      <AgentNavigator activeId={activeConversationId} onPick={setActiveConversation} />
 
-      {/* Center — browser-style tab bar + one or two CenterPanes */}
+      {/* Center — chat only (no mode tabs) */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Tab bar */}
-        <TabBar
-          tabs={openTabs}
-          activeId={activeConversationId}
-          splitTabId={splitView ? splitTabId : null}
-          onPick={(id) => openTab(id)}
-          onClose={closeTab}
-          splitView={splitView}
-          onToggleSplit={() => {
-            if (splitView) {
-              setSplitView(false);
-              setSplitTabId(null);
-            } else if (openTabs.length >= 2) {
-              // Pick the first tab that isn't the active one.
-              const other = openTabs.find((t) => t !== activeConversationId);
-              if (other) {
-                setSplitTabId(other);
-                setSplitView(true);
-              }
-            }
-          }}
+        <CenterPane
+          agent={activeAgent}
+          isOrchestrator={isOrchestrator}
+          inspectorOpen={inspectorOpen}
+          onToggleInspector={toggleInspector}
         />
-
-        {/* Center pane(s) — single or split */}
-        <div className="flex min-h-0 flex-1">
-          <div className={cn("min-h-0 min-w-0 flex-1", splitView && "border-r border-border")}>
-            <CenterPane
-              agent={activeAgent}
-              isOrchestrator={isOrchestrator}
-              inspectorOpen={inspectorOpen}
-              onToggleInspector={toggleInspector}
-            />
-          </div>
-          {splitView && splitTabId && (
-            <div className="min-h-0 w-1/2 min-w-0">
-              <CenterPane
-                agent={splitAgent}
-                isOrchestrator={splitIsOrchestrator}
-                inspectorOpen={false}
-                onToggleInspector={() => {}}
-              />
-            </div>
-          )}
-        </div>
       </div>
 
-      {/* Right — collapsible inspector (hidden for Orchestrator + in split view) */}
-      {inspectorOpen && activeAgent && !isOrchestrator && !splitView && (
+      {/* Right — inspector (collapsible, hidden for Orchestrator, collapses below lg) */}
+      {inspectorOpen && activeAgent && !isOrchestrator && (
         <InspectorPane agent={activeAgent} />
       )}
-    </div>
-  );
-}
-
-// ─── Browser-style tab bar ──────────────────────────────────────────────────
-
-function TabBar({
-  tabs,
-  activeId,
-  splitTabId,
-  onPick,
-  onClose,
-  splitView,
-  onToggleSplit,
-}: {
-  tabs: string[];
-  activeId: string | null;
-  splitTabId: string | null;
-  onPick: (id: string) => void;
-  onClose: (id: string) => void;
-  splitView: boolean;
-  onToggleSplit: () => void;
-}) {
-  return (
-    <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-border bg-muted/40 px-1.5">
-      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-        {tabs.map((tabId) => {
-          const convo = DEMO_CONVERSATIONS.find((c) => c.id === tabId);
-          if (!convo) return null;
-          const isApical = tabId === "orchestrator";
-          const agent = convo.workflowId
-            ? DEMO_WORKFLOWS.find((w) => w.id === convo.workflowId)
-            : undefined;
-          const isActive = tabId === activeId;
-          const isSplit = tabId === splitTabId;
-          return (
-            <div
-              key={tabId}
-              onClick={() => onPick(tabId)}
-              className={cn(
-                "group flex shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border-x border-t px-2.5 py-1 text-[11px] transition-colors",
-                isActive
-                  ? "border-border bg-background text-foreground"
-                  : "border-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-                isSplit && "ring-1 ring-primary/40",
-              )}
-              title={isApical ? "Apical — general context" : convo.title}
-            >
-              {isApical ? (
-                <Sparkles className="h-3 w-3 text-primary" />
-              ) : agent ? (
-                <div
-                  className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[7px] font-semibold text-primary-foreground"
-                  style={{ backgroundColor: `oklch(${agentAvatarLightness(agent.name)} 0.06 155)` }}
-                >
-                  {agentInitials(agent.name)}
-                </div>
-              ) : null}
-              <span className="max-w-[100px] truncate">{convo.title}</span>
-              {tabs.length > 1 && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClose(tabId);
-                  }}
-                  className="ml-0.5 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
-                  title="Close tab"
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {/* Split-view toggle — only enabled when 2+ tabs are open */}
-      <button
-        onClick={onToggleSplit}
-        disabled={tabs.length < 2}
-        className={cn(
-          "flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
-          splitView
-            ? "bg-primary/10 text-primary"
-            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-          tabs.length < 2 && "cursor-not-allowed opacity-40",
-        )}
-        title={splitView ? "Exit split view" : "Split view (side-by-side)"}
-      >
-        <Columns2 className="h-3 w-3" />
-        <span className="hidden sm:inline">{splitView ? "Single" : "Split"}</span>
-      </button>
     </div>
   );
 }
@@ -276,7 +152,6 @@ function AgentNavigator({
 
   return (
     <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-muted/30 md:flex">
-      {/* Search + new */}
       <div className="border-b border-border p-2.5">
         <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
           <Search className="h-3 w-3 text-muted-foreground" />
@@ -295,25 +170,17 @@ function AgentNavigator({
           <Plus className="h-3 w-3" /> New agent
         </Button>
       </div>
-
       <div className="flex-1 min-h-0 space-y-3 overflow-y-auto overscroll-contain p-2">
-        {/* Orchestrator — pinned at top, distinct treatment */}
         <div>
-          <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Apical
-          </div>
+          <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Apical</div>
           <OrchestratorRow
             convo={orchestrator}
             active={orchestrator.id === activeId}
             onClick={() => onPick(orchestrator.id)}
           />
         </div>
-
-        {/* Agents */}
         <div>
-          <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Agents
-          </div>
+          <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Agents</div>
           <div className="space-y-0.5">
             {filtered.map((c) => {
               const wf = DEMO_WORKFLOWS.find((w) => w.id === c.workflowId);
@@ -400,10 +267,7 @@ function AgentRailRow({
         <div className="flex items-center gap-1">
           <span className="truncate text-[11px] font-medium">{convo.title}</span>
           {agent.flaggedCount > 0 && (
-            <Badge
-              variant="outline"
-              className="shrink-0 border-gate/40 bg-gate/10 px-1 text-[8px] font-semibold text-gate"
-            >
+            <Badge variant="outline" className="shrink-0 border-gate/40 bg-gate/10 px-1 text-[8px] font-semibold text-gate">
               {agent.flaggedCount}
             </Badge>
           )}
@@ -414,7 +278,236 @@ function AgentRailRow({
   );
 }
 
-// ─── Center pane: Chat / Dashboard / Workflow / Config ─────────────────────
+// ─── Mobile: bottom-tab architecture ───────────────────────────────────────
+//
+// Completely different from desktop. Three panes (Agents / Chat / Detail),
+// one visible at a time, switched via a bottom tab bar. The Detail pane is a
+// slide-up sheet with Overview/Dashboard/Workflow/Config sections. No 3-rail
+// layout — mobile screens are too narrow for that.
+
+function MobileAgentsView() {
+  const activeConversationId = useAppStore((s) => s.activeConversationId);
+  const setActiveConversation = useAppStore((s) => s.setActiveConversation);
+  const mobilePane = useAppStore((s) => s.mobilePane);
+  const setMobilePane = useAppStore((s) => s.setMobilePane);
+
+  const activeConvo = DEMO_CONVERSATIONS.find((c) => c.id === activeConversationId);
+  const activeAgent = activeConvo?.workflowId
+    ? DEMO_WORKFLOWS.find((w) => w.id === activeConvo.workflowId)
+    : undefined;
+  const isOrchestrator = activeConversationId === "orchestrator";
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      {/* Top bar — current agent name + ApicalMark */}
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+        <ApicalMark className="h-5 w-5" />
+        <span className="text-sm font-semibold">
+          {isOrchestrator ? "Apical" : activeAgent?.name ?? "Agents"}
+        </span>
+        {activeAgent && (
+          <span className="ml-auto text-[10px] text-muted-foreground">{activeAgent.department}</span>
+        )}
+      </header>
+
+      {/* Pane content — one at a time */}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {mobilePane === "list" && (
+          <MobileAgentList
+            activeId={activeConversationId}
+            onPick={(id) => {
+              setActiveConversation(id);
+              setMobilePane("chat");
+            }}
+          />
+        )}
+        {mobilePane === "chat" && (
+          <ChatPane agent={activeAgent} isOrchestrator={isOrchestrator} />
+        )}
+        {mobilePane === "detail" && activeAgent && !isOrchestrator && (
+          <MobileDetailPane agent={activeAgent} />
+        )}
+        {mobilePane === "detail" && (isOrchestrator || !activeAgent) && (
+          <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
+            Select an agent to see its details.
+          </div>
+        )}
+      </div>
+
+      {/* Bottom tab bar — Agents / Chat / Detail */}
+      <nav className="flex h-14 shrink-0 items-center justify-around border-t border-border bg-background">
+        <MobileTabButton
+          active={mobilePane === "list"}
+          onClick={() => setMobilePane("list")}
+          icon={Boxes}
+          label="Agents"
+          badge={DEMO_WORKFLOWS.reduce((s, a) => s + a.flaggedCount, 0)}
+        />
+        <MobileTabButton
+          active={mobilePane === "chat"}
+          onClick={() => setMobilePane("chat")}
+          icon={MessageSquare}
+          label="Chat"
+        />
+        <MobileTabButton
+          active={mobilePane === "detail"}
+          onClick={() => setMobilePane("detail")}
+          icon={Activity}
+          label="Detail"
+          disabled={isOrchestrator || !activeAgent}
+        />
+      </nav>
+    </div>
+  );
+}
+
+function MobileTabButton({
+  active,
+  onClick,
+  icon: Icon,
+  label,
+  badge,
+  disabled,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  badge?: number;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[9px] font-medium transition-colors",
+        active ? "text-primary" : "text-muted-foreground",
+        disabled && "opacity-30",
+      )}
+    >
+      <div className="relative">
+        <Icon className="h-5 w-5" />
+        {badge && badge > 0 ? (
+          <span className="absolute -top-1 -right-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-gate px-1 text-[7px] font-semibold text-white">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        ) : null}
+      </div>
+      {label}
+    </button>
+  );
+}
+
+function MobileAgentList({
+  activeId,
+  onPick,
+}: {
+  activeId: string | null;
+  onPick: (id: string) => void;
+}) {
+  const orchestrator = DEMO_CONVERSATIONS.find((c) => c.id === "orchestrator")!;
+  const agentConvos = DEMO_CONVERSATIONS.filter((c) => c.id !== "orchestrator");
+  return (
+    <div className="h-full overflow-y-auto overscroll-contain p-2">
+      {/* Orchestrator */}
+      <div className="mb-2">
+        <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Apical</div>
+        <button
+          onClick={() => onPick(orchestrator.id)}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-lg p-2.5 text-left transition-colors",
+            orchestrator.id === activeId ? "bg-primary/10" : "hover:bg-accent/50",
+          )}
+        >
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 text-primary">
+            <Sparkles className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">Apical</div>
+            <div className="text-[10px] text-muted-foreground">General · all agents</div>
+          </div>
+        </button>
+      </div>
+      {/* Agents */}
+      <div className="mb-1 px-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Agents</div>
+      <div className="space-y-1">
+        {agentConvos.map((c) => {
+          const wf = DEMO_WORKFLOWS.find((w) => w.id === c.workflowId);
+          if (!wf) return null;
+          const status = agentStatus(wf);
+          return (
+            <button
+              key={c.id}
+              onClick={() => onPick(c.id)}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-lg p-2.5 text-left transition-colors",
+                c.id === activeId ? "bg-primary/10" : "hover:bg-accent/50",
+              )}
+            >
+              <div className="relative shrink-0">
+                <div
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-semibold text-primary-foreground"
+                  style={{ backgroundColor: `oklch(${agentAvatarLightness(wf.name)} 0.06 155)` }}
+                >
+                  {agentInitials(wf.name)}
+                </div>
+                <span className={cn("absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background", status.color)} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-sm font-medium">{wf.name}</span>
+                  {wf.flaggedCount > 0 && (
+                    <Badge variant="outline" className="shrink-0 border-gate/40 bg-gate/10 px-1 text-[8px] font-semibold text-gate">
+                      {wf.flaggedCount}
+                    </Badge>
+                  )}
+                </div>
+                <div className="truncate text-[10px] text-muted-foreground">{wf.department} · {wf.title}</div>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MobileDetailPane({ agent }: { agent: Workflow }) {
+  const [section, setSection] = React.useState<"overview" | "dashboard" | "workflow" | "config">("overview");
+  const status = agentStatus(agent);
+  const autoPct = Math.round((agent.automaticCount / Math.max(agent.itemsProcessed, 1)) * 100);
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Section tabs */}
+      <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background/50 p-1">
+        {(["overview", "dashboard", "workflow", "config"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setSection(s)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium capitalize transition-colors",
+              section === s ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+            )}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {section === "overview" && (
+          <InspectorOverview agent={agent} status={status} autoPct={autoPct} onGoSection={setSection} />
+        )}
+        {section === "dashboard" && <AgentDashboard agent={agent} />}
+        {section === "workflow" && <AgentWorkflow agent={agent} />}
+        {section === "config" && <AgentConfig agent={agent} />}
+      </div>
+    </div>
+  );
+}
+
 
 function CenterPane({
   agent,
@@ -427,15 +520,11 @@ function CenterPane({
   inspectorOpen: boolean;
   onToggleInspector: () => void;
 }) {
-  const centerMode = useAppStore((s) => s.agentCenterMode);
-  const setCenterMode = useAppStore((s) => s.setAgentCenterMode);
-
-  // Orchestrator is always in chat mode — it has no dashboard/workflow/config.
-  const effectiveMode: AgentCenterMode = isOrchestrator ? "chat" : centerMode;
-
+  // Center pane is CHAT ONLY now — Dashboard/Workflow/Config live in the right
+  // rail (InspectorPane). No mode tabs here.
   return (
     <>
-      {/* Sub-header: agent identity + mode tabs + inspector toggle */}
+      {/* Sub-header: agent identity + inspector toggle */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
         {isOrchestrator ? (
           <div className="flex items-center gap-2">
@@ -465,32 +554,12 @@ function CenterPane({
           </div>
         ) : null}
 
-        {/* Mode tabs — only for real agents (not Orchestrator) */}
-        {!isOrchestrator && agent && (
-          <div className="ml-auto flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-0.5">
-            {(["chat", "dashboard", "workflow", "config"] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setCenterMode(m)}
-                className={cn(
-                  "rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors",
-                  effectiveMode === m
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Inspector toggle — only when an agent is selected + inspector is relevant */}
+        {/* Inspector toggle — only when an agent is selected */}
         {!isOrchestrator && agent && (
           <button
             onClick={onToggleInspector}
             className={cn(
-              "ml-1 flex items-center gap-1 rounded-md p-1.5 transition-colors",
+              "ml-auto flex items-center gap-1 rounded-md p-1.5 transition-colors",
               inspectorOpen ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
             )}
             title={inspectorOpen ? "Hide inspector" : "Show inspector"}
@@ -500,12 +569,9 @@ function CenterPane({
         )}
       </div>
 
-      {/* Mode content */}
+      {/* Chat only */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {effectiveMode === "chat" && <ChatPane agent={agent} isOrchestrator={isOrchestrator} />}
-        {effectiveMode === "dashboard" && agent && <AgentDashboard agent={agent} />}
-        {effectiveMode === "workflow" && agent && <AgentWorkflow agent={agent} />}
-        {effectiveMode === "config" && agent && <AgentConfig agent={agent} />}
+        <ChatPane agent={agent} isOrchestrator={isOrchestrator} />
       </div>
     </>
   );
@@ -513,10 +579,7 @@ function CenterPane({
 
 // ─── Chat pane (center) ────────────────────────────────────────────────────
 
-// The Apical (orchestrator) chat no longer uses a static greeting — it uses
-// apicalWelcomeMessage() which generates a time-of-day greeting + a live
-// summary of what's flagged, what ran while away, and any paused agents.
-const AGENT_LIMIT = 5  // free-plan limit; gracefully handled when branching.
+const AGENT_LIMIT = 5; // free-plan limit; gracefully handled when branching.
 
 const AGENT_REPLY = `Here's the plan I'm proposing:
 
@@ -525,11 +588,7 @@ const AGENT_REPLY = `Here's the plan I'm proposing:
 3. **Gate** — Confirm the move if it's a new client (you approve)
 4. **Tool** — Move each file to /Clients/<name>/ (hardened after 50 consistent runs)
 
-Want me to run this every 15 minutes?
-
-—
-
-This is a live preview. **Download to try Free** to run real agents, save versions, and restore them from any point in this conversation.`;
+Want me to run this every 15 minutes?`;
 
 function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOrchestrator: boolean }) {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
@@ -867,7 +926,7 @@ function MessageBubble({ message, agentName }: { message: ChatMessage; agentName
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] space-y-1">
-          <div className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground">
+          <div className="rounded-md bg-slate-600 px-3 py-2 text-sm text-white">
             <RichText text={message.content} isUser />
           </div>
           <div className="text-right text-[10px] text-muted-foreground">
@@ -1016,155 +1075,156 @@ function renderLine(line: string) {
 // ─── Right pane: inspector ─────────────────────────────────────────────────
 
 function InspectorPane({ agent }: { agent: Workflow }) {
-  const setCenterMode = useAppStore((s) => s.setAgentCenterMode);
+  const [section, setSection] = React.useState<"overview" | "dashboard" | "workflow" | "config">("overview");
   const status = agentStatus(agent);
   const autoPct = Math.round((agent.automaticCount / Math.max(agent.itemsProcessed, 1)) * 100);
 
   return (
-    <aside className="hidden w-72 shrink-0 flex-col overflow-y-auto overscroll-contain border-l border-border bg-muted/30 lg:flex">
-      <div className="space-y-3 p-3">
-        {/* Status + schedule */}
-        <div className="rounded-lg border border-border bg-card p-3">
-          <div className="mb-2 flex items-center gap-2">
-            <span className={cn("h-2 w-2 rounded-full", status.color)} />
-            <span className="text-xs font-semibold capitalize">{status.label}</span>
-            <RuntimeBadge runtime={agent.runtime} />
-          </div>
-          <div className="text-[10px] text-muted-foreground">
-            {agent.trigger === "schedule" ? `Schedule · ${agent.schedule}` : "Manual trigger"}
-          </div>
-          <div className="mt-1 text-[10px] text-muted-foreground">
-            {agent.runsCount} runs · {agent.itemsProcessed.toLocaleString()} items
-          </div>
-        </div>
-
-        {/* LOUD flagged button — the entire product is human-in-the-loop moments */}
-        {agent.flaggedCount > 0 && (
+    <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-l border-border bg-muted/30 lg:flex">
+      {/* Section switcher — Overview / Dashboard / Workflow / Config as tabs WITHIN the right rail */}
+      <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background/50 p-1">
+        {(["overview", "dashboard", "workflow", "config"] as const).map((s) => (
           <button
-            onClick={() => setCenterMode("dashboard")}
-            className="flex w-full items-center gap-2 rounded-lg border-2 border-gate/50 bg-gate/10 p-3 text-left transition-colors hover:border-gate hover:bg-gate/15"
-          >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gate/20 text-gate">
-              <AlertTriangle className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-bold text-gate">{agent.flaggedCount} flagged → review</div>
-              <div className="text-[10px] text-gate/80">Human-in-the-loop items need your call</div>
-            </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-gate" />
-          </button>
-        )}
-
-        {/* Workflow steps (summary) */}
-        <div className="rounded-lg border border-border bg-card p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Workflow</span>
-            <button
-              onClick={() => setCenterMode("workflow")}
-              className="text-[10px] text-primary hover:underline"
-            >
-              View →
-            </button>
-          </div>
-          <div className="space-y-1">
-            {agent.steps.steps.slice(0, 5).map((step, i) => {
-              const Icon = step.hardened ? Lock : step.kind === "reason" ? Brain : step.kind === "gate" ? ShieldCheck : Wrench;
-              return (
-                <div key={step.id} className="flex items-center gap-1.5 text-[10px]">
-                  <span className="font-mono text-[9px] text-muted-foreground">{i + 1}</span>
-                  <Icon className={cn("h-2.5 w-2.5", step.hardened ? "text-hardened" : step.kind === "reason" ? "text-reason" : step.kind === "gate" ? "text-gate" : "text-muted-foreground")} />
-                  <span className="truncate">{step.label}</span>
-                  {step.hardened && <Lock className="ml-auto h-2 w-2 text-hardened" />}
-                </div>
-              );
-            })}
-            {agent.steps.steps.length > 5 && (
-              <div className="text-[9px] text-muted-foreground">+ {agent.steps.steps.length - 5} more</div>
+            key={s}
+            onClick={() => setSection(s)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1 text-[10px] font-medium capitalize transition-colors",
+              section === s ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
             )}
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div className="rounded-lg border border-border bg-card p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Stats</span>
-            <button
-              onClick={() => setCenterMode("dashboard")}
-              className="text-[10px] text-primary hover:underline"
-            >
-              Full dashboard →
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-[10px]">
-            <div>
-              <div className="text-muted-foreground">Processed</div>
-              <div className="font-semibold tabular-nums">{agent.itemsProcessed.toLocaleString()}</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Automatic</div>
-              <div className="font-semibold tabular-nums">{autoPct}%</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Flagged</div>
-              <div className="font-semibold tabular-nums text-gate">{agent.flaggedCount.toLocaleString()}</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Runs</div>
-              <div className="font-semibold tabular-nums">{agent.runsCount}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Last few runs (mocked) */}
-        <div className="rounded-lg border border-border bg-card p-3">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Recent runs</div>
-          <div className="space-y-1">
-            {[
-              { status: "completed", when: "15m ago", items: 32 },
-              { status: "completed", when: "30m ago", items: 18 },
-              { status: "running", when: "now", items: 12 },
-              { status: "failed", when: "1h ago", items: 0 },
-            ].map((r, i) => (
-              <div key={i} className="flex items-center gap-2 text-[10px]">
-                <div
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full",
-                    r.status === "completed" && "bg-emerald-500",
-                    r.status === "running" && "bg-primary",
-                    r.status === "failed" && "bg-destructive",
-                  )}
-                />
-                <span className="capitalize">{r.status}</span>
-                <span className="text-muted-foreground">· {r.items} items</span>
-                <span className="ml-auto text-muted-foreground">{r.when}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Links to full views */}
-        <div className="flex flex-col gap-1">
-          <button
-            onClick={() => setCenterMode("dashboard")}
-            className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-primary/30"
           >
-            <Activity className="h-3.5 w-3.5 text-muted-foreground" /> Full dashboard
-            <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground" />
+            {s}
           </button>
-          <button
-            onClick={() => setCenterMode("config")}
-            className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-primary/30"
-          >
-            <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" /> Edit config
-            <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground" />
-          </button>
-        </div>
+        ))}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {section === "overview" && <InspectorOverview agent={agent} status={status} autoPct={autoPct} onGoSection={setSection} />}
+        {section === "dashboard" && <AgentDashboard agent={agent} />}
+        {section === "workflow" && <AgentWorkflow agent={agent} />}
+        {section === "config" && <AgentConfig agent={agent} />}
       </div>
     </aside>
   );
 }
 
-// ─── Dashboard / Workflow / Config (reused from agents-tab) ────────────────
+function InspectorOverview({
+  agent,
+  status,
+  autoPct,
+  onGoSection,
+}: {
+  agent: Workflow;
+  status: { color: string; label: string };
+  autoPct: number;
+  onGoSection: (s: "overview" | "dashboard" | "workflow" | "config") => void;
+}) {
+  return (
+    <div className="space-y-3 p-3">
+      {/* Status + schedule */}
+      <div className="rounded-lg border border-border bg-card p-3">
+        <div className="mb-2 flex items-center gap-2">
+          <span className={cn("h-2 w-2 rounded-full", status.color)} />
+          <span className="text-xs font-semibold capitalize">{status.label}</span>
+          <RuntimeBadge runtime={agent.runtime} />
+        </div>
+        <div className="text-[10px] text-muted-foreground">
+          {agent.trigger === "schedule" ? `Schedule · ${agent.schedule}` : "Manual trigger"}
+        </div>
+        <div className="mt-1 text-[10px] text-muted-foreground">
+          {agent.runsCount} runs · {agent.itemsProcessed.toLocaleString()} items
+        </div>
+      </div>
+
+      {/* LOUD flagged button */}
+      {agent.flaggedCount > 0 && (
+        <button
+          onClick={() => onGoSection("dashboard")}
+          className="flex w-full items-center gap-2 rounded-lg border-2 border-gate/50 bg-gate/10 p-3 text-left transition-colors hover:border-gate hover:bg-gate/15"
+        >
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gate/20 text-gate">
+            <AlertTriangle className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-bold text-gate">{agent.flaggedCount} flagged → review</div>
+            <div className="text-[10px] text-gate/80">Human-in-the-loop items need your call</div>
+          </div>
+          <ChevronRight className="h-4 w-4 shrink-0 text-gate" />
+        </button>
+      )}
+
+      {/* Workflow steps (summary) */}
+      <div className="rounded-lg border border-border bg-card p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Workflow</span>
+          <button onClick={() => onGoSection("workflow")} className="text-[10px] text-primary hover:underline">View →</button>
+        </div>
+        <div className="space-y-1">
+          {agent.steps.steps.slice(0, 5).map((step, i) => {
+            const Icon = step.hardened ? Lock : step.kind === "reason" ? Brain : step.kind === "gate" ? ShieldCheck : Wrench;
+            return (
+              <div key={step.id} className="flex items-center gap-1.5 text-[10px]">
+                <span className="font-mono text-[9px] text-muted-foreground">{i + 1}</span>
+                <Icon className={cn("h-2.5 w-2.5", step.hardened ? "text-hardened" : step.kind === "reason" ? "text-reason" : step.kind === "gate" ? "text-gate" : "text-muted-foreground")} />
+                <span className="truncate">{step.label}</span>
+                {step.hardened && <Lock className="ml-auto h-2 w-2 text-hardened" />}
+              </div>
+            );
+          })}
+          {agent.steps.steps.length > 5 && (
+            <div className="text-[9px] text-muted-foreground">+ {agent.steps.steps.length - 5} more</div>
+          )}
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="rounded-lg border border-border bg-card p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Stats</span>
+          <button onClick={() => onGoSection("dashboard")} className="text-[10px] text-primary hover:underline">Full dashboard →</button>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-[10px]">
+          <div><div className="text-muted-foreground">Processed</div><div className="font-semibold tabular-nums">{agent.itemsProcessed.toLocaleString()}</div></div>
+          <div><div className="text-muted-foreground">Automatic</div><div className="font-semibold tabular-nums">{autoPct}%</div></div>
+          <div><div className="text-muted-foreground">Flagged</div><div className="font-semibold tabular-nums text-gate">{agent.flaggedCount.toLocaleString()}</div></div>
+          <div><div className="text-muted-foreground">Runs</div><div className="font-semibold tabular-nums">{agent.runsCount}</div></div>
+        </div>
+      </div>
+
+      {/* Recent runs (mocked) */}
+      <div className="rounded-lg border border-border bg-card p-3">
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Recent runs</div>
+        <div className="space-y-1">
+          {[
+            { status: "completed", when: "15m ago", items: 32 },
+            { status: "completed", when: "30m ago", items: 18 },
+            { status: "running", when: "now", items: 12 },
+            { status: "failed", when: "1h ago", items: 0 },
+          ].map((r, i) => (
+            <div key={i} className="flex items-center gap-2 text-[10px]">
+              <div className={cn("h-1.5 w-1.5 rounded-full", r.status === "completed" && "bg-emerald-500", r.status === "running" && "bg-primary", r.status === "failed" && "bg-destructive")} />
+              <span className="capitalize">{r.status}</span>
+              <span className="text-muted-foreground">· {r.items} items</span>
+              <span className="ml-auto text-muted-foreground">{r.when}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Quick links to other sections */}
+      <div className="flex flex-col gap-1">
+        <button onClick={() => onGoSection("dashboard")} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-primary/30">
+          <Activity className="h-3.5 w-3.5 text-muted-foreground" /> Full dashboard
+          <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground" />
+        </button>
+        <button onClick={() => onGoSection("config")} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-primary/30">
+          <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" /> Edit config
+          <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 
 function AgentDashboard({ agent }: { agent: Workflow }) {
   const autoPct = Math.round((agent.automaticCount / Math.max(agent.itemsProcessed, 1)) * 100);
