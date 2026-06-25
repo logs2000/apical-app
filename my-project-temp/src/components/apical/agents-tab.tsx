@@ -43,6 +43,8 @@ import {
   Cloud,
   Monitor,
 } from "lucide-react";
+import type { AgentEvent } from "@/lib/types";
+import { loadAgentMessages, streamPerAgentChat } from "@/lib/apical/chat-stream";
 
 function agentStatus(agent: Workflow): { color: string; label: string } {
   if (agent.status === "paused") return { color: "bg-muted-foreground", label: "Paused" };
@@ -133,7 +135,7 @@ function AgentRow({ agent, onPick }: { agent: Workflow; onPick: () => void }) {
           <span className="text-[10px] text-muted-foreground">{status.label}</span>
         </div>
         <div className="truncate text-[11px] text-muted-foreground">
-          {agent.title ?? "Agent"} · {agent.department}
+          {agent.title ?? "Agent"}
           {agent.schedule ? ` · ${agent.schedule}` : " · manual"}
         </div>
         <div className="mt-0.5 truncate text-[10px] text-muted-foreground/70">
@@ -219,6 +221,7 @@ interface AgentMessage {
   id: string;
   role: "user" | "agent";
   content: string;
+  events?: AgentEvent[];
   createdAt: string;
 }
 
@@ -234,14 +237,19 @@ function ConversationPanel({ agent, onClose }: { agent: Workflow; onClose: () =>
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/agents/${agent.id}/messages`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setMessages(data.messages || []);
+      const rows = await loadAgentMessages(agent.id);
+      setMessages(
+        rows.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          events: m.events,
+          createdAt: m.createdAt,
+        })),
+      );
     } catch (err) {
-      // Likely no agent row in DB yet (demo workflow) — show empty state.
       setMessages([]);
-      setError(null);
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -253,7 +261,23 @@ function ConversationPanel({ agent, onClose }: { agent: Workflow; onClose: () =>
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+  }, [messages, sending]);
+
+  async function persistMessage(msg: AgentMessage) {
+    try {
+      await fetch(`/api/agents/${agent.id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: msg.role,
+          content: msg.content,
+          events: msg.events,
+        }),
+      });
+    } catch {
+      // non-fatal
+    }
+  }
 
   async function send() {
     if (!input.trim() || sending) return;
@@ -263,39 +287,53 @@ function ConversationPanel({ agent, onClose }: { agent: Workflow; onClose: () =>
       content: input.trim(),
       createdAt: new Date().toISOString(),
     };
-    setMessages((m) => [...m, userMsg]);
+    const prior = [...messages, userMsg];
+    setMessages(prior);
     setInput("");
     setSending(true);
+    void persistMessage(userMsg);
+
+    const agentMsgId = Math.random().toString(36).slice(2);
+    const placeholder: AgentMessage = {
+      id: agentMsgId,
+      role: "agent",
+      content: "",
+      events: [],
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((m) => [...m, placeholder]);
+
     try {
-      const res = await fetch(`/api/agents/${agent.id}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg.content }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (data.reply) {
-        setMessages((m) => [
-          ...m,
-          {
-            id: Math.random().toString(36).slice(2),
-            role: "agent",
-            content: data.reply,
-            createdAt: new Date().toISOString(),
-          },
-        ]);
-      }
-    } catch (err) {
-      // Surface a friendly error in the chat thread.
-      setMessages((m) => [
-        ...m,
-        {
-          id: Math.random().toString(36).slice(2),
-          role: "agent",
-          content: `(Couldn't reach ${agent.name} right now — ${(err as Error).message})`,
-          createdAt: new Date().toISOString(),
+      const result = await streamPerAgentChat(
+        agent.id,
+        userMsg.content,
+        prior.map((m) => ({ role: m.role, content: m.content })),
+        ({ content, events }) => {
+          setMessages((m) =>
+            m.map((msg) => (msg.id === agentMsgId ? { ...msg, content, events } : msg)),
+          );
         },
-      ]);
+      );
+      const finalMsg: AgentMessage = {
+        id: agentMsgId,
+        role: "agent",
+        content: result.content || "Done.",
+        events: result.events,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((m) => m.map((msg) => (msg.id === agentMsgId ? finalMsg : msg)));
+      void persistMessage(finalMsg);
+    } catch (err) {
+      setMessages((m) =>
+        m.map((msg) =>
+          msg.id === agentMsgId
+            ? {
+                ...msg,
+                content: `(Couldn't reach ${agent.name} right now — ${(err as Error).message})`,
+              }
+            : msg,
+        ),
+      );
     } finally {
       setSending(false);
     }
@@ -379,14 +417,55 @@ function MessageBubble({ message, agentName }: { message: AgentMessage; agentNam
       <div
         className={cn(
           "max-w-[80%] rounded-lg px-2.5 py-1.5 text-[11px]",
-          isUser ? "bg-primary text-primary-foreground" : "bg-card border border-border",
+          isUser ? "bg-[oklch(0.42_0.025_155)] text-white" : "bg-card border border-border",
         )}
       >
-        <p className="whitespace-pre-wrap">{message.content}</p>
-        <div className={cn("mt-1 text-[9px]", isUser ? "text-primary-foreground/70" : "text-muted-foreground")}>
+        {message.content ? (
+          <p className="whitespace-pre-wrap">{message.content}</p>
+        ) : message.events && message.events.length > 0 ? null : (
+          <span className="flex items-center gap-1 text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Thinking…
+          </span>
+        )}
+        {message.events && message.events.length > 0 && (
+          <PanelGlassBox events={message.events} />
+        )}
+        <div className={cn("mt-1 text-[9px]", isUser ? "text-white/70" : "text-muted-foreground")}>
           {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </div>
       </div>
+    </div>
+  );
+}
+
+function PanelGlassBox({ events }: { events: AgentEvent[] }) {
+  const taskList = [...events].reverse().find((e) => e.type === "task_list");
+  const reasoning = events.filter((e) => e.type === "reasoning");
+
+  return (
+    <div className="mt-2 space-y-1.5 border-t border-border/50 pt-2">
+      {reasoning.map((ev, i) =>
+        ev.type === "reasoning" ? (
+          <div key={i} className="flex items-start gap-1 text-[10px] text-muted-foreground">
+            <Brain className="mt-0.5 h-2.5 w-2.5 shrink-0" />
+            <span className="italic">{ev.content}</span>
+          </div>
+        ) : null,
+      )}
+      {taskList && taskList.type === "task_list" && (
+        <div className="space-y-0.5">
+          {taskList.tasks.map((task) => (
+            <div key={task.id} className="flex items-center gap-1.5 text-[10px]">
+              {task.done ? (
+                <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+              ) : (
+                <div className="h-2.5 w-2.5 rounded-full border border-muted-foreground/40" />
+              )}
+              <span className={task.done ? "text-muted-foreground line-through" : ""}>{task.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -409,7 +488,7 @@ function AgentDashboard({ agent }: { agent: Workflow }) {
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About</h3>
         <p className="mt-1.5 text-sm">{agent.description}</p>
         <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-3">
-          <Meta label="Department" value={agent.department} />
+            <Meta label="Title" value={agent.title ?? "—"} />
           <Meta label="Title" value={agent.title ?? "—"} />
           <Meta label="Trigger" value={agent.trigger === "schedule" ? `Schedule · ${agent.schedule}` : "Manual"} />
         </div>
@@ -526,18 +605,28 @@ function AgentWorkflow({ agent }: { agent: Workflow }) {
 
 function AgentConfig({ agent }: { agent: Workflow }) {
   const [name, setName] = React.useState(agent.name);
-  const [department, setDepartment] = React.useState(agent.department);
   const [title, setTitle] = React.useState(agent.title ?? "");
   const [description, setDescription] = React.useState(agent.description);
   const [trigger, setTrigger] = React.useState<"manual" | "schedule">(agent.trigger);
   const [schedule, setSchedule] = React.useState(agent.schedule ?? "");
   const [runtime, setRuntime] = React.useState<AgentRuntime>(agent.runtime);
-  const [modelPref, setModelPref] = React.useState("default");
+  const [modelPref, setModelPref] = React.useState(agent.modelPreference ?? "");
+  const [availableModels, setAvailableModels] = React.useState<Array<{ id: string; name: string; provider: string }>>([]);
   const [confidenceThreshold, setConfidenceThreshold] = React.useState("0.85");
   const [autoHardenAfter, setAutoHardenAfter] = React.useState("50");
   const [saving, setSaving] = React.useState(false);
   const [savedAt, setSavedAt] = React.useState<Date | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    void fetch("/api/llm/models")
+      .then((r) => r.json())
+      .then((data: { models?: Array<{ id: string; name: string; provider: string; tier: string; configured?: boolean }> }) => {
+        const hosted = (data.models ?? []).filter((m) => m.tier === "hosted" && m.configured !== false);
+        setAvailableModels(hosted.map((m) => ({ id: m.id, name: m.name, provider: m.provider })));
+      })
+      .catch(() => setAvailableModels([]));
+  }, []);
 
   async function save() {
     setSaving(true);
@@ -548,13 +637,12 @@ function AgentConfig({ agent }: { agent: Workflow }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          department: department.trim(),
           title: title.trim() || null,
           description,
           trigger,
           schedule: trigger === "schedule" ? schedule.trim() || null : null,
           runtime,
-          modelPreference: modelPref === "default" ? null : modelPref,
+          modelPreference: modelPref.trim() || null,
           confidenceThreshold: parseFloat(confidenceThreshold) || null,
           autoHardenAfter: parseInt(autoHardenAfter, 10) || null,
         }),
@@ -583,13 +671,9 @@ function AgentConfig({ agent }: { agent: Workflow }) {
             <Label className="text-xs">Name</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 text-sm" />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 sm:col-span-2">
             <Label className="text-xs">Title</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} className="h-9 text-sm" placeholder="e.g. Sorter" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Department</Label>
-            <Input value={department} onChange={(e) => setDepartment(e.target.value)} className="h-9 text-sm" />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} className="h-9 text-sm" placeholder="e.g. Filing Agent" />
           </div>
         </div>
         <div className="mt-3 space-y-1.5">
@@ -677,9 +761,12 @@ function AgentConfig({ agent }: { agent: Workflow }) {
               onChange={(e) => setModelPref(e.target.value)}
               className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
             >
-              <option value="default">Default (Apical-managed)</option>
-              <option value="fast">Fast</option>
-              <option value="thinking">Thinking</option>
+              <option value="">Default (first available)</option>
+              {availableModels.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.provider})
+                </option>
+              ))}
             </select>
           </div>
           <div className="space-y-1.5">

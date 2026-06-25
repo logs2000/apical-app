@@ -5,9 +5,21 @@ import { runAgent, type AgentEvent } from '@/lib/platform/agent-engine'
 interface ThinkBody {
   goal: string
   context?: string
+  history?: Array<{ role: 'user' | 'agent' | 'assistant'; content: string }>
+  agentId?: string | null
+  attachments?: Array<{
+    id: string
+    name: string
+    mimeType: string
+    kind: string
+    url: string
+    localPath?: string | null
+  }>
+  script?: { language: 'javascript' | 'python' | 'shell'; code: string }
   modelId?: string
   maxIterations?: number
   allowCli?: boolean
+  isDesktop?: boolean
 }
 
 // POST /api/agent/think — run the autonomous agent loop.
@@ -45,10 +57,18 @@ export const POST = withUser(async (req, { user }) => {
           {
             userId: user.id,
             goal,
+            agentId: body.agentId ?? null,
             context: body.context,
+            attachments: body.attachments,
+            script: body.script,
+            history: (body.history ?? []).slice(-12).map((m) => ({
+              role: m.role === 'user' ? 'user' : 'agent',
+              content: m.content,
+            })),
             modelId: body.modelId,
             maxIterations: body.maxIterations,
             allowCli: body.allowCli ?? false,
+            isDesktop: body.isDesktop ?? false,
             source: 'agent',
           },
           send,

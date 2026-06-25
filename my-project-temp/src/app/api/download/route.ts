@@ -48,15 +48,15 @@ async function readManifest(): Promise<Manifest | null> {
 const INSTALL_COMMANDS: Record<string, { label: string; command: string }> = {
   mac: {
     label: 'macOS',
-    command: 'curl -fsSL https://apical.dev/install.sh | sh',
+    command: 'curl -fsSL https://apic.al/install.sh | sh',
   },
   windows: {
     label: 'Windows (PowerShell)',
-    command: 'irm https://apical.dev/install.ps1 | iex',
+    command: 'irm https://apic.al/install.ps1 | iex',
   },
   linux: {
     label: 'Linux',
-    command: 'curl -fsSL https://apical.dev/install.sh | sh',
+    command: 'curl -fsSL https://apic.al/install.sh | sh',
   },
 }
 

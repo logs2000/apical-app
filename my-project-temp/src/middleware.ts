@@ -1,7 +1,7 @@
 // Apical — auth middleware.
 //
 // Protects authenticated routes. The landing page (/) is always public.
-// Protected routes require auth unless AUTH_BYPASS_DEV=true in development.
+// Protected routes require auth unless dev bypass is active (default in development).
 //
 // Public routes:
 //   • / (landing page)
@@ -12,16 +12,9 @@
 //   • /api/supabase/* (Supabase status)
 //   • Next.js static + image optimization
 
-import { withAuth } from 'next-auth/middleware'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-
-function isDevBypass(): boolean {
-  return (
-    process.env.NODE_ENV === 'development' &&
-    process.env.AUTH_BYPASS_DEV === 'true'
-  )
-}
+import { isDevBypass } from '@/lib/dev-bypass'
 
 // In dev bypass mode, just pass everything through without auth checks.
 // This avoids the middleware overhead and prevents auth-related issues.

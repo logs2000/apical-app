@@ -17,11 +17,14 @@
 //   - integration_list: lets the agent see what connections are available.
 
 import { db } from '@/lib/db'
-import ZAI from 'z-ai-web-dev-sdk'
-import { integrationFromRow, parseConfig } from '@/lib/apical-server'
+import { integrationFromRow, parseConfig, serializeWorkflowJSON } from '@/lib/apical-server'
 import { callMcpTool } from '@/lib/mcp-client'
 import { buildSecureHeaders, listCredentialsForAgent } from '@/lib/platform/agent-credentials'
 import { ingestOpenApiSpec } from '@/lib/openapi-parser'
+import { searchWeb } from '@/lib/platform/web-search'
+import { saveAsset, assetDownloadUrl } from '@/lib/platform/assets'
+import { normalizeSteps } from '@/lib/deploy'
+import { computeNextRun, validateSchedule, parseFixedRate, type ScheduleKind } from '@/lib/platform/cron'
 import type { WorkflowJSON, McpServerConfig } from '@/lib/types'
 
 // ---------------- Types ----------------
@@ -39,18 +42,52 @@ export interface ToolResult {
   display?: {
     title: string
     summary: string
-    kind?: 'search' | 'http' | 'code' | 'cli' | 'data' | 'workflow' | 'info'
+    kind?: 'search' | 'http' | 'code' | 'cli' | 'data' | 'workflow' | 'info' | 'image' | 'file'
+    assetId?: string
+    assetUrl?: string
+    assetName?: string
+    mimeType?: string
   }
+}
+
+export interface CredentialRequest {
+  service: string
+  label: string
+  /** Plain-English explanation of why the key is needed + where to find it. */
+  instructions?: string
+  /** A link to the service's API-key / token settings page. */
+  docsUrl?: string
+  fields: Array<{
+    key: string
+    label: string
+    type?: 'text' | 'password' | 'apikey'
+    placeholder?: string
+    required?: boolean
+  }>
+  /** How the secret is injected when the agent later calls the API. */
+  headerName?: string
+  headerPrefix?: string
 }
 
 export interface ToolContext {
   userId: string
+  agentId?: string | null
+  /** The current agent's display name + role (when chatting with a specific agent). */
+  agentName?: string | null
+  agentTitle?: string | null
+  /** The current agent's saved workflow JSON (so it can follow + evolve it). */
+  currentWorkflow?: WorkflowJSON
   /** Whether CLI execution is allowed (routes through the desktop bridge). */
   allowCli: boolean
   /** Max HTTP fetch size (bytes). */
   maxFetchBytes: number
   /** The agent's accumulated workflow proposal (mutated by workflow_propose). */
   proposedWorkflow?: WorkflowJSON
+  /** Set when a workflow was persisted onto an EXISTING agent (its own workflow)
+   *  rather than proposed as a brand-new agent. */
+  workflowSavedToAgentId?: string
+  /** Set by credential_request — surfaced to the chat as an inline key-entry box. */
+  credentialRequest?: CredentialRequest
   /** A growing list of research findings (mutated by web_read/http_request). */
   findings?: Array<{ source: string; url: string; type: string; description: string }>
   /** The live execution trace — each tool/reason/gate step the agent takes. */
@@ -66,13 +103,22 @@ export interface ToolContext {
   }>
   /** Credential ids the agent has used in this run (for the freeze step). */
   usedCredentialIds?: string[]
+  /** Assets produced during this run (for chat + data tab). */
+  producedAssets?: Array<{
+    id: string
+    name: string
+    mimeType: string
+    kind: string
+    url: string
+    sizeBytes?: number
+  }>
 }
 
 export interface ToolDef {
   name: string
   description: string
   /** JSON-schema-ish input shape for the LLM. */
-  inputSchema: Record<string, { type: string; description: string; required?: boolean }>
+  inputSchema: Record<string, { type: string; description: string; required?: boolean; items?: { type: string } }>
   /** Run the tool. Must not throw — return { ok: false, error } on failure. */
   run: (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>
 }
@@ -94,18 +140,58 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max) + `\n…[truncated, ${s.length - max} more chars]`
 }
 
-// ---------------- Tool registry ----------------
-
-const zaiPromise = (async () => ZAI.create())()
-async function getZai() {
-  return zaiPromise
+/**
+ * Invoke a tool on the user's connected desktop via the desktop bridge.
+ * Shared by cli_run + the fs_* tools. Requires an online DesktopSession.
+ * Returns a normalized ToolResult so callers don't repeat the plumbing.
+ */
+async function invokeDesktopTool(
+  ctx: ToolContext,
+  tool: string,
+  args: Record<string, unknown>,
+  opts: { timeoutMs?: number; display: NonNullable<ToolResult['display']> },
+): Promise<ToolResult> {
+  const timeoutMs = Math.min(60_000, Math.max(1000, opts.timeoutMs ?? 15_000))
+  try {
+    const sessions = await db.desktopSession.findMany({
+      where: { userId: ctx.userId, status: 'online' },
+      take: 1,
+    })
+    if (sessions.length === 0)
+      return {
+        ok: false,
+        output: null,
+        error: 'No online desktop session. Connect the desktop app + enable desktop access in Settings → Desktop.',
+      }
+    const r = await fetch('http://localhost:3005/invoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: sessions[0].id,
+        tool,
+        args,
+        timeoutMs: timeoutMs + 2000,
+      }),
+    })
+    const data = (await r.json()) as { ok: boolean; result?: unknown; error?: string }
+    return {
+      ok: data.ok,
+      output: data.result ?? null,
+      error: data.error,
+      display: { ...opts.display, summary: data.ok ? opts.display.summary : data.error || 'failed' },
+    }
+  } catch (e) {
+    return { ok: false, output: null, error: (e as Error).message }
+  }
 }
+
+// ---------------- Tool registry ----------------
 
 // 1. web_search — find pages on the web.
 const webSearch: ToolDef = {
   name: 'web_search',
   description:
-    'Search the web for pages matching a query. Returns titles, URLs, and snippets. Use this to discover data sources, APIs, documentation, or competitors.',
+    'Search the web for pages matching a query. Returns titles, URLs, and snippets. Use this freely to discover data sources, APIs, MCP servers, OpenAPI specs, documentation, or competitors — it works without any API key. This is how you FIND new tools to integrate (then connect them with tool_configure).',
   inputSchema: {
     query: { type: 'string', description: 'The search query.', required: true },
     num: { type: 'number', description: 'Number of results (default 6, max 10).' },
@@ -115,18 +201,12 @@ const webSearch: ToolDef = {
     if (!query) return { ok: false, output: null, error: 'query is required' }
     const num = Math.min(10, Math.max(1, asNumber(input.num, 6)))
     try {
-      const zai = await getZai()
-      const results = (await zai.functions.invoke('web_search', { query, num })) as Array<{
-        url: string
-        name: string
-        snippet: string
-        host_name: string
-      }>
-      const rows = results.slice(0, num).map((r, i) => ({
+      const results = await searchWeb(query, num)
+      const rows = results.map((r, i) => ({
         i: i + 1,
-        title: r.name,
+        title: r.title,
         url: r.url,
-        host: r.host_name,
+        host: r.host,
         snippet: truncate(r.snippet || '', 300),
       }))
       return {
@@ -176,67 +256,41 @@ const webRead: ToolDef = {
       }
     }
 
-    // Prefer a raw fetch + tag strip — it's reliable + doesn't depend on the
-    // SDK's web_reader function (which may not be available). Try the SDK
-    // reader only if the raw fetch fails (e.g. behind a paywall the SDK can
-    // bypass).
+    // Prefer a raw fetch + tag strip — reliable and does not depend on third-party readers.
     let title = ''
     let content = ''
     let publishedTime: string | undefined
-    let usedMethod = 'fetch'
+    const usedMethod = 'fetch'
 
     try {
       const r = await fetch(url, {
         signal: AbortSignal.timeout(12_000),
         headers,
       })
-      if (r.ok) {
-        const ct = r.headers.get('content-type') || ''
-        const raw = await r.text()
-        if (ct.includes('json') || raw.trim().startsWith('{') || raw.trim().startsWith('[')) {
-          // JSON response — return it parsed.
-          try {
-            content = JSON.stringify(JSON.parse(raw), null, 2)
-          } catch {
-            content = raw
-          }
-        } else {
-          // HTML — strip tags + scripts.
-          const titleMatch = raw.match(/<title[^>]*>([^<]*)<\/title>/i)
-          if (titleMatch) title = titleMatch[1].trim().slice(0, 300)
+      if (!r.ok) {
+        return { ok: false, output: null, error: `HTTP ${r.status}` }
+      }
+      const ct = r.headers.get('content-type') || ''
+      const raw = await r.text()
+      if (ct.includes('json') || raw.trim().startsWith('{') || raw.trim().startsWith('[')) {
+        try {
+          content = JSON.stringify(JSON.parse(raw), null, 2)
+        } catch {
           content = raw
-            .replace(/<script[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[\s\S]*?<\/style>/gi, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/&[a-z]+;/gi, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
         }
       } else {
-        // Raw fetch failed — try the SDK reader as a fallback.
-        usedMethod = 'sdk'
-        try {
-          const zai = await getZai()
-          const res = (await zai.functions.invoke('web_reader', { url })) as { title?: string; content?: string; publishedTime?: string }
-          title = asString(res.title || '', 300)
-          content = asString(res.content || '', maxChars)
-          publishedTime = res.publishedTime
-        } catch (e2) {
-          return { ok: false, output: null, error: `HTTP ${r.status}` }
-        }
+        const titleMatch = raw.match(/<title[^>]*>([^<]*)<\/title>/i)
+        if (titleMatch) title = titleMatch[1].trim().slice(0, 300)
+        content = raw
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&[a-z]+;/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
       }
     } catch (e) {
-      // Raw fetch threw (network error) — try the SDK reader.
-      usedMethod = 'sdk'
-      try {
-        const zai = await getZai()
-        const res = (await zai.functions.invoke('web_reader', { url })) as { title?: string; content?: string; publishedTime?: string }
-        title = asString(res.title || '', 300)
-        content = asString(res.content || '', maxChars)
-        publishedTime = res.publishedTime
-      } catch (e2) {
-        return { ok: false, output: null, error: (e as Error).message }
-      }
+      return { ok: false, output: null, error: (e as Error).message }
     }
 
     content = truncate(content, maxChars)
@@ -335,6 +389,61 @@ const httpRequest: ToolDef = {
   },
 }
 
+// 4b. asset_save — persist generated content as a downloadable asset.
+const assetSave: ToolDef = {
+  name: 'asset_save',
+  description:
+    'Save generated content (text, JSON, CSV, code, or base64-encoded binary like images) as a downloadable asset. Returns an asset id and download URL shown to the user in chat and the Data tab.',
+  inputSchema: {
+    name: { type: 'string', description: 'Filename including extension.', required: true },
+    content: { type: 'string', description: 'File content (utf8 text or base64 when encoding=base64).', required: true },
+    mimeType: { type: 'string', description: 'MIME type, e.g. text/plain, application/json, image/png.' },
+    encoding: { type: 'string', description: 'utf8 (default) or base64.' },
+    kind: { type: 'string', description: 'image | file | code' },
+  },
+  async run(input, ctx) {
+    const name = asString(input.name, 200)
+    const content = asString(input.content, 5_000_000)
+    if (!name || !content) return { ok: false, output: null, error: 'name and content are required' }
+    const encoding = asString(input.encoding) === 'base64' ? 'base64' : 'utf8'
+    const bytes = encoding === 'base64' ? Buffer.from(content, 'base64') : Buffer.from(content, 'utf8')
+    try {
+      const asset = await saveAsset({
+        userId: ctx.userId,
+        agentId: ctx.agentId ?? null,
+        name,
+        bytes,
+        mimeType: asString(input.mimeType) || 'application/octet-stream',
+        kind: (asString(input.kind) as 'image' | 'file' | 'code') || undefined,
+        source: 'agent',
+      })
+      ctx.producedAssets?.push({
+        id: asset.id,
+        name: asset.name,
+        mimeType: asset.mimeType,
+        kind: asset.kind,
+        url: asset.url,
+        sizeBytes: asset.sizeBytes,
+      })
+      return {
+        ok: true,
+        output: { assetId: asset.id, url: asset.url, name: asset.name, sizeBytes: asset.sizeBytes },
+        display: {
+          title: `Saved ${asset.name}`,
+          summary: assetDownloadUrl(asset.id),
+          kind: asset.kind === 'image' ? 'image' : 'file',
+          assetId: asset.id,
+          assetUrl: asset.url,
+          assetName: asset.name,
+          mimeType: asset.mimeType,
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
 // 4. code_eval — sandboxed JS for computations + data transformation.
 //    NO filesystem, NO require, NO process, NO fetch (the agent uses
 //    http_request for network). Pure computation only.
@@ -359,20 +468,43 @@ const codeEval: ToolDef = {
     }
     try {
       // Sandbox: wrap in a function with no access to globals. We provide a
-      // minimal `data` binding + JSON + Math + standard built-ins via an
-      // indirect eval in a sealed scope.
+      // minimal `data` binding + JSON + Math + standard built-ins, plus a
+      // `console` shim that captures log output (so scripts behave like a REPL).
+      const logs: string[] = []
+      const mkLog =
+        () =>
+        (...args: unknown[]) => {
+          logs.push(
+            args
+              .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+              .join(' '),
+          )
+        }
+      const console = { log: mkLog(), info: mkLog(), warn: mkLog(), error: mkLog(), debug: mkLog() }
       const fn = new Function(
         'data',
+        'console',
         '"use strict";\n' +
-          'const Math_ = Math, JSON_ = JSON, Date_ = Date, Array_ = Array, Object_ = Object, String_ = String, Number_ = Number, RegExp_ = RegExp;\n' +
           'return (function(){\n' +
           code +
           '\n})();',
       )
-      const result = fn(data)
+      const result = fn(data, console)
+      const logText = logs.join('\n')
+      const resultStr =
+        result === undefined
+          ? ''
+          : typeof result === 'string'
+            ? result
+            : JSON.stringify(result, null, 2)
+      const combined = [logText, resultStr].filter(Boolean).join('\n')
       return {
         ok: true,
-        output: { result: typeof result === 'string' ? truncate(result, 10_000) : result },
+        output: {
+          result: typeof result === 'string' ? truncate(result, 10_000) : result,
+          logs: logText || undefined,
+          stdout: truncate(combined, 10_000) || '(no output)',
+        },
         display: { title: 'Ran code', summary: 'evaluated JS', kind: 'code' },
       }
     } catch (e) {
@@ -405,36 +537,128 @@ const cliRun: ToolDef = {
     const args = Array.isArray(input.args) ? input.args.map(String) : []
     const cwd = asString(input.cwd, 1000) || undefined
     const timeoutMs = Math.min(30_000, Math.max(1000, asNumber(input.timeoutMs, 15_000)))
-    try {
-      // Route through the desktop bridge. We need a session id — for the
-      // autonomous agent we use the user's first online desktop session.
-      const sessions = await db.desktopSession.findMany({
-        where: { userId: ctx.userId, status: 'online' },
-        take: 1,
-      })
-      if (sessions.length === 0)
-        return { ok: false, output: null, error: 'No online desktop session. Connect the desktop app.' }
-      const sessionId = sessions[0].id
-      const r = await fetch('http://localhost:3005/invoke', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          tool: 'desktop.cli.run',
-          args: { command, args, cwd, timeoutMs },
-          timeoutMs: timeoutMs + 2000,
-        }),
-      })
-      const data = (await r.json()) as { ok: boolean; result?: unknown; error?: string }
-      return {
-        ok: data.ok,
-        output: data.result ?? null,
-        error: data.error,
-        display: { title: `$ ${command}`, summary: data.ok ? 'ran' : 'failed', kind: 'cli' },
-      }
-    } catch (e) {
-      return { ok: false, output: null, error: (e as Error).message }
+    // The bridge expects `cmd` for the command (see desktop.cli.run catalog).
+    return invokeDesktopTool(
+      ctx,
+      'desktop.cli.run',
+      { cmd: command, args, cwd, timeoutMs },
+      { timeoutMs, display: { title: `$ ${command}`, summary: 'ran', kind: 'cli' } },
+    )
+  },
+}
+
+// 5a. script_run — run JS (sandbox), Python, or shell (desktop CLI).
+const scriptRun: ToolDef = {
+  name: 'script_run',
+  description:
+    'Execute a script once. JavaScript runs in a sandboxed eval. Python and shell require desktop CLI access (allowCli). Use for one-off computation, data transforms, or local commands.',
+  inputSchema: {
+    language: { type: 'string', description: 'javascript | python | shell', required: true },
+    code: { type: 'string', description: 'Script source code.', required: true },
+    data: { type: 'string', description: 'Optional JSON string passed as `data` to JS scripts.' },
+  },
+  async run(input, ctx) {
+    const language = asString(input.language).toLowerCase()
+    const code = asString(input.code, 50_000)
+    if (!code) return { ok: false, output: null, error: 'code is required' }
+    if (language === 'javascript' || language === 'js') {
+      return codeEval.run({ code, data: input.data }, ctx)
     }
+    if (!ctx.allowCli) {
+      return { ok: false, output: null, error: 'Python/shell scripts require desktop CLI access.' }
+    }
+    if (language === 'python' || language === 'py') {
+      return cliRun.run({ command: 'python3', args: ['-c', code], timeoutMs: 30_000 }, ctx)
+    }
+    if (language === 'shell' || language === 'bash' || language === 'sh') {
+      return cliRun.run({ command: 'bash', args: ['-lc', code], timeoutMs: 30_000 }, ctx)
+    }
+    return { ok: false, output: null, error: `Unsupported language: ${language}` }
+  },
+}
+
+// 5b/5c/5d. fs_list / fs_read / fs_write — filesystem access on the user's
+//    desktop (via the desktop bridge). Gated by ctx.allowCli, same as cli_run.
+//    These give the agent first-class file handling for the "sort/rename/file
+//    my scanned documents" and "watch an intake folder" class of workflows —
+//    without dropping to raw shell.
+const fsList: ToolDef = {
+  name: 'fs_list',
+  description:
+    "List the entries (files + folders) in a directory on the user's desktop. Use this to discover what's in an intake/watch folder before reading or moving files. Requires desktop access (same flag as cli_run).",
+  inputSchema: {
+    path: { type: 'string', description: 'Absolute directory path to list.', required: true },
+  },
+  async run(input, ctx) {
+    if (!ctx.allowCli)
+      return { ok: false, output: null, error: 'Desktop access is disabled. The user must enable it in Settings → Desktop.' }
+    const path = asString(input.path, 2000)
+    if (!path) return { ok: false, output: null, error: 'path is required' }
+    return invokeDesktopTool(ctx, 'desktop.fs.list', { path }, {
+      display: { title: `Listed ${path}`, summary: 'listed', kind: 'data' },
+    })
+  },
+}
+
+const fsRead: ToolDef = {
+  name: 'fs_read',
+  description:
+    "Read a file from the user's desktop. Returns the file content (utf8 by default; pass encoding 'base64' for binaries). Use this to OCR/parse a document, read a config, or inspect a local data file. Requires desktop access.",
+  inputSchema: {
+    path: { type: 'string', description: 'Absolute file path to read.', required: true },
+    encoding: { type: 'string', description: "'utf8' (default) or 'base64'." },
+  },
+  async run(input, ctx) {
+    if (!ctx.allowCli)
+      return { ok: false, output: null, error: 'Desktop access is disabled. The user must enable it in Settings → Desktop.' }
+    const path = asString(input.path, 2000)
+    if (!path) return { ok: false, output: null, error: 'path is required' }
+    const encoding = asString(input.encoding, 10) === 'base64' ? 'base64' : 'utf8'
+    return invokeDesktopTool(ctx, 'desktop.fs.read', { path, encoding }, {
+      display: { title: `Read ${path}`, summary: 'read', kind: 'data' },
+    })
+  },
+}
+
+const fsWrite: ToolDef = {
+  name: 'fs_write',
+  description:
+    "Write content to a file on the user's desktop (overwrites). Also use desktop.fs.move semantics by writing then deleting — but prefer fs_write for creating reports, renamed copies, or exported data. Requires desktop access.",
+  inputSchema: {
+    path: { type: 'string', description: 'Absolute file path to write.', required: true },
+    content: { type: 'string', description: 'The content to write.', required: true },
+    encoding: { type: 'string', description: "'utf8' (default) or 'base64'." },
+  },
+  async run(input, ctx) {
+    if (!ctx.allowCli)
+      return { ok: false, output: null, error: 'Desktop access is disabled. The user must enable it in Settings → Desktop.' }
+    const path = asString(input.path, 2000)
+    if (!path) return { ok: false, output: null, error: 'path is required' }
+    const content = asString(input.content, 500_000)
+    const encoding = asString(input.encoding, 10) === 'base64' ? 'base64' : 'utf8'
+    return invokeDesktopTool(ctx, 'desktop.fs.write', { path, content, encoding }, {
+      display: { title: `Wrote ${path}`, summary: `${content.length} bytes`, kind: 'data' },
+    })
+  },
+}
+
+const fsMove: ToolDef = {
+  name: 'fs_move',
+  description:
+    "Move or rename a file/folder on the user's desktop. This is the workhorse for filing workflows (e.g. move a scanned PDF into the right client folder, rename to a consistent format). Requires desktop access.",
+  inputSchema: {
+    from: { type: 'string', description: 'Absolute source path.', required: true },
+    to: { type: 'string', description: 'Absolute destination path.', required: true },
+  },
+  async run(input, ctx) {
+    if (!ctx.allowCli)
+      return { ok: false, output: null, error: 'Desktop access is disabled. The user must enable it in Settings → Desktop.' }
+    const from = asString(input.from, 2000)
+    const to = asString(input.to, 2000)
+    if (!from || !to) return { ok: false, output: null, error: 'from and to are required' }
+    return invokeDesktopTool(ctx, 'desktop.fs.move', { from, to }, {
+      display: { title: `Moved ${from} → ${to}`, summary: 'moved', kind: 'data' },
+    })
   },
 }
 
@@ -903,13 +1127,53 @@ const workflowFreeze: ToolDef = {
       note: s.status === 'flagged' ? 'Flagged during live run — review' : undefined,
     }))
     const wf: WorkflowJSON = { version: 1, steps: steps as never }
-    ctx.proposedWorkflow = wf
 
     // Track the credential ids the workflow should reference.
     const credIds = Array.isArray(input.credentialIds)
       ? (input.credentialIds as unknown[]).filter((x): x is string => typeof x === 'string')
       : (ctx.usedCredentialIds || [])
 
+    // OWNERSHIP: if we're chatting with a specific agent, the frozen workflow
+    // belongs to THAT agent — persist it onto its own row. We do NOT propose a
+    // brand-new agent. New agents are only created via agent_create when there's
+    // a clear reason for a separate, dedicated agent.
+    if (ctx.agentId) {
+      try {
+        await db.workflow.update({
+          where: { id: ctx.agentId },
+          data: {
+            stepsJson: serializeWorkflowJSON(wf),
+            description,
+            ...(asString(input.schedule, 200)
+              ? { schedule: asString(input.schedule, 200) }
+              : {}),
+          },
+        })
+        ctx.currentWorkflow = wf
+        ctx.workflowSavedToAgentId = ctx.agentId
+        return {
+          ok: true,
+          output: {
+            agentId: ctx.agentId,
+            stepCount: steps.length,
+            credentialIds: credIds,
+            savedToAgent: true,
+            note: 'Saved as THIS agent\'s own workflow. It now owns + runs these steps. Use workflow_update later to evolve it as you learn.',
+          },
+          display: {
+            title: `Updated this agent's workflow`,
+            summary: `${steps.length} steps · ${credIds.length} credentials`,
+            kind: 'workflow',
+          },
+        }
+      } catch (e) {
+        return { ok: false, output: null, error: (e as Error).message }
+      }
+    }
+
+    // No specific agent (orchestrator context): hold it as a proposal the user
+    // can turn into a new agent.
+    ctx.proposedWorkflow = wf
     return {
       ok: true,
       output: {
@@ -919,12 +1183,116 @@ const workflowFreeze: ToolDef = {
         stepCount: steps.length,
         credentialIds: credIds,
         frozen: true,
-        note: 'Workflow frozen from live execution trace. Production runs will execute these steps verbatim, referencing credentials by id only.',
+        note: 'Workflow frozen from live execution trace. Offer to create a dedicated agent (agent_create) only if this is a recurring job that warrants its own agent.',
       },
       display: {
         title: `Froze workflow: ${name}`,
         summary: `${steps.length} steps · ${credIds.length} credentials`,
         kind: 'workflow',
+      },
+    }
+  },
+}
+
+// 13b. workflow_update — update the CURRENT agent's own workflow JSON. This is
+//      how an agent evolves the process it owns over time (after learning a
+//      better step order, fixing a failure, adding a gate, etc.). Operates on
+//      ctx.agentId — no id needed.
+const workflowUpdate: ToolDef = {
+  name: 'workflow_update',
+  description:
+    "Update THIS agent's own saved workflow (the JSON list of steps it follows). Use this to evolve the process you own — add/replace/reorder steps after you learn a better way, fix a failing step, or add a gate. Pass the COMPLETE new steps array (kind: tool/reason/gate). Only valid when you ARE a specific agent (not the general orchestrator).",
+  inputSchema: {
+    steps: { type: 'array', description: 'The complete new workflow steps array (replaces the current one).', items: { type: 'object' }, required: true },
+    description: { type: 'string', description: 'Optional updated one-line description of what the workflow does.' },
+    note: { type: 'string', description: 'Optional short note on what changed + why (for the activity log).' },
+  },
+  async run(input, ctx) {
+    if (!ctx.agentId)
+      return { ok: false, output: null, error: 'workflow_update only works when acting as a specific agent. Use workflow_propose / agent_create instead.' }
+    const rawSteps = Array.isArray(input.steps) ? input.steps : []
+    if (rawSteps.length === 0)
+      return { ok: false, output: null, error: 'a non-empty steps array is required' }
+    try {
+      const steps = normalizeSteps(rawSteps)
+      const wf: WorkflowJSON = { version: 1, steps }
+      const description = asString(input.description, 1000)
+      await db.workflow.update({
+        where: { id: ctx.agentId },
+        data: {
+          stepsJson: serializeWorkflowJSON(wf),
+          ...(description ? { description } : {}),
+        },
+      })
+      ctx.currentWorkflow = wf
+      ctx.workflowSavedToAgentId = ctx.agentId
+      return {
+        ok: true,
+        output: {
+          agentId: ctx.agentId,
+          stepCount: steps.length,
+          note: asString(input.note, 500) || 'Workflow updated.',
+        },
+        display: {
+          title: 'Updated workflow',
+          summary: `${steps.length} steps`,
+          kind: 'workflow',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 13c. credential_request — ask the user for an API key / token by rendering an
+//      inline, secure entry box in the chat (the value goes straight to the
+//      vault; the agent never sees it). Use this INSTEAD of telling the user to
+//      go open the Vault tab themselves.
+const credentialRequestTool: ToolDef = {
+  name: 'credential_request',
+  description:
+    "Ask the user for an API key / token you need. This renders a SECURE inline box in the chat where the user types the key — it is saved straight to the vault and you get back only a credentialId (never the secret). Call credential_list first to check it isn't already saved. Use this instead of telling the user to open the Vault tab. After the user saves it, it appears in credential_list and you reference it by credentialId.",
+  inputSchema: {
+    service: { type: 'string', description: 'The service the key is for (e.g. "openai", "stripe", "github").', required: true },
+    label: { type: 'string', description: 'A human label for the credential (e.g. "OpenAI API key").', required: true },
+    instructions: { type: 'string', description: 'Plain-English: why you need it + where the user finds it.' },
+    docsUrl: { type: 'string', description: "Link to the service's API-key settings page." },
+    headerName: { type: 'string', description: 'Header to inject the secret into when calling the API (default X-Api-Key).' },
+    headerPrefix: { type: 'string', description: 'Value prefix, e.g. "Bearer " for bearer tokens (default empty).' },
+  },
+  async run(input, ctx) {
+    const service = asString(input.service, 100)
+    const label = asString(input.label, 200) || service
+    if (!service)
+      return { ok: false, output: null, error: 'service is required' }
+    ctx.credentialRequest = {
+      service,
+      label,
+      instructions: asString(input.instructions, 1000) || undefined,
+      docsUrl: asString(input.docsUrl, 2000) || undefined,
+      headerName: asString(input.headerName, 100) || undefined,
+      headerPrefix: asString(input.headerPrefix, 50) || undefined,
+      fields: [
+        {
+          key: 'value',
+          label,
+          type: 'password',
+          placeholder: `Paste your ${label}`,
+          required: true,
+        },
+      ],
+    }
+    return {
+      ok: true,
+      output: {
+        requested: service,
+        note: 'A secure key-entry box is now shown in the chat. Once the user saves it, call credential_list to get the new credentialId, then continue. Do NOT ask the user to paste the key into the chat text.',
+      },
+      display: {
+        title: `Requested ${label}`,
+        summary: 'Awaiting the user to save it to the vault',
+        kind: 'info',
       },
     }
   },
@@ -1086,6 +1454,165 @@ const workflowImprove: ToolDef = {
   },
 }
 
+// 16. agent_list — see the user's existing agents (for routing + awareness).
+//     The orchestrator uses this to decide whether to reuse/route to an
+//     existing agent vs. branch into a new one.
+const agentList: ToolDef = {
+  name: 'agent_list',
+  description:
+    "List the user's existing agents (name, what each does, schedule, status). Use this EARLY when a request might belong to an agent that already exists — so you can route to it (via the answer) instead of creating a duplicate.",
+  inputSchema: {},
+  async run(_input, ctx) {
+    try {
+      const rows = await db.workflow.findMany({
+        where: { OR: [{ userId: ctx.userId }, { userId: null }] },
+        orderBy: { updatedAt: 'desc' },
+        take: 100,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          title: true,
+          status: true,
+          trigger: true,
+          schedule: true,
+        },
+      })
+      return {
+        ok: true,
+        output: { agents: rows, total: rows.length },
+        display: { title: 'Listed agents', summary: `${rows.length} agent${rows.length === 1 ? '' : 's'}`, kind: 'info' },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 17. agent_create — create a real, persisted agent (Workflow) owned by the
+//     user. This is how the orchestrator "branches into a new agent": once it
+//     has learned the process, it materializes a dedicated agent that owns the
+//     job going forward (and gets its own chat thread + inspector in the UI).
+const agentCreate: ToolDef = {
+  name: 'agent_create',
+  description:
+    "Create a new, persisted agent that owns a job going forward. Call this AFTER you understand the process (ideally after doing it once / freezing a trace). The new agent gets its own chat thread + dashboard. Pass the workflow steps (tool/reason/gate, same shape as workflow_propose). Returns the new agentId — tell the user it's been created and that they can open it. To make it run on a schedule, call schedule_agent next.",
+  inputSchema: {
+    name: { type: 'string', description: 'Agent name (e.g. "Sorter", "LeadFinder").', required: true },
+    description: { type: 'string', description: 'One-line description of what the agent does.', required: true },
+    steps: { type: 'array', description: 'Workflow steps (each has kind: "tool" | "reason" | "gate").', items: { type: 'object' }, required: true },
+    title: { type: 'string', description: 'A plain role title (e.g. "Filing Agent").' },
+    schedule: { type: 'string', description: 'Optional human-readable schedule label (e.g. "Daily at 9am"). For an actual recurring trigger, call schedule_agent after.' },
+  },
+  async run(input, ctx) {
+    const name = asString(input.name, 200)
+    const description = asString(input.description, 1000)
+    const rawSteps = Array.isArray(input.steps) ? input.steps : []
+    if (!name || !description || rawSteps.length === 0)
+      return { ok: false, output: null, error: 'name, description, and a non-empty steps array are required' }
+    try {
+      const steps = normalizeSteps(rawSteps)
+      const title = asString(input.title, 100) || null
+      const scheduleLabel = asString(input.schedule, 200) || null
+      const created = await db.workflow.create({
+        data: {
+          userId: ctx.userId,
+          name,
+          description,
+          stepsJson: serializeWorkflowJSON({ version: 1, steps }),
+          trigger: scheduleLabel ? 'schedule' : 'manual',
+          schedule: scheduleLabel,
+          status: 'active',
+          origin: 'agent',
+          department: 'General',
+          title,
+        },
+      })
+      return {
+        ok: true,
+        output: {
+          agentId: created.id,
+          name: created.name,
+          stepCount: steps.length,
+          schedule: scheduleLabel,
+          note: 'Agent created. It now has its own chat thread + dashboard. Call schedule_agent to make it run automatically.',
+        },
+        display: { title: `Created agent: ${name}`, summary: `${steps.length} steps`, kind: 'workflow' },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 18. schedule_agent — register a recurring schedule for an agent so it runs
+//     automatically. This is the "execute the process repeatedly" step that
+//     turns a one-off into an automation.
+const scheduleAgent: ToolDef = {
+  name: 'schedule_agent',
+  description:
+    'Make an agent run automatically on a recurring schedule. Pass the agentId (from agent_create or agent_list) and a schedule. Use cron ("0 9 * * *" = daily 9am UTC; "*/15 * * * *" = every 15 min) or a fixed rate ("fixed_rate:3600" = every hour). Returns the next run time.',
+  inputSchema: {
+    agentId: { type: 'string', description: 'The agent (workflow) id to schedule.', required: true },
+    schedule: { type: 'string', description: 'A 5-field cron expression, or "fixed_rate:<seconds>".', required: true },
+    scheduleKind: { type: 'string', description: 'Optional: "cron" or "fixed_rate". Auto-detected from the schedule if omitted.' },
+  },
+  async run(input, ctx) {
+    const agentId = asString(input.agentId, 100)
+    const schedule = asString(input.schedule, 200)
+    if (!agentId || !schedule)
+      return { ok: false, output: null, error: 'agentId and schedule are required' }
+    const kind: ScheduleKind =
+      input.scheduleKind === 'fixed_rate' || input.scheduleKind === 'cron'
+        ? (input.scheduleKind as ScheduleKind)
+        : parseFixedRate(schedule) != null
+          ? 'fixed_rate'
+          : 'cron'
+    const scheduleError = validateSchedule(schedule, kind)
+    if (scheduleError) return { ok: false, output: null, error: scheduleError }
+    try {
+      const wf = await db.workflow.findFirst({
+        where: { id: agentId, OR: [{ userId: ctx.userId }, { userId: null }] },
+        select: { id: true, name: true },
+      })
+      if (!wf) return { ok: false, output: null, error: 'agent not found (or not owned by this user)' }
+      const nextRunAt = computeNextRun(schedule, kind, 'UTC')
+      const job = await db.scheduledJob.create({
+        data: {
+          userId: ctx.userId,
+          workflowId: agentId,
+          schedule,
+          scheduleKind: kind,
+          timezone: 'UTC',
+          status: 'active',
+          nextRunAt,
+          runCount: 0,
+          failureCount: 0,
+        },
+      })
+      // Reflect the recurring trigger on the agent itself.
+      await db.workflow.update({
+        where: { id: agentId },
+        data: { trigger: 'schedule', schedule },
+      })
+      return {
+        ok: true,
+        output: {
+          jobId: job.id,
+          agentId,
+          schedule,
+          scheduleKind: kind,
+          nextRunAt: nextRunAt.toISOString(),
+          note: `Scheduled. ${wf.name} will run automatically; next run ${nextRunAt.toISOString()}.`,
+        },
+        display: { title: `Scheduled ${wf.name}`, summary: `${schedule} · next ${nextRunAt.toISOString()}`, kind: 'workflow' },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
 // ---------------- Registry ----------------
 
 export const AGENT_TOOLS: ToolDef[] = [
@@ -1093,7 +1620,13 @@ export const AGENT_TOOLS: ToolDef[] = [
   webRead,
   httpRequest,
   codeEval,
+  assetSave,
+  scriptRun,
   cliRun,
+  fsList,
+  fsRead,
+  fsWrite,
+  fsMove,
   credentialList,
   integrationList,
   mcpListServers,
@@ -1102,11 +1635,20 @@ export const AGENT_TOOLS: ToolDef[] = [
   dataTableCreate,
   dataTableInsert,
   dataTableQuery,
+  agentList,
+  agentCreate,
+  scheduleAgent,
   workflowPropose,
   workflowFreeze,
+  workflowUpdate,
   workflowMonitor,
   workflowImprove,
+  credentialRequestTool,
 ]
+
+// Tools that require desktop access (an online DesktopSession + the user's
+// allowCli flag). Hidden from the LLM catalog unless desktop access is on.
+const DESKTOP_TOOLS = new Set(['cli_run', 'fs_list', 'fs_read', 'fs_write', 'fs_move'])
 
 export const AGENT_TOOL_MAP: Record<string, ToolDef> = Object.fromEntries(
   AGENT_TOOLS.map((t) => [t.name, t]),
@@ -1118,7 +1660,7 @@ export function getAgentTool(name: string): ToolDef | undefined {
 
 // The tool catalog passed to the LLM (compact).
 export function toolCatalogForLLM(allowCli: boolean): string {
-  return AGENT_TOOLS.filter((t) => t.name !== 'cli_run' || allowCli)
+  return AGENT_TOOLS.filter((t) => allowCli || !DESKTOP_TOOLS.has(t.name))
     .map((t) => {
       const params = Object.entries(t.inputSchema)
         .map(([k, v]) => `${k}${v.required ? ' (required)' : ''}: ${v.type} — ${v.description}`)

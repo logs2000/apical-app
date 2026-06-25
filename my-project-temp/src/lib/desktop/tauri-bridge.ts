@@ -197,3 +197,60 @@ export async function spawnMcpStdio(
     return null
   }
 }
+
+// ─── Native menu / tray → front-end actions ─────────────────────────────────
+
+/**
+ * Front-end action ids emitted by the native menu bar + tray (see the Rust
+ * `handle_menu_action`). Native-only actions (new window, quit, show) are
+ * handled in Rust and never reach the webview.
+ */
+export type MenuAction =
+  | 'nav:agents'
+  | 'nav:vault'
+  | 'nav:data'
+  | 'nav:settings'
+  | 'view:inspector'
+  | 'view:palette'
+  | 'help:docs'
+  | 'help:shortcuts'
+
+/**
+ * Subscribe to native menu / tray actions forwarded from Rust. Returns an
+ * unsubscribe function (or null in hosted mode).
+ */
+export async function onMenuAction(
+  cb: (action: MenuAction) => void,
+): Promise<(() => void) | null> {
+  const listen = await getListen()
+  if (!listen) return null
+  try {
+    const unlisten = await listen('apical://menu', (event) => {
+      cb(event.payload as MenuAction)
+    })
+    return unlisten
+  } catch (err) {
+    console.error('[tauri-bridge] onMenuAction failed:', err)
+    return null
+  }
+}
+
+// ─── Multi-window ────────────────────────────────────────────────────────────
+
+/**
+ * Open a new Apical window (desktop only). No-op in hosted mode. Backed by the
+ * Rust `open_app_window_cmd`, which creates a uniquely-labeled webview window.
+ *
+ * `path` is an app-relative route (must start with "/"). Pop-outs pass a hash
+ * route like "/#popout=<conversationId>" so the new window opens focused on
+ * that agent. Defaults to "/" (a fresh app window).
+ */
+export async function openAppWindow(path?: string): Promise<void> {
+  const invoke = await getInvoke()
+  if (!invoke) return
+  try {
+    await invoke('open_app_window_cmd', { path: path ?? '/' })
+  } catch (err) {
+    console.error('[tauri-bridge] open_app_window_cmd failed:', err)
+  }
+}

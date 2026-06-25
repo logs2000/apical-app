@@ -16,7 +16,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `tray-icon` enables the system tray; `image-png` lets us reuse the PNG app
+# icon for the tray. Menus + multi-window are part of core (no feature needed).
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-http = "2"
 tauri-plugin-dialog = "2"
@@ -24,6 +26,8 @@ tauri-plugin-fs = "2"
 tauri-plugin-os = "2"
 tauri-plugin-process = "2"
 tauri-plugin-notification = "2"
+# Global (OS-level) keyboard shortcuts — e.g. summon Apical from anywhere.
+tauri-plugin-global-shortcut = "2"
 # OS keychain — F2 vault in local mode. macOS Keychain / Windows Credential
 # Manager / libsecret on Linux. The Next.js runtime calls these via IPC.
 keyring = "3"

@@ -49,6 +49,7 @@ model User {
   agentConnections     AgentConnection[]
   apiProviders         ApiProvider[]
   integrationSessions  IntegrationSession[]
+  assets               UserAsset[]
 }
 
 /// NextAuth OAuth account linking. Lets a user sign in with Google (and later
@@ -171,6 +172,7 @@ model Workflow {
   patterns      ExecutionPattern[]
   agentMessages AgentMessage[]
   agentData     AgentData[]
+  assets        UserAsset[]
 }
 
 // Per-agent chat messages (Phase 3 revamp). Persists the conversation thread
@@ -209,6 +211,29 @@ model AgentData {
 
   @@unique([agentId, kind, key])
   @@index([agentId, kind])
+}
+
+// User-scoped files: uploads, agent-generated assets, script outputs.
+model UserAsset {
+  id             String    @id @default(cuid())
+  userId         String
+  agentId        String?
+  conversationId String?
+  messageId      String?
+  name           String
+  mimeType       String    @default("application/octet-stream")
+  sizeBytes      Int       @default(0)
+  storageKey     String
+  kind           String    @default("file") // image | file | folder | code
+  source         String    @default("upload") // upload | agent | script
+  localPath      String?
+  metaJson       String?
+  createdAt      DateTime  @default(now())
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent          Workflow? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([agentId])
 }
 
 model Run {
@@ -529,7 +554,7 @@ model ByokKey {
   id            String   @id @default(cuid())
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // "openai" | "anthropic" | "google" | "azure_openai" | "openrouter" | "mistral" | "groq" | "together" | "deepseek"
+  // "openai" | "anthropic" | "google" | "azure_openai" | "openrouter" | "mistral" | "groq" | "together"
   provider      String
   label         String   @default("Default")
   // AES-256-GCM ciphertext, base64. Format: "<iv>:<authTag>:<ciphertext>".

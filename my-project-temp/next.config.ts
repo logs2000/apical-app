@@ -1,4 +1,11 @@
 import type { NextConfig } from "next";
+import { config as loadEnv } from "dotenv";
+import path from "path";
+
+// Load repo-root .env (Apical/.env) then local overrides. Many devs keep
+// provider keys in the monorepo root while Next.js runs from my-project-temp/.
+loadEnv({ path: path.resolve(__dirname, "../.env") });
+loadEnv({ path: path.resolve(__dirname, ".env.local") });
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -12,14 +19,7 @@ const nextConfig: NextConfig = {
   // during `next build` by default. CI should run `bun run lint` explicitly.
   reactStrictMode: true,
   allowedDevOrigins: [
-    "c-6a3756d8-14a687f1-6dec849cf0fd",
-    "21.0.5.203",
     "localhost",
-    // Wildcard patterns (Next.js supports `*.example.com` string wildcards).
-    // The preview panel is served from preview-chat-<id>.space-z.ai (dynamic subdomain).
-    "*.space-z.ai",
-    "*.z.ai",
-    "*.chatglm.cn",
   ],
 };
 

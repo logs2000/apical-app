@@ -238,7 +238,7 @@ const ENTRIES: ActivityEntry[] = [
   {
     id: "a12",
     agent: "Beacon",
-    action: "SSL cert renewed: api.apical.dev",
+    action: "SSL cert renewed: api.apic.al",
     status: "completed",
     when: iso(20 * HOUR),
     items: 1,

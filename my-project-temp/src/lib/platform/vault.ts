@@ -50,12 +50,13 @@ export function looksLikeKey(provider: string, key: string): boolean {
   if (k.length < 10) return false
   switch (provider) {
     case 'openai':
-    case 'deepseek':
       return k.startsWith('sk-')
     case 'anthropic':
       return k.startsWith('sk-ant-')
     case 'google':
       return k.startsWith('AIza')
+    case 'xai':
+      return k.startsWith('xai-')
     case 'openrouter':
       return k.startsWith('sk-or-')
     case 'groq':

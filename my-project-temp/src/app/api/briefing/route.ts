@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import ZAI from 'z-ai-web-dev-sdk'
+import { simpleComplete } from '@/lib/platform/llm-gateway'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
 import { parseWorkflowJSON, relativeTime } from '@/lib/apical-server'
@@ -151,15 +151,12 @@ ${profileLine}
 Write a 2-3 sentence morning briefing addressed to the user. Friendly, plain English. Mention specific agents by name and specific numbers. Don't list everything — highlight what matters. If items need review, mention how many. Respond with ONLY the briefing text, no preamble, no JSON, no markdown.`
 
   try {
-    const zai = await ZAI.create()
-    const completion = await zai.chat.completions.create({
+    const text = (await simpleComplete({
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      thinking: { type: 'disabled' },
-    })
-    const text = completion.choices[0]?.message?.content?.trim()
+    })).trim()
     if (text && text.length > 15) return text
     return fallbackSummary(activity, needsAttention)
   } catch (err) {

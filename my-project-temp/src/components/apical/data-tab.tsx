@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { DEMO_WORKFLOWS, relativeTime } from '@/lib/apical';
+import { listAssets, formatBytes } from '@/lib/apical/attachments';
+import type { ChatAttachment } from '@/lib/apical';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +52,7 @@ const TABLES: {
       { from: "support@stripe.com", subject: "New dispute opened", category: "billing", priority: "high", received: "2026-06-21T07:42:00Z", items: 1 },
       { from: "jordan@team.com", subject: "Re: Q3 roadmap", category: "internal", priority: "medium", received: "2026-06-21T06:30:00Z", items: 3 },
       { from: "newsletter@hackernews", subject: "Daily digest", category: "newsletter", priority: "low", received: "2026-06-21T05:00:00Z", items: 12 },
-      { from: "hr@apical.dev", subject: "Benefits enrollment", category: "hr", priority: "medium", received: "2026-06-20T22:15:00Z", items: 1 },
+      { from: "hr@apic.al", subject: "Benefits enrollment", category: "hr", priority: "medium", received: "2026-06-20T22:15:00Z", items: 1 },
       { from: "client@northcorp.com", subject: "Contract amendment v3", category: "client", priority: "high", received: "2026-06-20T18:45:00Z", items: 2 },
       { from: "alerts@github.com", subject: "Security advisory", category: "dev", priority: "high", received: "2026-06-20T16:20:00Z", items: 1 },
       { from: "no-reply@linkedin.com", subject: "5 new connection requests", category: "social", priority: "low", received: "2026-06-20T14:10:00Z", items: 5 },
@@ -227,9 +229,15 @@ AI calls saved via hardening: 412
 export function DataTab() {
   const [activeTable, setActiveTable] = React.useState<string | null>(null);
   const [activeFile, setActiveFile] = React.useState<string | null>(null);
+  const [liveAssets, setLiveAssets] = React.useState<ChatAttachment[]>([]);
+
+  React.useEffect(() => {
+    void listAssets().then(setLiveAssets).catch(() => setLiveAssets([]));
+  }, []);
 
   const table = TABLES.find((t) => t.id === activeTable);
   const file = FILES.find((f) => f.id === activeFile);
+  const asset = liveAssets.find((a) => a.id === activeFile);
 
   return (
     <div className="h-full min-h-0 overflow-hidden">
@@ -261,6 +269,28 @@ export function DataTab() {
           </Section>
 
           <Section label="Files">
+            {liveAssets.length > 0 && (
+              <div className="mb-2 space-y-0.5">
+                <div className="px-2 text-[9px] font-semibold uppercase tracking-wide text-primary">Your assets</div>
+                {liveAssets.map((a) => {
+                  const FileIcon =
+                    a.kind === "image" ? FileText : a.mimeType.includes("json") ? FileJson : a.mimeType.includes("csv") ? FileSpreadsheet : FileText;
+                  return (
+                    <CatalogRow
+                      key={a.id}
+                      icon={FileIcon}
+                      name={a.name}
+                      sub={`${a.sizeBytes ? formatBytes(a.sizeBytes) : a.kind} · ${a.source ?? "saved"}`}
+                      active={activeFile === a.id}
+                      onClick={() => {
+                        setActiveFile(a.id);
+                        setActiveTable(null);
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            )}
             {FILES.map((f) => {
               const FileIcon = f.type === "json" ? FileJson : f.type === "csv" ? FileSpreadsheet : FileText;
               return (
@@ -283,7 +313,7 @@ export function DataTab() {
             {DEMO_WORKFLOWS.slice(0, 4).map((w) => (
               <div key={w.id} className="mb-0.5 rounded-md px-2 py-1.5 text-[11px]">
                 <div className="font-medium">{w.name}</div>
-                <div className="text-[9px] text-muted-foreground">{w.department} · {relativeTime(w.updatedAt)}</div>
+                <div className="text-[9px] text-muted-foreground">{w.title ?? "Agent"} · {relativeTime(w.updatedAt)}</div>
               </div>
             ))}
           </Section>
@@ -293,7 +323,8 @@ export function DataTab() {
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           {table && <TableView table={table} />}
           {file && <FileView file={file} />}
-          {!table && !file && <EmptyViewer />}
+          {asset && <AssetView asset={asset} />}
+          {!table && !file && !asset && <EmptyViewer />}
         </div>
       </div>
     </div>
@@ -442,6 +473,43 @@ function BadgeCell({ value }: { value: string }) {
   };
   const cls = styles[value] ?? "bg-muted text-muted-foreground border-border";
   return <span className={cn("inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium capitalize", cls)}>{value}</span>;
+}
+
+// ─── Live asset viewer (uploads + agent-generated) ───────────────────────────
+
+function AssetView({ asset }: { asset: ChatAttachment }) {
+  const isImage = asset.kind === "image" || asset.mimeType.startsWith("image/");
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
+        <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="truncate text-sm font-medium">{asset.name}</span>
+        <span className="text-[10px] text-muted-foreground">
+          · {asset.sizeBytes ? formatBytes(asset.sizeBytes) : asset.kind}
+        </span>
+        <Button size="sm" variant="ghost" className="ml-auto h-7 gap-1 text-[11px]" asChild>
+          <a href={asset.url} download={asset.name}>
+            <Download className="h-3 w-3" /> Download
+          </a>
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-4">
+        {isImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={asset.url} alt={asset.name} className="max-h-full max-w-full rounded-md border border-border" />
+        ) : asset.localPath ? (
+          <div className="rounded-md border border-border bg-muted/30 p-4 text-sm">
+            <div className="font-medium">Local folder</div>
+            <code className="mt-2 block text-xs text-muted-foreground">{asset.localPath}</code>
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground">
+            Download to view this file, or open it from chat.
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ─── File viewer ────────────────────────────────────────────────────────────

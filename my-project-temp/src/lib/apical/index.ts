@@ -54,17 +54,48 @@ export interface Conversation {
   updatedAt: string;
 }
 
+import type {
+  AgentEvent,
+  ApiDiscoveryCandidate,
+  ClarificationQuestion,
+  ResearchPlan,
+  ResearchResult,
+} from '@/lib/types'
+
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  kind: "image" | "file" | "folder" | "code";
+  url: string;
+  localPath?: string | null;
+  sizeBytes?: number;
+  source?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "agent";
   content: string;
+  /** Files, folders, images, or artifacts attached to this message. */
+  attachments?: ChatAttachment[];
   workflowProposal?: {
     name: string;
     description: string;
-    department: string;
     title?: string;
     steps: WorkflowJSON;
   };
+  /** Agent reasoning steps from /api/agent/chat. */
+  trace?: { label: string; detail?: string }[];
+  /** Glass-box events from /api/agents/[id]/chat. */
+  events?: AgentEvent[];
+  /** Claude extended-thinking chain-of-thought (streamed). */
+  thinking?: string;
+  clarification?: ClarificationQuestion;
+  apiDiscovery?: ApiDiscoveryCandidate[];
+  research?: ResearchResult;
+  researchPlan?: ResearchPlan;
+  suggestions?: { title: string; prompt: string; reason: string }[];
   /** A live execution trace — shown when the agent "does it once" before automating. */
   executionTrace?: ExecutionStep[];
   /** An offer to convert a completed trace into a reusable workflow. */
@@ -73,9 +104,29 @@ export interface ChatMessage {
     summary: string;
     steps: WorkflowJSON;
     name: string;
-    department: string;
   };
+  /** When the agent updated its OWN workflow (vs. proposing a new agent). */
+  workflowSaved?: { agentName: string };
+  /** When the agent needs an API key — renders an inline, secure vault box. */
+  credentialRequest?: CredentialRequestInfo;
   createdAt: string;
+}
+
+/** A request from an agent for the user to save an API key / token to the vault. */
+export interface CredentialRequestInfo {
+  service: string;
+  label: string;
+  instructions?: string;
+  docsUrl?: string;
+  headerName?: string;
+  headerPrefix?: string;
+  fields: Array<{
+    key: string;
+    label: string;
+    type?: "text" | "password" | "apikey";
+    placeholder?: string;
+    required?: boolean;
+  }>;
 }
 
 // ─── Execution trace (learn-first mode) ──────────────────────────────────────
@@ -410,7 +461,6 @@ export const DEMO_MESSAGES: ChatMessage[] = [
     workflowProposal: {
       name: "Compass",
       description: "Sort scans + invoices into client folders. Auto-creates new client folders.",
-      department: "Filing",
       title: "Sorter",
       steps: {
         version: 1,
@@ -540,7 +590,7 @@ export function messagesForAgent(agent: Workflow): ChatMessage[] {
     {
       id: 'dm1',
       role: 'agent' as const,
-      content: `Hi Jordan — I'm ${agent.name}, your ${agent.title ?? 'agent'} in ${agent.department}. I've been running ${agent.runsCount} times and processed ${agent.itemsProcessed.toLocaleString()} items. ${agent.flaggedCount > 0 ? `${agent.flaggedCount} items need your review.` : 'Nothing flagged right now.'} What do you need?`,
+      content: `Hi Jordan — I'm ${agent.name}, your ${agent.title ?? 'agent'}. I've been running ${agent.runsCount} times and processed ${agent.itemsProcessed.toLocaleString()} items. ${agent.flaggedCount > 0 ? `${agent.flaggedCount} items need your review.` : 'Nothing flagged right now.'} What do you need?`,
       createdAt: ago(1),
     },
   ]
@@ -578,7 +628,7 @@ export function apicalWelcomeMessage(opts: {
   if (totalFlagged > 0) {
     lines.push(`\n**${totalFlagged} item${totalFlagged === 1 ? '' : 's'} need your review** across your agents:`)
     for (const a of opts.agents.filter((a) => a.flaggedCount > 0)) {
-      lines.push(`• ${a.name} (${a.department}) — ${a.flaggedCount} flagged`)
+      lines.push(`• ${a.name} — ${a.flaggedCount} flagged`)
     }
   } else {
     lines.push(`\nNothing needs your review right now. All clear.`)

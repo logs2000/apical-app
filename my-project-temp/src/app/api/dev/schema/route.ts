@@ -132,7 +132,7 @@ const SCHEMA_DOC = {
     },
   },
   example: {
-    $schema: 'https://apical.dev/schemas/automation-file.json',
+    $schema: 'https://apic.al/schemas/automation-file.json',
     name: 'Pat',
     title: 'Filing Clerk',
     department: 'filing',

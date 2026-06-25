@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import ZAI from 'z-ai-web-dev-sdk'
+import { simpleComplete, hasHostedLlmProvider } from '@/lib/platform/llm-gateway'
+import { searchWeb } from '@/lib/platform/web-search'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
 import { rateLimitByUser } from '@/lib/rate-limit'
@@ -38,7 +39,7 @@ interface ChatBody {
   attachedScript?: string
   /** NEW (v4): language hint for the attached script. */
   attachedScriptLanguage?: 'curl' | 'python' | 'javascript' | 'auto'
-  /** NEW (v5): which AI model the user selected (default | fast | thinking). */
+  /** Which hosted model to use (registry id like openai:gpt-4o, or legacy default/fast/thinking). */
   model?: string
 }
 
@@ -53,7 +54,6 @@ type Intent =
 interface WorkflowProposal {
   name: string
   description: string
-  department: string
   title?: string
   steps: WorkflowJSON
 }
@@ -121,7 +121,6 @@ async function pickAgentName(
   }
   // For evocative style, try the LLM to generate a fitting name.
   try {
-    const zai = await ZAI.create()
     const prompt = `Generate a single short, evocative, non-human name for an AI agent that does this job: "${jobDescription}".
 
 Rules:
@@ -134,14 +133,13 @@ Existing names to avoid: ${existingNames.join(', ') || 'none'}
 
 Respond with ONLY the name, nothing else.`
 
-    const completion = await zai.chat.completions.create({
+    const nameRaw = await simpleComplete({
       messages: [
-        { role: 'assistant', content: 'You generate short, evocative names for AI agents. Respond with a single word.' },
+        { role: 'system', content: 'You generate short, evocative names for AI agents. Respond with a single word.' },
         { role: 'user', content: prompt },
       ],
-      thinking: { type: 'disabled' },
     })
-    const name = (completion.choices[0]?.message?.content || '').trim().split(/\s+/)[0]
+    const name = nameRaw.trim().split(/\s+/)[0]
     if (name && name.length >= 2 && name.length <= 8 && /^[a-zA-Z]+$/.test(name)) {
       const taken = existingNames.some((n) => n.toLowerCase() === name.toLowerCase())
       if (!taken) return name.charAt(0).toUpperCase() + name.slice(1)
@@ -401,28 +399,13 @@ function coerceKind(raw: unknown): IntegrationKind {
 async function runResearch(query: string): Promise<ResearchResult> {
   let searchResults: SearchResult[] = []
   try {
-    const zai = await ZAI.create()
-    const raw = await zai.functions.invoke('web_search', {
-      query: `${query} API documentation`,
-      num: 8,
-    })
-    if (Array.isArray(raw)) {
-      searchResults = raw
-        .filter(
-          (r) =>
-            !!r && typeof r === 'object' && typeof (r as { url?: unknown }).url === 'string',
-        )
-        .map((r) => {
-          const o = r as unknown as Record<string, unknown>
-          return {
-            url: String(o.url),
-            name: typeof o.name === 'string' ? o.name : String(o.url),
-            snippet: typeof o.snippet === 'string' ? o.snippet : undefined,
-            host_name: typeof o.host_name === 'string' ? o.host_name : undefined,
-            rank: typeof o.rank === 'number' ? o.rank : undefined,
-          }
-        })
-    }
+    const raw = await searchWeb(`${query} API documentation`, 8)
+    searchResults = raw.map((r) => ({
+      url: r.url,
+      name: r.title || r.url,
+      snippet: r.snippet,
+      host_name: r.host,
+    }))
   } catch (err) {
     console.error('[api/agent/chat] web_search failed:', err)
   }
@@ -451,8 +434,7 @@ async function runResearch(query: string): Promise<ResearchResult> {
     : '(No web results.)'
 
   try {
-    const zai = await ZAI.create()
-    const completion = await zai.chat.completions.create({
+    const text = await simpleComplete({
       messages: [
         { role: 'system', content: systemPrompt },
         {
@@ -460,9 +442,8 @@ async function runResearch(query: string): Promise<ResearchResult> {
           content: `Web search results for "${query} API documentation":\n\n${sourcesBlock}\n\nSynthesize a ResearchResult. Reply with ONLY the JSON object.`,
         },
       ],
-      thinking: { type: 'disabled' },
+      json: true,
     })
-    const text = completion.choices[0]?.message?.content || ''
     const cleaned = stripFences(text)
     const parsed = JSON.parse(cleaned) as {
       summary?: unknown
@@ -589,8 +570,7 @@ For auth:
 For the proposedIntegration, return { name, kind: 'mcp'|'api'|'http', description, tools: [{id,name,description}] } where the tools match what the script demonstrates. Use a descriptive name based on the URL's host or service.`
 
   try {
-    const zai = await ZAI.create()
-    const completion = await zai.chat.completions.create({
+    const text = await simpleComplete({
       messages: [
         { role: 'system', content: systemPrompt },
         {
@@ -598,9 +578,8 @@ For the proposedIntegration, return { name, kind: 'mcp'|'api'|'http', descriptio
           content: `Detected/inferred language hint: ${language}\n\nScript:\n\`\`\`\n${truncated}\n\`\`\`\n\nAnalyze this script and return ONLY the JSON object.`,
         },
       ],
-      thinking: { type: 'disabled' },
+      json: true,
     })
-    const text = completion.choices[0]?.message?.content || ''
     const cleaned = stripFences(text)
     const parsed = JSON.parse(cleaned) as {
       language?: unknown
@@ -745,9 +724,8 @@ function renderRoster(
     return '(No agents in this workspace yet — the user has a blank slate.)'
   return agents
     .map((a) => {
-      const dept = a.department ?? 'General'
       const title = a.title ?? 'Agent'
-      return `- ${a.name} (${title}) in ${dept} — ${a.status}, ${a.trigger}${a.schedule ? ` ${a.schedule}` : ''}. id: ${a.id}. Does: ${a.description}`
+      return `- ${a.name} (${title}) — ${a.status}, ${a.trigger}${a.schedule ? ` ${a.schedule}` : ''}. id: ${a.id}. Does: ${a.description}`
     })
     .join('\n')
 }
@@ -788,7 +766,7 @@ function renderActiveAgent(a: {
   if (!a) return '(No agent is currently selected — the user is talking about the workspace in general.)'
   const steps = parseStepsFromJson(JSON.parse(a.stepsJson || '{"steps":[]}'))
   return [
-    `Currently selected agent: ${a.name}${a.title ? ` (${a.title})` : ''} in ${a.department ?? 'General'}.`,
+    `Currently selected agent: ${a.name}${a.title ? ` (${a.title})` : ''}.`,
     `Description: ${a.description}`,
     `Trigger: ${a.trigger}${a.schedule ? ` — ${a.schedule}` : ''}.`,
     `Current steps:`,
@@ -802,7 +780,7 @@ function renderMentionedAgents(agents: MentionedAgentRow[]): string {
   const blocks = agents.map((a, i) => {
     const steps = parseStepsFromJson(JSON.parse(a.stepsJson || '{"steps":[]}'))
     const lines: string[] = []
-    lines.push(`${i + 1}. ${a.name}${a.title ? ` (${a.title})` : ''} in ${a.department ?? 'General'} — id: ${a.id}`)
+    lines.push(`${i + 1}. ${a.name}${a.title ? ` (${a.title})` : ''} — id: ${a.id}`)
     lines.push(`   Status: ${a.status}. Trigger: ${a.trigger}${a.schedule ? ` — ${a.schedule}` : ''}.`)
     lines.push(`   Description: ${a.description}`)
     if (a.lastRun) {
@@ -828,7 +806,7 @@ function renderMentionedAgents(agents: MentionedAgentRow[]): string {
 
 const SYSTEM_PROMPT = `You are the Apical Assistant — a knowledgeable, plain-English assistant who helps a user manage their AI AGENTS. ("Agents" — never "employees" or "workflows" when speaking to the user. They are AI assistants that do repetitive office work on a schedule.)
 
-The user is NOT technical. Speak plainly, no jargon. Departments are groupings you create naturally (e.g. "Filing", "Inbox", "Billing", "Dispatch") — there is NO fixed list. Pick a sensible department label that fits the job.
+The user is NOT technical. Speak plainly, no jargon.
 
 @MENTION MODEL: the user can @-mention agents in their message (like social-media tagging, e.g. "@Sorter what did you do today?"). Mentioned agents are listed below under MENTIONED AGENTS. A mention means: this message is ABOUT or DIRECTED AT those agents. Multiple mentions = the message involves all of them. If no agents are mentioned, the user is talking about the workspace in general, or asking to set up something new.
 
@@ -844,7 +822,7 @@ IMPORTANT — METHODICAL AGENT CREATION: When a user describes a new job to auto
 
 So the typical flow is: user describes job → you CONSIDER + ask clarifying questions OR trigger research → user confirms → you PROPOSE the workflow → user approves → agent is created → user tests → you iterate.
 
-1. "new_agent" — ONLY use this when you have enough information to propose a well-thought-out workflow. If you're missing details, use needs_clarification first. If the task is complex/research-heavy, use needs_research first. Include a descriptive name, role title, department, and a tool/reason/gate workflow.
+1. "new_agent" — ONLY use this when you have enough information to propose a well-thought-out workflow. If you're missing details, use needs_clarification first. If the task is complex/research-heavy, use needs_research first. Include a descriptive name, role title, and a tool/reason/gate workflow.
 2. "edit_existing" — the user wants to modify an existing agent. Prefer setting \`editingAgentId\` to a MENTIONED agent (if any). If the user seems to mean a different agent than the ones tagged, set \`switchToAgentId\` to that agent's id instead. Describe the change in plain English in \`reply\`.
 3. "general" — a question or chat. If the user @-mentioned a specific agent and asked a question about it, scope your answer to that agent. Answer plainly. No proposal.
 4. "needs_clarification" — the request is ambiguous (missing a key detail like "which folder?", "which channel?", "how often?", "what should trigger it?"). Return a \`clarification\` question with 2-4 single-choice options. Each option has key, label, and description. Include a clear \`reply\` framing the question. This is PREFERRED over guessing.
@@ -882,7 +860,7 @@ Respond with ONLY JSON (no prose, no code fences). Shape:
   "reply": "plain-English answer (length depends on intent — see REPLY LENGTH rule below)",
   "intent": "new_agent" | "edit_existing" | "general" | "needs_clarification" | "needs_api" | "needs_research",
   "title": "short 2-4 word title for this conversation (e.g. 'Scanner sorting', 'Invoice chase', 'Twitter posting') — only set when the user is starting a new topic",
-  "workflowProposal": { "name": "Sorter", "description": "...", "department": "Filing", "title": "Filing Agent", "steps": [ { "id": "s1", "kind": "tool", "label": "...", "tool": "...", "inputs": {...} }, ... ] },
+  "workflowProposal": { "name": "Sorter", "description": "...", "title": "Filing Agent", "steps": [ { "id": "s1", "kind": "tool", "label": "...", "tool": "...", "inputs": {...} }, ... ] },
   "switchToAgentId": "<id from roster — use only if the user means a DIFFERENT agent than the ones tagged>",
   "editingAgentId": "<id from roster — prefer a MENTIONED agent when the user is editing>",
   "clarification": { "id": "which_folder", "question": "Which folder should I watch?", "options": [ { "key": "a", "label": "/Scan Inbox", "description": "Where your scanner dumps new PDFs" }, { "key": "b", "label": "/Downloads", "description": "Where you save downloaded PDFs" } ] },
@@ -891,7 +869,7 @@ Respond with ONLY JSON (no prose, no code fences). Shape:
 }
 
 Rules:
-- For new_agent: pick a fitting EVOCATIVE name. Pick a plain role title ("Filing Agent", "Digest Writer", "Bookkeeper", "Collections Agent", "Inbox Triager"). Pick a sensible department label (your invention, NOT a fixed list). Mentions are NOT required — the user is describing a new job.
+- For new_agent: pick a fitting EVOCATIVE name and a plain role title ("Filing Agent", "Digest Writer", "Bookkeeper", "Collections Agent", "Inbox Triager"). Mentions are NOT required — the user is describing a new job.
 - step ids s1, s2...; at least one tool step; a reason step only where genuine judgment is needed; a gate before irreversible actions when the user wants oversight; 4-8 steps; reference prior outputs with {{s1.files}} etc.
 - For edit_existing: include a clear \`reply\` describing the proposed change. Prefer setting \`editingAgentId\` to a MENTIONED agent. If the user means a DIFFERENT agent than the ones tagged (e.g. they say "the bookkeeper" but tagged Sorter), set \`switchToAgentId\` to that agent's id instead. If exactly one agent is mentioned and the user is editing it, that's the editingAgentId.
 - For needs_clarification: return the clarification question + a reply that frames it. Don't propose a workflow yet.
@@ -915,7 +893,6 @@ EXAMPLE — new_agent (user: "sort my scanner PDFs"):
   "workflowProposal": {
     "name": "Sorter",
     "description": "Watches the scanner inbox, figures out which client each PDF belongs to, and files it. Asks before moving anything uncertain.",
-    "department": "Filing",
     "title": "Filing Agent",
     "steps": [
       { "id": "s1", "kind": "tool", "label": "List new scans", "tool": "scanner.listNew", "inputs": { "folder": "/Scan Inbox" } },
@@ -1005,9 +982,30 @@ EXAMPLE — needs_api (user: "post our new invoices to our company Twitter"):
 
 // ---------------- Canned fallback ----------------
 
-function fallbackResponse(message: string, ctx: { mentionIds?: string[] }): AgentResponse {
+function fallbackResponse(
+  message: string,
+  ctx: {
+    mentionIds?: string[]
+    agents?: Array<{
+      id: string
+      name: string
+      title: string | null
+      department: string | null
+      description: string
+    }>
+    /** When true, no hosted LLM key is configured — avoid "LLM failed" wording. */
+    noLlm?: boolean
+  },
+): AgentResponse {
   const lower = (message || '').toLowerCase().trim()
   const isEmpty = lower.length === 0
+  const agents = ctx.agents ?? []
+
+  const defaultSuggestions = [
+    { title: 'Sort my scanner PDFs', prompt: 'Sort the PDFs my scanner dumps into /Scan Inbox by client, and file them.', reason: 'A classic first agent — saves an hour a week.' },
+    { title: 'Chase overdue invoices', prompt: 'Check unpaid invoices every day. Send a polite reminder if 7 days late; if 30 days, draft an escalation for me to approve.', reason: 'Automating the chase is a quick cash-flow win.' },
+    { title: 'Weekly client updates', prompt: 'Every Monday, draft a short summary email to each client about last week.', reason: 'Recurring client comms are perfect for an agent.' },
+  ]
 
   // ---------- Vague / empty / greeting → general + suggestions ----------
   if (isEmpty || /^(hi|hello|hey|help|sup|yo|test|ok|okay)\b/.test(lower) || lower.length < 6) {
@@ -1017,29 +1015,11 @@ function fallbackResponse(message: string, ctx: { mentionIds?: string[] }): Agen
         : "Happy to help. I can set up a new agent to automate a repetitive job, tweak one you already have, or just answer questions about how Apical works. What would you like to do?",
       trace: [],
       intent: 'general',
-      suggestions: [
-        { title: 'Sort my scanner PDFs', prompt: 'Sort the PDFs my scanner dumps into /Scan Inbox by client, and file them.', reason: 'A classic first agent — saves an hour a week.' },
-        { title: 'Chase overdue invoices', prompt: 'Check unpaid invoices every day. Send a polite reminder if 7 days late; if 30 days, draft an escalation for me to approve.', reason: 'Automating the chase is a quick cash-flow win.' },
-        { title: 'Weekly client updates', prompt: 'Every Monday, draft a short summary email to each client about last week.', reason: 'Recurring client comms are perfect for an agent.' },
-      ],
+      suggestions: defaultSuggestions,
     }
   }
 
-  // ---------- Question → general with a real answer ----------
-  // Heuristic: ends with ?, or starts with a question word, or contains "what's"/"how do"
-  const isQuestion = lower.endsWith('?')
-    || /^(how|what|why|when|where|who|which|can|could|would|should|is|are|do|does|did|will)\b/.test(lower)
-    || /\bwhat's\b|\bhow do\b|\bhow does\b|\bwhat is\b|\bwhat are\b/.test(lower)
-  if (isQuestion) {
-    // Generic-but-honest answer for questions the LLM couldn't handle.
-    return {
-      reply: `That's a good question. I tripped up trying to answer it just now — could you rephrase, or give me a bit more context? If you're asking about a specific agent, @-mention it (like @Sorter) and I'll pull up its details. If you're asking how Apical works in general, I can walk through agents, steps, schedules, or whatever you're curious about.`,
-      trace: [],
-      intent: 'general',
-    }
-  }
-
-  // ---------- Concrete automation keywords → keep the curated proposals ----------
+  // ---------- Concrete automation keywords (before question heuristics) ----------
   const concreteTrace: { label: string; detail?: string }[] = [
     { label: 'Checked the tool catalog', detail: 'Found the tools needed for this job.' },
     { label: 'Drafted a starter workflow', detail: 'A starting point — you can tweak before approving.' },
@@ -1055,7 +1035,6 @@ function fallbackResponse(message: string, ctx: { mentionIds?: string[] }): Agen
       workflowProposal: {
         name: 'Sorter',
         description: 'Files incoming scans into the right client folder.',
-        department: 'Filing',
         title: 'Filing Agent',
         steps: {
           version: 1,
@@ -1082,7 +1061,6 @@ function fallbackResponse(message: string, ctx: { mentionIds?: string[] }): Agen
       workflowProposal: {
         name: 'Compass',
         description: 'Sends reminders for overdue invoices; gates escalations on your approval.',
-        department: 'Billing',
         title: 'Collections Agent',
         steps: {
           version: 1,
@@ -1105,6 +1083,75 @@ function fallbackResponse(message: string, ctx: { mentionIds?: string[] }): Agen
       trace: [{ label: 'Pulled up the mentioned agent', detail: 'Ready to edit on your say-so.' }],
       intent: 'edit_existing',
       editingAgentId: ctx.mentionIds[0],
+    }
+  }
+
+  // ---------- Agent roster questions ----------
+  if (
+    /(what|which|list|show|tell me about|my)\s+(agent|agents)\b/.test(lower)
+    || /\bwho (are|is) (my |your )?agents?\b/.test(lower)
+  ) {
+    if (agents.length > 0) {
+      const list = agents
+        .map(
+          (a) =>
+            `• **${a.name}** (${a.title ?? 'Agent'}): ${a.description}`,
+        )
+        .join('\n')
+      return {
+        reply: `You have ${agents.length} agent${agents.length === 1 ? '' : 's'}:\n\n${list}\n\nPick one in the sidebar to chat with it directly, or tell me what new job you'd like automated.`,
+        trace: [{ label: 'Listed your agents', detail: 'Pulled from your workspace roster.' }],
+        intent: 'general',
+      }
+    }
+    return {
+      reply:
+        "You don't have any agents yet. Tell me a repetitive job you'd like handled — sorting files, chasing invoices, weekly reports — and I'll draft one for you.",
+      trace: [],
+      intent: 'general',
+      suggestions: defaultSuggestions,
+    }
+  }
+
+  // ---------- Apical explainer questions ----------
+  if (
+    /\bhow (does|do) apical\b/.test(lower)
+    || /\bwhat('s| is) apical\b/.test(lower)
+    || /\bhow (do|does) (agents?|this) work\b/.test(lower)
+  ) {
+    return {
+      reply:
+        'Apical hires AI agents to do repetitive work for you. Each agent has a workflow — tool steps (do something), reason steps (think about it), and gate steps (pause for your approval). You chat here to create or tweak agents, then they run on a schedule or on demand. Pick an agent in the sidebar to see its workflow, or describe a job and I\'ll draft a new agent.',
+      trace: [{ label: 'Explained Apical', detail: 'General product overview.' }],
+      intent: 'general',
+    }
+  }
+
+  // ---------- Questions (not requests like "can you …") ----------
+  const isRequest =
+    /^(can you|could you|would you|please|help me|i want|i need|i'd like|let's|lets|make me|create|set up|build|automate)\b/.test(
+      lower,
+    )
+  const isQuestion =
+    !isRequest
+    && (lower.endsWith('?')
+      || /^(how|what|why|when|where|who|which|is|are|do|does|did|will)\b/.test(lower)
+      || /\bwhat's\b|\bhow do\b|\bhow does\b|\bwhat is\b|\bwhat are\b/.test(lower))
+
+  if (isQuestion) {
+    if (ctx.noLlm) {
+      return {
+        reply:
+          `I'm running in offline demo mode (no LLM API key configured), so I can't answer open-ended questions yet. I can still help you create agents — try describing a job like "sort my scanner PDFs by client" or pick a suggestion below. Add OPENAI_API_KEY to .env.local for full AI replies.`,
+        trace: [],
+        intent: 'general',
+        suggestions: defaultSuggestions,
+      }
+    }
+    return {
+      reply: `That's a good question. I tripped up trying to answer it just now — could you rephrase, or give me a bit more context? If you're asking about a specific agent, @-mention it and I'll pull up its details.`,
+      trace: [],
+      intent: 'general',
     }
   }
 
@@ -1372,49 +1419,72 @@ export async function POST(req: Request) {
     const userMessage = isEmpty
       ? `The user just opened the chat. Look at their profile, existing agents, and data sources, and suggest 3-4 tailored automation ideas. Return intent "general" with a short \`reply\` (one sentence, friendly) and a \`suggestions\` array of 3-4 items, each with title + prompt + reason. Pick ideas that FILL GAPS — things they don't already have an agent for but would benefit from given their data sources.`
       : ((): string => {
-          // Condense prior history for the model.
+          // Condense prior history for the model — include both user and assistant turns.
           const priorTurns = (body.history || [])
-            .filter((m) => m.role === 'user' && m.content)
-            .slice(-4)
-            .map((m) => `- ${m.content}`)
-            .join('\n')
+            .filter((m) => (m.role === 'user' || m.role === 'agent') && m.content)
+            .slice(-12)
+            .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+            .join('\n\n')
           return priorTurns
-            ? `Earlier in this conversation the user discussed:\n${priorTurns}\n\nNow the user says:\n${message}`
+            ? `Earlier in this conversation:\n${priorTurns}\n\nNow the user says:\n${message}`
             : message
         })()
 
-    let parsed: {
-      trace?: { label: string; detail?: string }[]
-      reply?: string
-      intent?: string
-      title?: string
-      workflowProposal?: {
-        name?: string
-        description?: string
-        department?: string
-        title?: string
-        steps?: unknown
+interface AgentChatLlmResponse {
+  trace?: { label: string; detail?: string }[]
+  reply?: string
+  intent?: string
+  title?: string
+  workflowProposal?: {
+    name?: string
+    description?: string
+    department?: string
+    title?: string
+    steps?: unknown
+  }
+  switchToAgentId?: string
+  editingAgentId?: string
+  clarification?: unknown
+  apiDiscovery?: unknown
+  suggestions?: unknown
+}
+
+    let parsed: AgentChatLlmResponse | null = null
+
+    const fallbackCtx = {
+      mentionIds,
+      agents: agents.map((a) => ({
+        id: a.id,
+        name: a.name,
+        title: a.title,
+        department: a.department,
+        description: a.description,
+      })),
+      noLlm: !hasHostedLlmProvider(model),
+    }
+
+    if (!hasHostedLlmProvider(model)) {
+      // No hosted LLM key — skip the network call and use the local fallback path.
+      if (isEmpty) {
+        return NextResponse.json({
+          ...fallbackResponse('', fallbackCtx),
+          trace: [{ label: 'Looked around', detail: 'Read your profile and existing agents.' }],
+        } satisfies AgentResponse)
       }
-      switchToAgentId?: string
-      editingAgentId?: string
-      clarification?: unknown
-      apiDiscovery?: unknown
-      suggestions?: unknown
-    } | null = null
+      return NextResponse.json(fallbackResponse(message, fallbackCtx))
+    }
 
     try {
-      const zai = await ZAI.create()
-      const completion = await zai.chat.completions.create({
+      const text = await simpleComplete({
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        thinking: model === 'thinking' ? { type: 'enabled' } : { type: 'disabled' },
-        stream: false,
+        model,
+        json: true,
       })
-      const text = completion.choices[0]?.message?.content || ''
       const cleaned = stripFences(text)
-      parsed = JSON.parse(cleaned) as typeof parsed
+      parsed = JSON.parse(cleaned) as AgentChatLlmResponse
     } catch (err) {
       console.error('[api/agent/chat] LLM call/parse failed:', err)
       // Fall through to fallback below.
@@ -1471,7 +1541,7 @@ export async function POST(req: Request) {
 
     if (!parsed || typeof parsed.reply !== 'string') {
       return NextResponse.json(
-        fallbackResponse(message, { mentionIds }),
+        fallbackResponse(message, fallbackCtx),
       )
     }
 
@@ -1509,12 +1579,11 @@ export async function POST(req: Request) {
       const steps = normalizeProposalSteps(proposal?.steps)
       if (steps.length === 0) {
         return NextResponse.json(
-          fallbackResponse(message, { mentionIds }),
+          fallbackResponse(message, fallbackCtx),
         )
       }
       // Pick the agent name from the user's preferred style (UserProfile.agentNameStyle).
-      // The LLM still picks the department, title, and steps — but the NAME comes
-      // from generateAgentName, not the LLM, so names are always in the user's style.
+      // The LLM picks the title and steps — but the NAME comes from generateAgentName.
       const style: AgentNameStyle =
         profileRow?.agentNameStyle === 'evocative' ? 'evocative' : 'descriptive'
       const existingNames = agents.map((a) => a.name)
@@ -1530,10 +1599,6 @@ export async function POST(req: Request) {
           typeof proposal?.description === 'string' && proposal.description.trim()
             ? proposal.description.trim()
             : 'A new agent for your workspace.',
-        department:
-          typeof proposal?.department === 'string' && proposal.department.trim()
-            ? proposal.department.trim()
-            : 'General',
         title:
           typeof proposal?.title === 'string' && proposal.title.trim()
             ? proposal.title.trim()

@@ -22,6 +22,17 @@ export default function LoginPage() {
   const [loading, setLoading] = React.useState(false)
   const [googleLoading, setGoogleLoading] = React.useState(false)
 
+  // In dev bypass mode, skip the login form and go straight to the app.
+  React.useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return
+    fetch('/api/auth/session')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.user?.email) router.replace('/')
+      })
+      .catch(() => {})
+  }, [router])
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!email || !password) return

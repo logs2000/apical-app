@@ -1,7 +1,10 @@
 // Apical model registry — the catalog of every model the LLM gateway can
-// route to. Three tiers:
-//   1. Hosted (Apical-managed) — covered by the plan's token allowance or
-//      overrun billing. We pay the provider wholesale; the user pays us retail.
+// route to. Two tiers:
+//   1. Hosted — we hold the provider API key in our environment
+//      (OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, XAI_API_KEY).
+//      We pay the provider wholesale; the user pays us retail. A hosted model
+//      is only offered to users when its provider's key is present in our env;
+//      otherwise it is hidden entirely.
 //   2. BYOK (user's own key) — the user pays the provider directly. Free to
 //      route through Apical; we just meter for the dashboard (cost = 0).
 //   3. Local (self-hosted Ollama / llama.cpp / vLLM) — runs on the user's
@@ -11,24 +14,28 @@
 // to render the picker. The LLM gateway resolves a modelId → adapter.
 
 export type ProviderId =
-  | 'apical'
   | 'openai'
   | 'anthropic'
   | 'google'
+  | 'xai'
   | 'azure_openai'
   | 'openrouter'
   | 'mistral'
   | 'groq'
   | 'together'
-  | 'deepseek'
   | 'ollama'
   | 'llamacpp'
   | 'vllm'
 
+// The hosted providers Apical can bill on the user's behalf, in priority order.
+// A model from one of these providers is only available when the matching
+// API key is present in our environment.
+export const HOSTED_PROVIDERS: ProviderId[] = ['openai', 'anthropic', 'google', 'xai']
+
 export type ModelTier = 'hosted' | 'byok' | 'local'
 
 export interface ModelDefinition {
-  id: string // canonical id, e.g. "apical:default", "openai:gpt-4o"
+  id: string // canonical id, e.g. "openai:gpt-4o", "anthropic:claude-3-5-sonnet"
   name: string // display name
   provider: ProviderId
   tier: ModelTier
@@ -50,60 +57,16 @@ export interface ModelDefinition {
 }
 
 // The built-in registry. User-added models (CustomModel rows) are merged on top.
+// Every provider model is `hosted`: Apical holds the provider key in its env and
+// bills the user for usage. A model is only shown to a user when its provider's
+// API key is present in our environment (see availableModels / listAvailableModels).
 export const MODEL_REGISTRY: ModelDefinition[] = [
-  // ---- Hosted (Apical-managed) ----
-  {
-    id: 'apical:default',
-    name: 'Apical Default',
-    provider: 'apical',
-    tier: 'hosted',
-    apiModelId: 'apical-default',
-    contextWindow: 128_000,
-    inputCostCentsPer1M: 300,
-    outputCostCentsPer1M: 900,
-    supportsStreaming: true,
-    supportsTools: true,
-    supportsVision: true,
-    description: 'Balanced model for everyday agent work. Routes to the best hosted model for the job.',
-    badge: 'fast',
-  },
-  {
-    id: 'apical:fast',
-    name: 'Apical Fast',
-    provider: 'apical',
-    tier: 'hosted',
-    apiModelId: 'apical-fast',
-    contextWindow: 128_000,
-    inputCostCentsPer1M: 150,
-    outputCostCentsPer1M: 450,
-    supportsStreaming: true,
-    supportsTools: true,
-    supportsVision: false,
-    description: 'Lowest cost for high-volume tool steps. Optimized for speed.',
-    badge: 'fast',
-  },
-  {
-    id: 'apical:thinking',
-    name: 'Apical Thinking',
-    provider: 'apical',
-    tier: 'hosted',
-    apiModelId: 'apical-thinking',
-    contextWindow: 200_000,
-    inputCostCentsPer1M: 600,
-    outputCostCentsPer1M: 1800,
-    supportsStreaming: true,
-    supportsTools: true,
-    supportsVision: true,
-    description: 'Deep-reasoning model for planning, research, and complex `reason` steps.',
-    badge: 'powerful',
-  },
-
-  // ---- OpenAI (BYOK) ----
+  // ---- OpenAI (hosted) ----
   {
     id: 'openai:gpt-4o',
     name: 'GPT-4o',
     provider: 'openai',
-    tier: 'byok',
+    tier: 'hosted',
     apiModelId: 'gpt-4o',
     contextWindow: 128_000,
     inputCostCentsPer1M: 250,
@@ -111,14 +74,14 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     supportsStreaming: true,
     supportsTools: true,
     supportsVision: true,
-    description: 'OpenAI flagship multimodal model. Requires your OpenAI API key.',
-    badge: 'byok',
+    description: 'OpenAI flagship multimodal model. Balanced quality and speed.',
+    badge: 'powerful',
   },
   {
     id: 'openai:gpt-4o-mini',
     name: 'GPT-4o mini',
     provider: 'openai',
-    tier: 'byok',
+    tier: 'hosted',
     apiModelId: 'gpt-4o-mini',
     contextWindow: 128_000,
     inputCostCentsPer1M: 15,
@@ -127,13 +90,13 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     supportsTools: true,
     supportsVision: true,
     description: 'Fast + cheap. Great default for high-volume tool steps.',
-    badge: 'byok',
+    badge: 'fast',
   },
   {
     id: 'openai:o1',
     name: 'o1',
     provider: 'openai',
-    tier: 'byok',
+    tier: 'hosted',
     apiModelId: 'o1',
     contextWindow: 200_000,
     inputCostCentsPer1M: 1500,
@@ -145,13 +108,13 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     badge: 'powerful',
   },
 
-  // ---- Anthropic (BYOK) ----
+  // ---- Anthropic (hosted) ----
   {
-    id: 'anthropic:claude-3-5-sonnet',
-    name: 'Claude 3.5 Sonnet',
+    id: 'anthropic:claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6',
     provider: 'anthropic',
-    tier: 'byok',
-    apiModelId: 'claude-3-5-sonnet-20241022',
+    tier: 'hosted',
+    apiModelId: 'claude-sonnet-4-6',
     contextWindow: 200_000,
     inputCostCentsPer1M: 300,
     outputCostCentsPer1M: 1500,
@@ -159,14 +122,14 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     supportsTools: true,
     supportsVision: true,
     description: 'Anthropic flagship. Excellent at long-context reasoning + tool use.',
-    badge: 'byok',
+    badge: 'powerful',
   },
   {
-    id: 'anthropic:claude-3-5-haiku',
-    name: 'Claude 3.5 Haiku',
+    id: 'anthropic:claude-haiku-4-5',
+    name: 'Claude Haiku 4.5',
     provider: 'anthropic',
-    tier: 'byok',
-    apiModelId: 'claude-3-5-haiku-20241022',
+    tier: 'hosted',
+    apiModelId: 'claude-haiku-4-5-20251001',
     contextWindow: 200_000,
     inputCostCentsPer1M: 80,
     outputCostCentsPer1M: 400,
@@ -174,15 +137,15 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     supportsTools: true,
     supportsVision: true,
     description: 'Fast + affordable Anthropic model. Good default for agent loops.',
-    badge: 'byok',
+    badge: 'fast',
   },
 
-  // ---- Google (BYOK) ----
+  // ---- Google (hosted) ----
   {
     id: 'google:gemini-2.0-flash',
     name: 'Gemini 2.0 Flash',
     provider: 'google',
-    tier: 'byok',
+    tier: 'hosted',
     apiModelId: 'gemini-2.0-flash',
     contextWindow: 1_000_000,
     inputCostCentsPer1M: 100,
@@ -191,13 +154,13 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     supportsTools: true,
     supportsVision: true,
     description: 'Google 1M-context model. Great for ingesting huge documents.',
-    badge: 'byok',
+    badge: 'fast',
   },
   {
     id: 'google:gemini-1.5-pro',
     name: 'Gemini 1.5 Pro',
     provider: 'google',
-    tier: 'byok',
+    tier: 'hosted',
     apiModelId: 'gemini-1.5-pro',
     contextWindow: 2_000_000,
     inputCostCentsPer1M: 1250,
@@ -207,6 +170,38 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     supportsVision: true,
     description: 'Google deep-reasoning model with the largest context window available.',
     badge: 'powerful',
+  },
+
+  // ---- xAI / Grok (hosted) ----
+  {
+    id: 'xai:grok-4',
+    name: 'Grok 4',
+    provider: 'xai',
+    tier: 'hosted',
+    apiModelId: 'grok-4',
+    contextWindow: 256_000,
+    inputCostCentsPer1M: 300,
+    outputCostCentsPer1M: 1500,
+    supportsStreaming: true,
+    supportsTools: true,
+    supportsVision: true,
+    description: 'xAI flagship. Strong reasoning with up-to-date world knowledge.',
+    badge: 'powerful',
+  },
+  {
+    id: 'xai:grok-3-mini',
+    name: 'Grok 3 mini',
+    provider: 'xai',
+    tier: 'hosted',
+    apiModelId: 'grok-3-mini',
+    contextWindow: 131_072,
+    inputCostCentsPer1M: 30,
+    outputCostCentsPer1M: 50,
+    supportsStreaming: true,
+    supportsTools: true,
+    supportsVision: false,
+    description: 'Fast + low-cost xAI model. Good for high-volume agent steps.',
+    badge: 'fast',
   },
 
   // ---- Local (self-hosted) ----
@@ -225,21 +220,8 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     description: 'Runs locally via Ollama. Free, private, offline-capable.',
     badge: 'local',
   },
-  {
-    id: 'local:ollama:qwen2.5',
-    name: 'Qwen 2.5 (Ollama)',
-    provider: 'ollama',
-    tier: 'local',
-    apiModelId: 'qwen2.5',
-    contextWindow: 32_000,
-    inputCostCentsPer1M: 0,
-    outputCostCentsPer1M: 0,
-    supportsStreaming: true,
-    supportsTools: true,
-    supportsVision: false,
-    description: 'Strong open model for tool use. Runs locally via Ollama.',
-    badge: 'local',
-  },
+
+  // ---- Local (llama.cpp) ----
   {
     id: 'local:llamacpp',
     name: 'llama.cpp (custom)',
@@ -275,10 +257,6 @@ export interface ProviderMeta {
 }
 
 export const PROVIDER_META: Record<ProviderId, ProviderMeta> = {
-  apical: {
-    id: 'apical', name: 'Apical', icon: '◆', keyUrl: '', keyPrefixHint: '',
-    defaultBaseUrl: null, configurableBaseUrl: false, help: 'Hosted models — no key needed.',
-  },
   openai: {
     id: 'openai', name: 'OpenAI', icon: '🟢', keyUrl: 'https://platform.openai.com/api-keys',
     keyPrefixHint: 'sk-...', defaultBaseUrl: 'https://api.openai.com/v1', configurableBaseUrl: true,
@@ -293,6 +271,11 @@ export const PROVIDER_META: Record<ProviderId, ProviderMeta> = {
     id: 'google', name: 'Google', icon: '🔵', keyUrl: 'https://aistudio.google.com/app/apikey',
     keyPrefixHint: 'AIza...', defaultBaseUrl: null, configurableBaseUrl: false,
     help: 'Create an API key at aistudio.google.com. Paste the whole AIza... string.',
+  },
+  xai: {
+    id: 'xai', name: 'xAI (Grok)', icon: '✖', keyUrl: 'https://console.x.ai',
+    keyPrefixHint: 'xai-...', defaultBaseUrl: 'https://api.x.ai/v1', configurableBaseUrl: true,
+    help: 'Grok models from xAI. Create a key at console.x.ai. Paste the whole xai-... string.',
   },
   azure_openai: {
     id: 'azure_openai', name: 'Azure OpenAI', icon: '🔷', keyUrl: '',
@@ -319,11 +302,6 @@ export const PROVIDER_META: Record<ProviderId, ProviderMeta> = {
     keyPrefixHint: '', defaultBaseUrl: 'https://api.together.xyz/v1', configurableBaseUrl: true,
     help: 'Hosted open models. Create a key at api.together.xyz.',
   },
-  deepseek: {
-    id: 'deepseek', name: 'DeepSeek', icon: '🔵', keyUrl: 'https://platform.deepseek.com/api_keys',
-    keyPrefixHint: 'sk-...', defaultBaseUrl: 'https://api.deepseek.com/v1', configurableBaseUrl: true,
-    help: 'DeepSeek models. Create a key at platform.deepseek.com.',
-  },
   ollama: {
     id: 'ollama', name: 'Ollama', icon: '🦙', keyUrl: 'https://ollama.com',
     keyPrefixHint: '(no key)', defaultBaseUrl: 'http://localhost:11434', configurableBaseUrl: true,
@@ -349,17 +327,19 @@ export function getProvider(id: ProviderId): ProviderMeta {
   return PROVIDER_META[id]
 }
 
-// List models available to a user given their plan + BYOK keys + local setup.
-// `byokProviders` = the providers the user has keys for.
+// List built-in models available given which hosted providers we have env keys
+// for + the plan's local-model allowance.
+// `hostedProviders` = providers whose API key is present in our environment.
+//   A hosted model is hidden entirely when its provider key is missing.
 // `allowLocal` = whether local models are allowed (plan-gated).
 export function availableModels(
-  byokProviders: ProviderId[],
+  hostedProviders: ProviderId[],
   allowLocal: boolean,
 ): ModelDefinition[] {
   return MODEL_REGISTRY.filter((m) => {
-    if (m.tier === 'hosted') return true
+    if (m.tier === 'hosted') return hostedProviders.includes(m.provider)
     if (m.tier === 'local') return allowLocal
-    if (m.tier === 'byok') return byokProviders.includes(m.provider)
+    // No built-in BYOK models anymore; BYOK lives in CustomModel rows.
     return false
   })
 }

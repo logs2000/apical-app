@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import ZAI from 'z-ai-web-dev-sdk'
+import { simpleComplete } from '@/lib/platform/llm-gateway'
 import type {
   IntegrationKind,
   ScriptAnalysis,
@@ -154,15 +154,13 @@ If you can detect the language (curl/python/javascript/etc), report it in \`lang
 
     let analysis: ScriptAnalysis
     try {
-      const zai = await ZAI.create()
-      const completion = await zai.chat.completions.create({
+      const text = await simpleComplete({
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        thinking: { type: 'disabled' },
+        json: true,
       })
-      const text = completion.choices[0]?.message?.content || ''
       const cleaned = stripFences(text)
       const parsed = JSON.parse(cleaned) as {
         language?: unknown

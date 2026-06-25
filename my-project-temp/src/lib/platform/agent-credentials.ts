@@ -105,7 +105,9 @@ export async function resolveCredentialForAgent(
       ]
       for (const v of candidates) {
         if (typeof v === 'string' && v.trim()) {
-          secret = v.trim()
+          // Values saved via the in-chat credential box are encrypted at rest.
+          // Fall back to the raw value for legacy/plaintext rows.
+          secret = (tryDecrypt(v.trim()) || v.trim()).trim()
           break
         }
       }

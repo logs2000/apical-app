@@ -145,7 +145,7 @@ The server exposes 5 tools. Your AI agent decides when to call them — you just
 
 ### 1. `apical_deploy`
 
-Deploy an Apical automation from a workflow JSON object. The `workflow` is an [AutomationFile](https://apical.dev/schemas/automation-file.json) — a single JSON that defines the agent's name, department, the inline integrations + credentials it needs, and its `steps` (the tool / reason / gate pipeline).
+Deploy an Apical automation from a workflow JSON object. The `workflow` is an [AutomationFile](https://apic.al/schemas/automation-file.json) — a single JSON that defines the agent's name, department, the inline integrations + credentials it needs, and its `steps` (the tool / reason / gate pipeline).
 
 **Input:**
 

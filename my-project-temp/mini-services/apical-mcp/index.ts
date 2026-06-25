@@ -153,7 +153,7 @@ const TOOLS = [
         workflow: {
           type: 'object',
           description:
-            'An Apical AutomationFile. Must have `steps` (array). Optional: name, description, department, title, trigger, integrations, credentials, mcpServers. See https://apical.dev/schemas/automation-file.json.',
+            'An Apical AutomationFile. Must have `steps` (array). Optional: name, description, department, title, trigger, integrations, credentials, mcpServers. See https://apic.al/schemas/automation-file.json.',
         },
         name: {
           type: 'string',

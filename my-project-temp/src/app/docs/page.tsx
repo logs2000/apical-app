@@ -38,7 +38,7 @@ const SECTIONS = [
         </ol>
         <CodeBlock
           label="Install the CLI (optional)"
-          lines={['curl -fsSL https://apical.dev/install.sh | sh', 'apical login']}
+          lines={['curl -fsSL https://apic.al/install.sh | sh', 'apical login']}
         />
       </div>
     ),
@@ -58,7 +58,7 @@ const SECTIONS = [
         <CodeBlock
           label="Authenticate a REST request"
           lines={[
-            'curl https://api.apical.dev/api/agents \\',
+            'curl https://api.apic.al/api/agents \\',
             '  -H "Authorization: Bearer ap_pat_xxxxxxxxxxxxxxxxxxxxxxxx"',
           ]}
         />

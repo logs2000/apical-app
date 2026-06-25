@@ -7,8 +7,7 @@
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:3000",
     "beforeBuildCommand": "bun run build",
-    "frontendDist": "../.next/standalone",
-    "beforeBundle": []
+    "frontendDist": "../.next/standalone"
   },
   "app": {
     "windows": [
@@ -22,16 +21,12 @@
         "fullscreen": false,
         "decorations": true,
         "transparent": false,
-        "theme": "System",
         "titleBarStyle": "Visible",
-        "hidden": false
+        "visible": true
       }
     ],
     "security": {
-      "csp": null,
-      "devUrl": "http://localhost:3000",
-      "frontendDist": "../.next/standalone",
-      "pattern": "blue"
+      "csp": null
     },
     "withGlobalTauri": false
   },
@@ -80,15 +75,7 @@
   },
   "plugins": {
     "shell": {
-      "sidecar": true,
-      "scope": [
-        {
-          "name": "next-server",
-          "cmd": "node",
-          "args": ["$HOME/.apical/server/server.js"],
-          "env": {}
-        }
-      ]
+      "open": true
     }
   }
 }

@@ -281,7 +281,7 @@ function ModelsManager() {
   return (
     <div>
       <p className="mb-3 text-[11px] text-muted-foreground">
-        AI models Apical can use to reason. Bring your own keys — your data never leaves your account. Toggle models on/off to control which appear in the agent picker.
+        AI models your agents can use. Hosted models are billed to your account per token; only providers we have configured are shown. You can also add a custom model with your own key. Toggle models on/off to control which appear in the agent picker.
       </p>
       {error && (
         <div className="mb-3 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-xs text-destructive">

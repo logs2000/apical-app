@@ -41,19 +41,11 @@ import {
   Wand2,
 } from "lucide-react";
 import type { ExecutionStep, ExecutionStatus } from "@/lib/apical";
-
-const FIXED_REPLY = `Here's the plan I'm proposing:
-
-1. **Tool** — List everything in your /Scan Inbox
-2. **Reason** — Identify the client from the filename + OCR
-3. **Gate** — Confirm the move if it's a new client (you approve)
-4. **Tool** — Move each file to /Clients/<name>/ (hardened after 50 consistent runs)
-
-Want me to run this every 15 minutes?
-
-—
-
-This is a live preview. **Download to try Free** to run real agents, save versions, and restore them from any point in this conversation.`;
+import {
+  agentChatResponseToMessage,
+  fetchAgentChat,
+  streamAgentThink,
+} from "@/lib/apical/chat-stream";
 
 type SendMode = "plan" | "do";
 
@@ -70,181 +62,79 @@ export function ChatTab() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, isThinking]);
 
-  // ─── Plan-first mode: AI proposes a workflow upfront ────────────────────
-  function sendPlan(text: string) {
+  // ─── Plan-first mode: AI proposes a workflow via /api/agent/chat ─────────
+  async function sendPlan(text: string) {
     setIsThinking(true);
-    window.setTimeout(() => {
+    try {
+      const data = await fetchAgentChat({
+        message: text,
+        history: messages
+          .filter((m) => m.role === "user" || m.role === "agent")
+          .slice(-12)
+          .map((m) => ({ role: m.role, content: m.content })),
+      });
+      setMessages((m) => [...m, agentChatResponseToMessage(data)]);
+    } catch (err) {
       setMessages((m) => [
         ...m,
         {
           id: Math.random().toString(36).slice(2),
           role: "agent",
-          content: FIXED_REPLY,
-          workflowProposal: {
-            name: "Compass",
-            description: "Sorts scans + invoices into client folders automatically.",
-            department: "Filing",
-            title: "Sorter",
-            steps: {
-              version: 1,
-              steps: [
-                { id: "s1", kind: "tool", label: "List /Scan Inbox", tool: "files.list" },
-                { id: "s2", kind: "reason", label: "Identify client from filename + OCR", prompt: "Read filename + OCR first page" },
-                { id: "s3", kind: "gate", label: "Confirm move (if new client)" },
-                { id: "s4", kind: "tool", label: "Move to /Clients/{{s2.client}}/", tool: "files.move", hardened: true, note: "Hardened after 50 consistent runs" },
-              ],
-            },
-          },
+          content: `(Couldn't reach the assistant — ${(err as Error).message})`,
           createdAt: new Date().toISOString(),
         },
       ]);
+    } finally {
       setIsThinking(false);
-    }, 900 + Math.random() * 400);
+    }
   }
 
-  // ─── Learn-first mode: AI does the work once via the autonomous agent loop,
-  // then offers to freeze a workflow from the real execution trace.
-  // This calls POST /api/agent/think (SSE) which runs runAgent() — the ReAct
-  // loop that tries tools, configures missing ones, and freezes a workflow
-  // from the observed trace. NOT a hardcoded demo.
+  // ─── Learn-first mode: autonomous ReAct loop via /api/agent/think ──────────
   async function sendDo(text: string) {
     setIsThinking(true);
     const agentMsgId = Math.random().toString(36).slice(2);
-    const trace: ExecutionStep[] = [];
 
-    // 1. Post an initial agent message with an empty trace.
     setMessages((m) => [
       ...m,
       {
         id: agentMsgId,
         role: "agent",
-        content: `On it — I'll do this once now via the autonomous agent loop so I learn exactly how it works, then I'll offer to freeze a workflow from what I did.
-
-Watch me work 👇`,
+        content: "",
         executionTrace: [],
         createdAt: new Date().toISOString(),
       },
     ]);
 
-    // 2. Open the SSE stream to /api/agent/think.
     try {
-      const res = await fetch("/api/agent/think", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goal: text, maxIterations: 12 }),
+      const priorHistory = messages
+        .filter((m) => m.role === "user" || m.role === "agent")
+        .filter((m) => m.content.trim().length > 0)
+        .slice(-12)
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      const result = await streamAgentThink(text, {
+        history: priorHistory,
+        maxIterations: 12,
+        onTraceUpdate: (trace) => {
+          setMessages((prev) =>
+            prev.map((msg) => (msg.id === agentMsgId ? { ...msg, executionTrace: trace } : msg)),
+          );
+        },
       });
-      if (!res.ok || !res.body) {
-        throw new Error(`HTTP ${res.status}`);
-      }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let finalAnswer = "";
-      let proposedWorkflow: ChatMessage["workflowProposal"] | undefined;
-
-      // 3. Read SSE events + update the trace live.
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr) continue;
-          let event: Record<string, unknown>;
-          try {
-            event = JSON.parse(jsonStr) as Record<string, unknown>;
-          } catch {
-            continue;
-          }
-          // Map SSE events to execution-trace steps.
-          if (event.type === "thought") {
-            const thought = (event as unknown as { text: string }).text;
-            trace.push({
-              id: `e${trace.length + 1}`,
-              action: thought.slice(0, 120),
-              tool: "reason",
-              status: "done",
-              timestamp: new Date().toISOString(),
-              result: thought,
-            });
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === agentMsgId ? { ...msg, executionTrace: [...trace] } : msg,
-              ),
-            );
-          } else if (event.type === "tool_call") {
-            const ev = event as unknown as { tool: string; input: Record<string, unknown> };
-            const inputSummary = Object.keys(ev.input || {}).slice(0, 3).join(", ");
-            trace.push({
-              id: `e${trace.length + 1}`,
-              action: `${ev.tool}(${inputSummary})`,
-              tool: ev.tool,
-              status: "running",
-              timestamp: new Date().toISOString(),
-            });
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === agentMsgId ? { ...msg, executionTrace: [...trace] } : msg,
-              ),
-            );
-          } else if (event.type === "observation") {
-            const ev = event as unknown as {
-              tool: string; ok: boolean; output: unknown; error?: string;
-            };
-            // Update the last trace step for this tool.
-            const lastStep = [...trace].reverse().find((s) => s.tool === ev.tool && s.status === "running");
-            if (lastStep) {
-              lastStep.status = ev.ok ? "done" : "flagged";
-              lastStep.durationMs = 200;
-              if (ev.ok) {
-                const outStr = typeof ev.output === "string" ? ev.output : JSON.stringify(ev.output);
-                lastStep.result = outStr.slice(0, 200);
-              } else {
-                lastStep.result = ev.error || "failed";
-              }
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === agentMsgId ? { ...msg, executionTrace: [...trace] } : msg,
-                ),
-              );
-            }
-          } else if (event.type === "final") {
-            const ev = event as unknown as {
-              answer: string;
-              proposedWorkflow?: WorkflowJSON;
-            };
-            finalAnswer = ev.answer || "";
-            if (ev.proposedWorkflow) {
-              proposedWorkflow = {
-                name: "Agent",
-                description: finalAnswer.slice(0, 200),
-                department: "General",
-                steps: ev.proposedWorkflow,
-              };
-            }
-          }
-        }
-      }
-
-      // 4. Post the final answer + automate offer.
       setMessages((m) => [
         ...m,
         {
           id: Math.random().toString(36).slice(2),
           role: "agent",
-          content: finalAnswer || "Done. I worked through the task above — review the trace.",
-          ...(proposedWorkflow
+          content: result.finalAnswer || "Done. I worked through the task above — review the trace.",
+          ...(result.proposedWorkflow
             ? {
                 automateOffer: {
                   traceId: agentMsgId,
                   summary: "Workflow frozen from the live execution trace above.",
-                  name: proposedWorkflow.name,
-                  department: proposedWorkflow.department,
-                  steps: proposedWorkflow.steps,
+                  name: "Agent",
+                  steps: result.proposedWorkflow,
                 },
               }
             : {}),
@@ -252,7 +142,6 @@ Watch me work 👇`,
         },
       ]);
     } catch (err) {
-      // Surface the error inline.
       setMessages((m) => [
         ...m,
         {
@@ -363,7 +252,7 @@ Watch me work 👇`,
                   </div>
                   <span className="truncate text-sm font-medium">{agent.name}</span>
                   <span className="text-[10px] text-muted-foreground">·</span>
-                  <span className="text-[10px] text-muted-foreground">{agent.department}</span>
+                  <span className="text-[10px] text-muted-foreground">{agent.title ?? "Agent"}</span>
                 </>
               );
             }
@@ -520,7 +409,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       <div
         className={cn(
           "max-w-[78%] rounded-lg px-3 py-2 text-sm leading-relaxed",
-          isUser ? "bg-primary text-primary-foreground" : "bg-card border border-border",
+          isUser ? "bg-[oklch(0.42_0.025_155)] text-white" : "bg-card border border-border",
         )}
       >
         <RichText text={message.content} isUser={isUser} />
@@ -540,7 +429,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
                 <div>
                   <div className="text-xs font-semibold">{message.workflowProposal.name}</div>
                   <div className="text-[10px] text-muted-foreground">
-                    {message.workflowProposal.title} · {message.workflowProposal.department}
+                    {message.workflowProposal.title}
                   </div>
                 </div>
               </div>
@@ -584,7 +473,6 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             <div className="rounded-md border border-primary/30 bg-primary/5 p-2.5">
               <p className="mb-2 text-[11px] text-foreground">{message.automateOffer.summary}</p>
               <div className="mb-2 flex items-center gap-1.5">
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">{message.automateOffer.department}</span>
                 <span className="text-[10px] text-muted-foreground">Built from {message.automateOffer.steps.steps.length} observed steps</span>
               </div>
               <div className="space-y-1">

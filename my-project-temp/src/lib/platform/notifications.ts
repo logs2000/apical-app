@@ -414,7 +414,7 @@ async function deliverViaSmtp(
 // ---------------- Core: sendEmail ----------------
 
 function getFromEmail(): string {
-  return process.env.NOTIFICATIONS_FROM_EMAIL?.trim() || 'notifications@apical.local'
+  return process.env.NOTIFICATIONS_FROM_EMAIL?.trim() || 'notifications@apic.al'
 }
 
 function isSmtpConfigured(): boolean {

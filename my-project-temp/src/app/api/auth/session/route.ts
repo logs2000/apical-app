@@ -15,21 +15,21 @@
 // `[...nextauth]` catch-all, so this file wins for GET /api/auth/session
 // without affecting any other NextAuth endpoint (signin, signout, callbacks).
 
+import { getServerSession } from 'next-auth'
 import { NextResponse } from 'next/server'
-import { authOptions, getOrCreateDevUser, isDevBypass } from '@/lib/auth'
+import { authOptions, getOrCreateDevUser } from '@/lib/auth'
+import { isDevBypass } from '@/lib/dev-bypass'
 import { db } from '@/lib/db'
 
 export async function GET() {
   if (!isDevBypass()) {
-    // Production / non-bypass dev: delegate to NextAuth's session handler.
-    // We do this by dynamically importing NextAuth and invoking its handler
-    // with the same authOptions. This preserves the standard NextAuth session
-    // behavior (reading the JWT cookie, calling the session callback, etc.).
-    const NextAuth = (await import('next-auth')).default
-    const handler = NextAuth(authOptions)
-    // NextAuth's handler reads from a Request — synthesize one for /api/auth/session.
-    const url = new URL('/api/auth/session', 'http://localhost')
-    return handler(new Request(url, { method: 'GET' }))
+    try {
+      const session = await getServerSession(authOptions)
+      return NextResponse.json(session ?? {})
+    } catch (err) {
+      console.error('[api/auth/session] session lookup failed:', err)
+      return NextResponse.json({})
+    }
   }
 
   try {

@@ -263,7 +263,7 @@ function AgentListItem({
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-[11px] font-medium">{agent.name}</div>
-        <div className="truncate text-[9px] text-muted-foreground">{agent.department}</div>
+        <div className="truncate text-[9px] text-muted-foreground">{agent.title ?? "Agent"}</div>
       </div>
       <span
         className={cn(
@@ -301,7 +301,7 @@ function AgentMemoryPanel({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold">{agent.name}</h2>
-            <span className="text-[10px] text-muted-foreground">{agent.department}</span>
+            <span className="text-[10px] text-muted-foreground">{agent.title ?? "Agent"}</span>
           </div>
           <p className="truncate text-[11px] text-muted-foreground">{agent.description}</p>
         </div>

@@ -68,8 +68,8 @@ function downloadUrl(os: DetectedOS): string {
 function installCommandFor(os: DetectedOS): string {
   if (os === "mac") return "brew install --cask apical";
   if (os === "windows") return "winget install apical.apical";
-  if (os === "linux") return "curl -fsSL https://apical.dev/install.sh | sh";
-  return "curl -fsSL https://apical.dev/install.sh | sh";
+  if (os === "linux") return "curl -fsSL https://apic.al/install.sh | sh";
+  return "curl -fsSL https://apic.al/install.sh | sh";
 }
 function markLandingSeen() {
   if (typeof window === "undefined") return;
@@ -554,7 +554,7 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
                     onClick={() => {
                       if (isFree) onLaunch();
                       else if (isEnterprise) {
-                        window.location.href = "mailto:sales@apical.dev?subject=Apical%20Enterprise";
+                        window.location.href = "mailto:sales@apic.al?subject=Apical%20Enterprise";
                       } else {
                         // Demo: just navigate to the web app
                         onLaunch();
@@ -690,8 +690,8 @@ function Footer() {
             <div>
               <div className="mb-3 font-medium text-foreground">Company</div>
               <ul className="space-y-2 text-muted-foreground">
-                <li><a href="mailto:hello@apical.dev" className="hover:text-foreground">Contact</a></li>
-                <li><a href="mailto:sales@apical.dev" className="hover:text-foreground">Sales</a></li>
+                <li><a href="mailto:hello@apic.al" className="hover:text-foreground">Contact</a></li>
+                <li><a href="mailto:sales@apic.al" className="hover:text-foreground">Sales</a></li>
               </ul>
             </div>
             <div>

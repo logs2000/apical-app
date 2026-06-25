@@ -205,7 +205,7 @@ export interface Workflow {
   flaggedCount: number
   aiCallsSaved: number
   estCostSavedCents: number
-  /** Which AI model this agent prefers ('default' | 'fast' | 'thinking' | custom id). Null = inherit. */
+  /** Which hosted model this agent prefers (registry id like openai:gpt-4o). Null = first available. */
   modelPreference?: string | null
   /** Default confidence threshold for reason steps that don't override (0-1). */
   confidenceThreshold?: number | null

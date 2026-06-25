@@ -23,7 +23,7 @@ import { PrismaClient } from '@prisma/client'
 import { randomUUID } from 'crypto'
 
 // The desktop-bridge has its own PrismaClient pointed at the same SQLite DB.
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'file:/home/z/my-project/db/custom.db'
+process.env.DATABASE_URL = process.env.DATABASE_URL || 'file:./db/custom.db'
 
 const db = new PrismaClient()
 const PORT = 3005

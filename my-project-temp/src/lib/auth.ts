@@ -9,11 +9,9 @@
 //   • Credentials — email + password (bcrypt-hashed). Used by the signup +
 //                 login pages. Looks up User by email, verifies the hash.
 //
-// Dev bypass: when NODE_ENV === 'development' AND AUTH_BYPASS_DEV === 'true',
-// the app pretends you're logged in as a dev user (dev@apical.local). The
-// middleware skips protection and getCurrentUser() returns the dev user
-// without touching NextAuth. This lets the app work end-to-end in dev
-// without a real auth setup.
+// Dev bypass: on by default in development (set AUTH_BYPASS_DEV=false to disable).
+// The app pretends you're logged in as dev@apical.local. Middleware skips
+// protection and getCurrentUser() returns the dev user without NextAuth login.
 //
 // Export `authOptions` for use in:
 //   - src/app/api/auth/[...nextauth]/route.ts (the NextAuth route handlers)
@@ -24,19 +22,13 @@ import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { db } from './db'
+import {
+  DEV_USER_EMAIL,
+  DEV_USER_NAME,
+  isDevBypass,
+} from './dev-bypass'
 
-// ---------------- Dev bypass ----------------
-
-export const DEV_USER_EMAIL = 'dev@apical.local'
-export const DEV_USER_NAME = 'Developer'
-
-/** True when dev bypass is active. Read at runtime so .env changes take effect. */
-export function isDevBypass(): boolean {
-  return (
-    process.env.NODE_ENV === 'development' &&
-    process.env.AUTH_BYPASS_DEV === 'true'
-  )
-}
+export { DEV_USER_EMAIL, DEV_USER_NAME, isDevBypass }
 
 /**
  * Get-or-create the dev user. Used by getCurrentUser() when dev bypass is on,

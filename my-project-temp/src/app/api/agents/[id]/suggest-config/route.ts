@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import ZAI from 'z-ai-web-dev-sdk'
+import { simpleComplete, resolveModelPreference, configuredHostedProviders } from '@/lib/platform/llm-gateway'
+import { MODEL_REGISTRY } from '@/lib/platform/models'
 import { db } from '@/lib/db'
 
 interface RouteCtx { params: Promise<{ id: string }> }
@@ -61,7 +62,7 @@ export async function POST(_req: Request, { params }: RouteCtx) {
     const hardenedPatternCount = wf.patterns.filter((p) => p.hardened).length
 
     // Build a context summary for the LLM.
-    const context = `Agent: ${wf.name} (${wf.title ?? 'Agent'}) in ${wf.department}
+    const context = `Agent: ${wf.name}${wf.title ? ` (${wf.title})` : ''}
 Description: ${wf.description}
 Current trigger: ${wf.trigger}${wf.schedule ? ` (${wf.schedule})` : ''}
 Current status: ${wf.status}
@@ -75,40 +76,49 @@ Recent run history (last ${runCount} runs):
   Flagged for review: ${totalFlagged} (${(flagRate * 100).toFixed(1)}%)
   Observed execution patterns: ${patternCount} (${hardenedPatternCount} already hardened)`
 
+    // Available hosted models for the suggestion prompt.
+    const configured = configuredHostedProviders()
+    const modelOptions = MODEL_REGISTRY.filter(
+      (m) => m.tier === 'hosted' && configured.includes(m.provider),
+    )
+    const modelIdList = modelOptions.map((m) => m.id).join(', ') || '(none configured)'
+
     // Use the LLM to propose sensible settings.
     let suggestion: Suggestion
     try {
-      const zai = await ZAI.create()
-      const completion = await zai.chat.completions.create({
+      const text = await simpleComplete({
         messages: [
           {
             role: 'system',
             content: `You propose configuration settings for an AI agent based on its workflow and recent run history. Respond with ONLY JSON (no fences) of shape:
 {
   "schedule": "Every weekday at 9am" | null,
-  "modelPreference": "default" | "fast" | "thinking" | null,
+  "modelPreference": "<model id>" | null,
   "confidenceThreshold": 0.0-1.0 | null,
   "autoHardenAfter": 0-N | null,
   "reasoning": "2-4 sentences explaining why these settings fit this agent."
 }
 
+Available model ids: ${modelIdList}
+
 Rules:
 - Schedule: if the agent watches something (scanner, inbox, folder) → daily or hourly. If it generates reports → weekly or monthly. If it's event-driven or one-off → null (manual).
-- Model: 'thinking' if there are 3+ reason steps or complex judgment. 'fast' if there are 0-1 reason steps. 'default' otherwise. null = inherit.
+- Model: pick a concrete model id from the list. Use a fast/cheap model (gpt-4o-mini, claude-3-5-haiku, grok-3-mini, gemini-2.0-flash) if there are 0-1 reason steps. Use a powerful model (gpt-4o, claude-3-5-sonnet, grok-4, gemini-1.5-pro) if there are 3+ reason steps. null = inherit (first available).
 - Confidence threshold: if flagRate > 20% → raise to 0.85+. If flagRate < 5% → lower to 0.7. Otherwise keep around 0.8. null = inherit.
 - Auto-harden: if there are 2+ unhardened patterns AND 5+ runs → suggest 5. If patterns exist but few runs → suggest 10. Otherwise 0 (off).
 - Reasoning: explain the schedule, model, and threshold picks in 2-4 sentences.`,
           },
           { role: 'user', content: context },
         ],
-        thinking: { type: 'disabled' },
+        json: true,
       })
-      const text = completion.choices[0]?.message?.content || '{}'
       const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim()
       const parsed = JSON.parse(cleaned) as Partial<Suggestion>
+      const validIds = new Set(modelOptions.map((m) => m.id))
+      const rawPref = typeof parsed.modelPreference === 'string' ? parsed.modelPreference.trim() : null
       suggestion = {
         schedule: typeof parsed.schedule === 'string' && parsed.schedule.trim() ? parsed.schedule.trim() : null,
-        modelPreference: ['default', 'fast', 'thinking'].includes(parsed.modelPreference ?? '') ? parsed.modelPreference! : null,
+        modelPreference: rawPref && validIds.has(rawPref) ? rawPref : null,
         confidenceThreshold: typeof parsed.confidenceThreshold === 'number'
           ? Math.max(0, Math.min(1, parsed.confidenceThreshold))
           : null,
@@ -126,7 +136,9 @@ Rules:
       const suggestsWeekly = /report|summary|digest|weekly/i.test(wf.description)
       suggestion = {
         schedule: suggestsHourly ? 'Every hour' : suggestsWeekly ? 'Every Monday at 9am' : 'Every day at 9am',
-        modelPreference: reasonCount >= 3 ? 'thinking' : reasonCount <= 1 ? 'fast' : 'default',
+        modelPreference: resolveModelPreference(
+          reasonCount >= 3 ? 'thinking' : reasonCount <= 1 ? 'fast' : 'default',
+        ),
         confidenceThreshold: flagRate > 0.2 ? 0.85 : flagRate < 0.05 ? 0.7 : 0.8,
         autoHardenAfter: patternCount >= 2 && runCount >= 5 ? 5 : 0,
         reasoning: `Heuristic suggestion based on ${runCount} runs (${(autoRate * 100).toFixed(0)}% automatic, ${(flagRate * 100).toFixed(0)}% flagged) and ${reasonCount} reason step${reasonCount === 1 ? '' : 's'} in the workflow.`,

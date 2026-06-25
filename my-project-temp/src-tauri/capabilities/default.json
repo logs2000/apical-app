@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the Apical desktop main window.",
-  "windows": ["main"],
+  "description": "Default capability for the Apical desktop windows (main + popped-out secondary windows).",
+  "windows": ["main", "apical-*"],
   "permissions": [
     "core:default",
     "shell:allow-open",
@@ -12,6 +12,7 @@
     "fs:default",
     "os:default",
     "process:default",
-    "notification:default"
+    "notification:default",
+    "global-shortcut:default"
   ]
 }

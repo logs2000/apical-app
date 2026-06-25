@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import ZAI from 'z-ai-web-dev-sdk'
 import { db } from '@/lib/db'
 import { integrationFromRow } from '@/lib/apical-server'
+import { simpleComplete } from '@/lib/platform/llm-gateway'
+import { searchWeb } from '@/lib/platform/web-search'
 import type { ResearchPlan, WorkflowJSON } from '@/lib/types'
 
 // POST /api/agent/research — general-purpose deep reasoning.
@@ -9,12 +10,6 @@ import type { ResearchPlan, WorkflowJSON } from '@/lib/types'
 // The agent considers ALL available tools (web search, filesystem, CLI, network,
 // MCP servers, APIs, connected integrations) and reasons about the best strategy
 // to accomplish the user's goal. It then proposes a complete workflow.
-//
-// This is NOT a hardcoded web-crawler. The agent decides what tools to use based
-// on the task. For "find potential clients" it might search the web + crawl sites.
-// For "monitor network devices" it might use CLI tools (nmap, arp) + filesystem.
-// For "sort scanned documents" it might use OCR + filesystem + business rules.
-// For "track competitor pricing" it might crawl competitor sites + diff.
 
 interface ResearchBody {
   goal: string
@@ -29,31 +24,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'goal is required' }, { status: 400 })
     }
 
-    const zai = await ZAI.create()
-
-    // ---- Build the agent's tool inventory ----
-    // The agent needs to know what tools it HAS so it can reason about which to use.
     const integrations = await db.integration.findMany({ where: { status: 'connected' } })
     const toolInventory = integrations.flatMap((i) => {
       const tools = JSON.parse(i.tools) as Array<{ id: string; name: string; description: string }>
       return tools.map((t) => `- ${t.id} (${i.name}): ${t.description}`)
     }).join('\n')
 
-    // ---- Phase 1: Web search (if the task might need external data) ----
-    // The agent decides whether to search the web based on the goal.
-    // We always do a search — if the task is purely local (filesystem/CLI),
-    // the search results just won't be relevant and the agent will ignore them.
-    const searchResults = await zai.functions.invoke('web_search', {
-      query: goal,
-      num: 8,
-    })
+    let searchContext = '(Web search unavailable or returned no results.)'
+    try {
+      const searchResults = await searchWeb(goal, 8)
+      searchContext = searchResults
+        .slice(0, 6)
+        .map((r, i) => `${i + 1}. ${r.title} (${r.host})\n   ${r.url}\n   ${r.snippet}`)
+        .join('\n\n')
+    } catch (err) {
+      console.error('[api/agent/research] web_search failed:', err)
+    }
 
-    const searchContext = (searchResults as Array<{ url: string; name: string; snippet: string; host_name: string }>)
-      .slice(0, 6)
-      .map((r, i) => `${i + 1}. ${r.name} (${r.host_name})\n   ${r.url}\n   ${r.snippet}`)
-      .join('\n\n')
-
-    // ---- Phase 2: LLM reasons about the task + available tools + findings ----
     const systemPrompt = `You are Apical's autonomous reasoning engine. The user asked you to accomplish this goal:
 
 "${goal}"
@@ -90,16 +77,7 @@ Respond with ONLY JSON (no prose, no code fences):
   ],
   "proposedWorkflow": {
     "version": 1,
-    "steps": [
-      // Build a workflow that implements your strategy.
-      // Use 'tool' steps for mechanical work (fetch, read, write, CLI).
-      // Use 'http' specs for API calls (with auth refs where needed).
-      // Use 'reason' steps ONLY where genuine judgment is needed.
-      // Use 'spawn' steps for parallelizable sub-tasks.
-      // Use 'gate' steps before irreversible actions.
-      // Include rate-limit-aware notes on steps that hit external APIs.
-      // 5-10 steps total.
-    ]
+    "steps": []
   },
   "scheduleRecommendation": {
     "frequency": "Daily" | "Weekly" | "Monthly" | "Hourly" | "Manual",
@@ -111,15 +89,14 @@ Respond with ONLY JSON (no prose, no code fences):
   ]
 }`
 
-    const completion = await zai.chat.completions.create({
+    const text = await simpleComplete({
       messages: [
-        { role: 'assistant', content: systemPrompt },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: `Build a plan for: ${goal}` },
       ],
-      thinking: { type: 'disabled' },
+      json: true,
     })
 
-    const text = completion.choices[0]?.message?.content || ''
     let plan: Partial<ResearchPlan>
     try {
       const cleaned = text.replace(/```json\s*/g, '').replace(/```/g, '').trim()
@@ -135,8 +112,6 @@ Respond with ONLY JSON (no prose, no code fences):
       }
     }
 
-    // ---- Phase 3: Try to crawl any web-based findings for API endpoints ----
-    // (Only for findings that are websites — local/CLI findings don't need crawling.)
     const enrichedFindings: ResearchPlan['findings'] = []
     for (const finding of (plan.findings ?? [])) {
       const enriched = { ...finding }
@@ -148,7 +123,6 @@ Respond with ONLY JSON (no prose, no code fences):
           })
           if (pageResp.ok) {
             const html = await pageResp.text()
-            // Look for API endpoints.
             const apiPatterns = [/['"`](\/api\/[^'"`\s?#]+)/g, /fetch\(['"`]([^'"`]+)['"`]/g]
             const endpoints: Array<{ method: string; path: string; description: string }> = []
             for (const pattern of apiPatterns) {
@@ -159,7 +133,6 @@ Respond with ONLY JSON (no prose, no code fences):
               }
             }
             if (endpoints.length > 0) enriched.endpoints = endpoints
-            // Rate limit headers.
             const rateLimit = pageResp.headers.get('x-ratelimit-limit')
             const retryAfter = pageResp.headers.get('retry-after')
             if (rateLimit || retryAfter) {

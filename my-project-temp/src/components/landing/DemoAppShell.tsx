@@ -268,7 +268,7 @@ export function DemoAppShell() {
                     {m.role === "user" ? (
                       <div className="flex justify-end">
                         <div className="max-w-[85%] space-y-1">
-                          <div className="rounded-md bg-slate-600 px-3 py-2 text-sm text-white">
+                          <div className="rounded-md bg-[oklch(0.42_0.025_155)] px-3 py-2 text-sm text-white">
                             {m.content}
                           </div>
                         </div>

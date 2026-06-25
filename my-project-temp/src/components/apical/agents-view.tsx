@@ -3,9 +3,6 @@
 import * as React from "react";
 import { useAppStore } from "@/lib/apical/store";
 import {
-  DEMO_CONVERSATIONS,
-  DEMO_MESSAGES,
-  DEMO_WORKFLOWS,
   DEFAULT_PROMPTS,
   messagesForAgent,
   apicalWelcomeMessage,
@@ -18,6 +15,14 @@ import {
   type Workflow,
   type AgentRuntime,
 } from "@/lib/apical";
+import {
+  AgentsDataProvider,
+  ORCHESTRATOR_CONVERSATION,
+  conversationIdForWorkflow,
+  useActiveAgent,
+  useAgentsData,
+} from "@/lib/apical/agents-data";
+import { useToast } from "@/hooks/use-toast";
 import { ApicalMark, RuntimeBadge } from "./logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -25,6 +30,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { IS_TAURI, openAppWindow } from "@/lib/desktop/tauri-bridge";
 import {
   Boxes,
   Plus,
@@ -49,14 +66,32 @@ import {
   Monitor,
   Search,
   Sparkles,
-  ArrowUp,
   Pin,
   X,
   ChevronRight,
-  Zap,
+  ChevronDown,
+  Database,
   Columns2,
+  SquareStack,
 } from "lucide-react";
 import type { ExecutionStep } from "@/lib/apical";
+import {
+  loadAgentMessages,
+  loadOrchestratorMessages,
+  persistOrchestratorMessage,
+  streamAgentThink,
+  chatHistoryForApi,
+  thoughtEventsFromTrace,
+} from "@/lib/apical/chat-stream";
+import { ChatComposer } from "./chat-composer";
+import { ArtifactEditor, type ArtifactEditorInitial } from "./artifact-editor";
+import { AssetCards } from "./asset-cards";
+import { SandboxPanel } from "./sandbox-panel";
+import { CredentialBox } from "./credential-box";
+import { MarkdownText } from "./markdown-text";
+import { fetchArtifactText } from "@/lib/apical/attachments";
+import { sandboxItemFromAttachment } from "@/lib/apical/sandbox";
+import type { ChatAttachment } from "@/lib/apical";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -87,8 +122,18 @@ export function AgentsView() {
     return () => mq.removeEventListener('change', update);
   }, []);
 
-  if (isMobile) return <MobileAgentsView />;
-  return <DesktopAgentsView />;
+  if (isMobile) {
+    return (
+      <AgentsDataProvider>
+        <MobileAgentsView />
+      </AgentsDataProvider>
+    );
+  }
+  return (
+    <AgentsDataProvider>
+      <DesktopAgentsView />
+    </AgentsDataProvider>
+  );
 }
 
 // ─── Desktop: 3-rail layout ─────────────────────────────────────────────────
@@ -98,33 +143,86 @@ function DesktopAgentsView() {
   const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const inspectorOpen = useAppStore((s) => s.inspectorOpen);
   const toggleInspector = useAppStore((s) => s.toggleInspector);
+  const sandboxOpen = useAppStore((s) => s.sandboxOpen);
+  const sandboxItems = useAppStore((s) => s.sandboxItems);
+  const setSandboxOpen = useAppStore((s) => s.setSandboxOpen);
+  const rightRailTab = useAppStore((s) => s.rightRailTab);
+  const setRightRailTab = useAppStore((s) => s.setRightRailTab);
+  const clearSandbox = useAppStore((s) => s.clearSandbox);
+  const { activeAgent, isOrchestrator } = useActiveAgent();
 
-  const activeConvo = DEMO_CONVERSATIONS.find((c) => c.id === activeConversationId);
-  const activeAgent = activeConvo?.workflowId
-    ? DEMO_WORKFLOWS.find((w) => w.id === activeConvo.workflowId)
-    : undefined;
-  const isOrchestrator = activeConversationId === "orchestrator";
+  React.useEffect(() => {
+    clearSandbox();
+  }, [activeConversationId, clearSandbox]);
+
+  // The inspector only fits on wide (lg+) viewports. Below that we drop the
+  // panel entirely (matching the previous `lg:flex` behavior) so the resize
+  // group never has to measure a hidden panel.
+  const [isWide, setIsWide] = React.useState(true);
+  React.useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsWide(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // This window is a single-agent pop-out — hide the navigator rail and lock to
+  // the popped-out conversation.
+  const popoutConversationId = useAppStore((s) => s.popoutConversationId);
+  const isPopout = !!popoutConversationId;
+
+  const hasData = sandboxItems.length > 0;
+  const showData = sandboxOpen && hasData;
+  const showInspectorPanel = isWide && inspectorOpen && !!activeAgent && !isOrchestrator;
+  const showRightRail = isWide && (showData || showInspectorPanel);
 
   return (
-    <div className="flex h-full min-h-0">
-      {/* Left rail — agent navigator */}
-      <AgentNavigator activeId={activeConversationId} onPick={setActiveConversation} />
+    <ResizablePanelGroup
+      direction="horizontal"
+      autoSaveId="apical-agents-layout"
+      className="h-full min-h-0"
+    >
+      {/* Left rail — agent navigator (drag the handle to resize, persisted).
+          Hidden in pop-out windows, which are focused on one agent. */}
+      {!isPopout && (
+        <>
+          <ResizablePanel id="nav" order={1} defaultSize={18} minSize={13} maxSize={30}>
+            <AgentNavigator activeId={activeConversationId} onPick={setActiveConversation} />
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+        </>
+      )}
 
       {/* Center — chat only (no mode tabs) */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <ResizablePanel id="center" order={2} minSize={30} className="flex min-w-0 flex-col">
         <CenterPane
           agent={activeAgent}
           isOrchestrator={isOrchestrator}
           inspectorOpen={inspectorOpen}
           onToggleInspector={toggleInspector}
+          previewOpen={showData}
+          onTogglePreview={() => setSandboxOpen(!sandboxOpen)}
+          hasPreviewContent={hasData}
         />
-      </div>
+      </ResizablePanel>
 
-      {/* Right — inspector (collapsible, hidden for Orchestrator, collapses below lg) */}
-      {inspectorOpen && activeAgent && !isOrchestrator && (
-        <InspectorPane agent={activeAgent} />
+      {/* Right — preview / progress data panel + agent inspector */}
+      {showRightRail && (
+        <>
+          <ResizableHandle withHandle />
+          <ResizablePanel id="right-rail" order={3} defaultSize={26} minSize={18} maxSize={42}>
+            <RightRailPane
+              agent={activeAgent}
+              showInspector={showInspectorPanel}
+              showData={showData}
+              tab={rightRailTab}
+              onTabChange={setRightRailTab}
+            />
+          </ResizablePanel>
+        </>
       )}
-    </div>
+    </ResizablePanelGroup>
   );
 }
 
@@ -138,20 +236,35 @@ function AgentNavigator({
   onPick: (id: string) => void;
 }) {
   const [search, setSearch] = React.useState("");
+  const { workflows, conversations, createAgent, isCreating, isLoading } = useAgentsData();
+  const { toast } = useToast();
 
-  const orchestrator = DEMO_CONVERSATIONS.find((c) => c.id === "orchestrator")!;
-  const agentConvos = DEMO_CONVERSATIONS.filter((c) => c.id !== "orchestrator");
+  const orchestrator = ORCHESTRATOR_CONVERSATION;
+  const agentConvos = conversations.filter((c) => c.id !== "orchestrator");
   const filtered = agentConvos.filter((c) => {
     if (!search) return true;
-    const wf = DEMO_WORKFLOWS.find((w) => w.id === c.workflowId);
+    const wf = workflows.find((w) => w.id === c.workflowId);
     return (
       c.title.toLowerCase().includes(search.toLowerCase()) ||
-      (wf?.department ?? "").toLowerCase().includes(search.toLowerCase())
+      (wf?.title ?? "").toLowerCase().includes(search.toLowerCase())
     );
   });
 
+  async function handleNewAgent() {
+    try {
+      const created = await createAgent();
+      onPick(conversationIdForWorkflow(created.id));
+    } catch (err) {
+      toast({
+        title: "Could not create agent",
+        description: err instanceof Error ? err.message : "Something went wrong",
+        variant: "destructive",
+      });
+    }
+  }
+
   return (
-    <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-muted/30 md:flex">
+    <aside className="flex h-full w-full min-w-0 flex-col border-r border-border bg-muted/30">
       <div className="border-b border-border p-2.5">
         <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
           <Search className="h-3 w-3 text-muted-foreground" />
@@ -166,8 +279,11 @@ function AgentNavigator({
           variant="ghost"
           size="sm"
           className="mt-1.5 w-full justify-start gap-1.5 text-[11px] text-muted-foreground"
+          onClick={() => void handleNewAgent()}
+          disabled={isCreating || isLoading}
         >
-          <Plus className="h-3 w-3" /> New agent
+          {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+          New agent
         </Button>
       </div>
       <div className="flex-1 min-h-0 space-y-3 overflow-y-auto overscroll-contain p-2">
@@ -183,7 +299,7 @@ function AgentNavigator({
           <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Agents</div>
           <div className="space-y-0.5">
             {filtered.map((c) => {
-              const wf = DEMO_WORKFLOWS.find((w) => w.id === c.workflowId);
+              const wf = workflows.find((w) => w.id === c.workflowId);
               if (!wf) return null;
               return (
                 <AgentRailRow
@@ -202,6 +318,53 @@ function AgentNavigator({
   );
 }
 
+// ─── Pop-out (desktop multi-window) ─────────────────────────────────────────
+//
+// Agents are NOT popped out by default. A user opts in by either right-clicking
+// a row → "Open in new window", or dragging the row out of the window and
+// dropping it outside the OS window bounds. Both paths open a focused window
+// at "/#popout=<conversationId>". All of this is desktop (Tauri) only.
+
+function openAgentPopout(conversationId: string) {
+  void openAppWindow(`/#popout=${encodeURIComponent(conversationId)}`);
+}
+
+/** A drag that ends outside the window bounds pops the agent into a new window. */
+function rowDragEndHandler(conversationId: string) {
+  return (e: React.DragEvent) => {
+    const outside =
+      e.clientX <= 0 ||
+      e.clientY <= 0 ||
+      e.clientX >= window.innerWidth ||
+      e.clientY >= window.innerHeight;
+    if (outside) openAgentPopout(conversationId);
+  };
+}
+
+/** Wraps a row with a right-click "Open in new window" menu (desktop only). */
+function PopoutMenu({
+  conversationId,
+  children,
+}: {
+  conversationId: string;
+  children: React.ReactNode;
+}) {
+  if (!IS_TAURI) return <>{children}</>;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-52">
+        <ContextMenuItem
+          onClick={() => openAgentPopout(conversationId)}
+          className="gap-2 text-xs"
+        >
+          <SquareStack className="h-3.5 w-3.5" /> Open in new window
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 function OrchestratorRow({
   convo,
   active,
@@ -212,22 +375,26 @@ function OrchestratorRow({
   onClick: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
-        active ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-      )}
-    >
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
-        <Sparkles className="h-3.5 w-3.5" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px] font-medium">{convo.title}</div>
-        <div className="truncate text-[9px] text-muted-foreground">General · all agents</div>
-      </div>
-      <Pin className="h-2.5 w-2.5 shrink-0 text-primary/60" />
-    </button>
+    <PopoutMenu conversationId={convo.id}>
+      <button
+        onClick={onClick}
+        draggable={IS_TAURI}
+        onDragEnd={IS_TAURI ? rowDragEndHandler(convo.id) : undefined}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+          active ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+        )}
+      >
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+          <Sparkles className="h-3.5 w-3.5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[11px] font-medium">{convo.title}</div>
+          <div className="truncate text-[9px] text-muted-foreground">General · all agents</div>
+        </div>
+        <Pin className="h-2.5 w-2.5 shrink-0 text-primary/60" />
+      </button>
+    </PopoutMenu>
   );
 }
 
@@ -244,8 +411,11 @@ function AgentRailRow({
 }) {
   const status = agentStatus(agent);
   return (
+    <PopoutMenu conversationId={convo.id}>
     <button
       onClick={onClick}
+      draggable={IS_TAURI}
+      onDragEnd={IS_TAURI ? rowDragEndHandler(convo.id) : undefined}
       className={cn(
         "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
         active ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -272,9 +442,10 @@ function AgentRailRow({
             </Badge>
           )}
         </div>
-        <div className="truncate text-[9px] text-muted-foreground">{agent.department}</div>
+        <div className="truncate text-[9px] text-muted-foreground">{agent.title ?? "Agent"}</div>
       </div>
     </button>
+    </PopoutMenu>
   );
 }
 
@@ -290,12 +461,26 @@ function MobileAgentsView() {
   const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const mobilePane = useAppStore((s) => s.mobilePane);
   const setMobilePane = useAppStore((s) => s.setMobilePane);
+  const sandboxItems = useAppStore((s) => s.sandboxItems);
+  const clearSandbox = useAppStore((s) => s.clearSandbox);
+  const { activeAgent, isOrchestrator, workflows } = useActiveAgent();
 
-  const activeConvo = DEMO_CONVERSATIONS.find((c) => c.id === activeConversationId);
-  const activeAgent = activeConvo?.workflowId
-    ? DEMO_WORKFLOWS.find((w) => w.id === activeConvo.workflowId)
-    : undefined;
-  const isOrchestrator = activeConversationId === "orchestrator";
+  React.useEffect(() => {
+    clearSandbox();
+  }, [activeConversationId, clearSandbox]);
+
+  const resultCount = sandboxItems.filter((i) => i.isResult).length;
+  const hasPreview = resultCount > 0;
+
+  // Auto-jump to Preview only when a finished RESULT lands (not for every
+  // intermediate step — those stay as live updates in the chat).
+  const prevResultCount = React.useRef(0);
+  React.useEffect(() => {
+    if (resultCount > prevResultCount.current) {
+      setMobilePane("preview");
+    }
+    prevResultCount.current = resultCount;
+  }, [resultCount, setMobilePane]);
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -306,7 +491,7 @@ function MobileAgentsView() {
           {isOrchestrator ? "Apical" : activeAgent?.name ?? "Agents"}
         </span>
         {activeAgent && (
-          <span className="ml-auto text-[10px] text-muted-foreground">{activeAgent.department}</span>
+          <span className="ml-auto text-[10px] text-muted-foreground">{activeAgent.title ?? "Agent"}</span>
         )}
       </header>
 
@@ -327,9 +512,15 @@ function MobileAgentsView() {
         {mobilePane === "detail" && activeAgent && !isOrchestrator && (
           <MobileDetailPane agent={activeAgent} />
         )}
+        {mobilePane === "preview" && hasPreview && <SandboxPanel mode="preview" showClose={false} />}
         {mobilePane === "detail" && (isOrchestrator || !activeAgent) && (
           <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
             Select an agent to see its details.
+          </div>
+        )}
+        {mobilePane === "preview" && !hasPreview && (
+          <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
+            Run a task to see results here.
           </div>
         )}
       </div>
@@ -341,7 +532,7 @@ function MobileAgentsView() {
           onClick={() => setMobilePane("list")}
           icon={Boxes}
           label="Agents"
-          badge={DEMO_WORKFLOWS.reduce((s, a) => s + a.flaggedCount, 0)}
+          badge={workflows.reduce((s, a) => s + a.flaggedCount, 0)}
         />
         <MobileTabButton
           active={mobilePane === "chat"}
@@ -349,6 +540,14 @@ function MobileAgentsView() {
           icon={MessageSquare}
           label="Chat"
         />
+        {hasPreview && (
+          <MobileTabButton
+            active={mobilePane === "preview"}
+            onClick={() => setMobilePane("preview")}
+            icon={Database}
+            label="Preview"
+          />
+        )}
         <MobileTabButton
           active={mobilePane === "detail"}
           onClick={() => setMobilePane("detail")}
@@ -406,10 +605,36 @@ function MobileAgentList({
   activeId: string | null;
   onPick: (id: string) => void;
 }) {
-  const orchestrator = DEMO_CONVERSATIONS.find((c) => c.id === "orchestrator")!;
-  const agentConvos = DEMO_CONVERSATIONS.filter((c) => c.id !== "orchestrator");
+  const { workflows, conversations, createAgent, isCreating, isLoading } = useAgentsData();
+  const { toast } = useToast();
+  const orchestrator = ORCHESTRATOR_CONVERSATION;
+  const agentConvos = conversations.filter((c) => c.id !== "orchestrator");
+
+  async function handleNewAgent() {
+    try {
+      const created = await createAgent();
+      onPick(conversationIdForWorkflow(created.id));
+    } catch (err) {
+      toast({
+        title: "Could not create agent",
+        description: err instanceof Error ? err.message : "Something went wrong",
+        variant: "destructive",
+      });
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto overscroll-contain p-2">
+      <Button
+        variant="outline"
+        size="sm"
+        className="mb-2 w-full gap-1.5 text-[11px]"
+        onClick={() => void handleNewAgent()}
+        disabled={isCreating || isLoading}
+      >
+        {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+        New agent
+      </Button>
       {/* Orchestrator */}
       <div className="mb-2">
         <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Apical</div>
@@ -433,7 +658,7 @@ function MobileAgentList({
       <div className="mb-1 px-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Agents</div>
       <div className="space-y-1">
         {agentConvos.map((c) => {
-          const wf = DEMO_WORKFLOWS.find((w) => w.id === c.workflowId);
+          const wf = workflows.find((w) => w.id === c.workflowId);
           if (!wf) return null;
           const status = agentStatus(wf);
           return (
@@ -463,7 +688,7 @@ function MobileAgentList({
                     </Badge>
                   )}
                 </div>
-                <div className="truncate text-[10px] text-muted-foreground">{wf.department} · {wf.title}</div>
+                <div className="truncate text-[10px] text-muted-foreground">{wf.title ?? "Agent"}</div>
               </div>
               <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
             </button>
@@ -514,11 +739,17 @@ function CenterPane({
   isOrchestrator,
   inspectorOpen,
   onToggleInspector,
+  previewOpen,
+  onTogglePreview,
+  hasPreviewContent,
 }: {
   agent: Workflow | undefined;
   isOrchestrator: boolean;
   inspectorOpen: boolean;
   onToggleInspector: () => void;
+  previewOpen?: boolean;
+  onTogglePreview?: () => void;
+  hasPreviewContent?: boolean;
 }) {
   // Center pane is CHAT ONLY now — Dashboard/Workflow/Config live in the right
   // rail (InspectorPane). No mode tabs here.
@@ -549,24 +780,38 @@ function CenterPane({
                 <span className="text-sm font-semibold">{agent.name}</span>
                 <RuntimeBadge runtime={agent.runtime} />
               </div>
-              <div className="text-[10px] text-muted-foreground">{agent.department} · {agent.title}</div>
+              <div className="text-[10px] text-muted-foreground">{agent.title ?? "Agent"}</div>
             </div>
           </div>
         ) : null}
 
-        {/* Inspector toggle — only when an agent is selected */}
-        {!isOrchestrator && agent && (
-          <button
-            onClick={onToggleInspector}
-            className={cn(
-              "ml-auto flex items-center gap-1 rounded-md p-1.5 transition-colors",
-              inspectorOpen ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-            )}
-            title={inspectorOpen ? "Hide inspector" : "Show inspector"}
-          >
-            {inspectorOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-          </button>
-        )}
+        {/* Preview + inspector toggles */}
+        <div className="ml-auto flex items-center gap-1">
+          {hasPreviewContent && onTogglePreview && (
+            <button
+              onClick={onTogglePreview}
+              className={cn(
+                "flex items-center gap-1 rounded-md p-1.5 transition-colors",
+                previewOpen ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+              title={previewOpen ? "Hide preview" : "Show preview"}
+            >
+              <Database className="h-4 w-4" />
+            </button>
+          )}
+          {!isOrchestrator && agent && (
+            <button
+              onClick={onToggleInspector}
+              className={cn(
+                "flex items-center gap-1 rounded-md p-1.5 transition-colors",
+                inspectorOpen ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+              title={inspectorOpen ? "Hide inspector" : "Show inspector"}
+            >
+              {inspectorOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Chat only */}
@@ -579,24 +824,19 @@ function CenterPane({
 
 // ─── Chat pane (center) ────────────────────────────────────────────────────
 
-const AGENT_LIMIT = 5; // free-plan limit; gracefully handled when branching.
-
-const AGENT_REPLY = `Here's the plan I'm proposing:
-
-1. **Tool** — List everything in your /Scan Inbox
-2. **Reason** — Identify the client from the filename + OCR
-3. **Gate** — Confirm the move if it's a new client (you approve)
-4. **Tool** — Move each file to /Clients/<name>/ (hardened after 50 consistent runs)
-
-Want me to run this every 15 minutes?`;
-
 function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOrchestrator: boolean }) {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [isThinking, setIsThinking] = React.useState(false);
-  const [mode, setMode] = React.useState<"plan" | "do">("plan");
   const [loading, setLoading] = React.useState(false);
+  const [composerAttachments, setComposerAttachments] = React.useState<ChatAttachment[]>([]);
+  const [editorOpen, setEditorOpen] = React.useState(false);
+  const [editorInitial, setEditorInitial] = React.useState<ArtifactEditorInitial | null>(null);
+  const addSandboxItem = useAppStore((s) => s.addSandboxItem);
+  const { workflows } = useAgentsData();
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const abortRef = React.useRef<AbortController | null>(null);
+
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -614,41 +854,21 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
       setLoading(true);
       try {
         if (isOrchestrator) {
-          // Apical chat: the welcome summary at the top, then (if any) the
-          // orchestrator's conversation history below it. The orchestrator
-          // doesn't have a workflow row, so we can't hit /api/agents/:id/messages
-          // for it — we use a synthetic conversation id. For now, just the
-          // welcome message + any locally-cached messages.
+          // Apical chat: the welcome summary at the top, then the orchestrator's
+          // persistent running history below it. The orchestrator isn't an agent
+          // (no Workflow row), so its thread lives in its own Conversation —
+          // loaded via /api/orchestrator/messages so it survives reloads.
           const welcome = apicalWelcomeMessage({
             user: { name: "Jordan" },
-            agents: DEMO_WORKFLOWS,
+            agents: workflows,
             lastSeenAgoHours: 6,
           });
-          if (!cancelled) setMessages([welcome]);
+          const history = await loadOrchestratorMessages();
+          if (!cancelled) setMessages([welcome, ...history]);
         } else if (agent) {
-          // Real agent — fetch its persisted chat history.
-          const res = await fetch(`/api/agents/${agent.id}/messages`);
-          if (res.ok) {
-            const data = await res.json();
-            const history: ChatMessage[] = (data.messages || []).map(
-              (m: { id: string; role: string; content: string; createdAt: string }) => ({
-                id: m.id,
-                role: m.role === "user" ? "user" : "agent",
-                content: m.content,
-                createdAt: m.createdAt,
-              }),
-            );
-            if (!cancelled) {
-              if (history.length > 0) {
-                setMessages(history);
-              } else {
-                // No persisted history yet — fall back to the role-specific
-                // demo thread so the chat isn't empty on first view.
-                setMessages(messagesForAgent(agent));
-              }
-            }
-          } else if (!cancelled) {
-            setMessages(messagesForAgent(agent));
+          const history = await loadAgentMessages(agent.id);
+          if (!cancelled) {
+            setMessages(history.length > 0 ? history : messagesForAgent(agent));
           }
         } else {
           if (!cancelled) setMessages([]);
@@ -664,153 +884,205 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
     return () => { cancelled = true; };
   }, [isOrchestrator, agent?.id]);
 
-  // Persist a message to the agent's thread (so it survives reloads).
+  // Persist a message to the active thread (so it survives reloads). The
+  // orchestrator persists to its own Conversation; agents to AgentMessage.
   async function persistMessage(msg: ChatMessage) {
-    if (isOrchestrator || !agent) return; // orchestrator has no agent row
+    const thoughtEvents = thoughtEventsFromTrace(msg.executionTrace);
+    const payload = {
+      ...msg,
+      events: [
+        ...(msg.events ?? []).filter((e) => e.type !== "reasoning"),
+        ...thoughtEvents,
+      ],
+    };
+    if (isOrchestrator) {
+      await persistOrchestratorMessage(payload);
+      return;
+    }
+    if (!agent) return;
     try {
       await fetch(`/api/agents/${agent.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: msg.role, content: msg.content }),
+        body: JSON.stringify({
+          role: payload.role,
+          content: payload.content,
+          events: payload.events,
+        }),
       });
     } catch {
       // non-fatal — the message is already in local state
     }
   }
 
-  // Branch a new agent from the Apical chat. Handles the agent limit gracefully.
-  function branchNewAgent(name: string, department: string, description: string) {
-    if (DEMO_WORKFLOWS.length >= AGENT_LIMIT) {
-      const limitMsg: ChatMessage = {
-        id: Math.random().toString(36).slice(2),
-        role: "agent",
-        content: `I'd normally spin up a new agent ("${name}") for this, but you're at the free-plan limit of ${AGENT_LIMIT} agents. You can either upgrade to Pro (unlimited agents) or pause an existing one to make room. Want me to show you which agents are using the fewest cycles?`,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((m) => [...m, limitMsg]);
-      return;
-    }
-    const branchMsg: ChatMessage = {
-      id: Math.random().toString(36).slice(2),
-      role: "agent",
-      content: `I'll set up a new agent — **${name}** in ${department}. ${description}\n\nI've created the agent and started a chat with it. You can switch to it from the left rail. It'll begin working once you approve its first workflow.`,
-      workflowProposal: {
-        name,
-        description,
-        department,
-        steps: {
-          version: 1,
-          steps: [
-            { id: "s1", kind: "tool", label: "Gather input", tool: "http.request" },
-            { id: "s2", kind: "reason", label: "Process + decide", prompt: "Analyze the input and decide the action." },
-            { id: "s3", kind: "gate", label: "Approve before acting" },
-            { id: "s4", kind: "tool", label: "Execute", tool: "http.request" },
-          ],
-        },
-      },
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((m) => [...m, branchMsg]);
+  function stopTurn() {
+    abortRef.current?.abort();
   }
 
-  async function sendPlan(text: string) {
+  // One natural turn. The agent plans internally, converses, and uses tools /
+  // does the work as needed — no plan-vs-do mode. The same message shows the
+  // live thinking/tool trace and then the final answer, so it reads naturally.
+  async function runTurn(
+    text: string,
+    priorMessages: ChatMessage[],
+    turnAttachments: ChatAttachment[] = [],
+  ) {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setIsThinking(true);
-    // Simulated LLM delay. (A real call would go to /api/agents/:id/chat or
-    // /api/agent/think for the autonomous loop.)
-    await new Promise((r) => setTimeout(r, 900 + Math.random() * 400));
-    let replyMsg: ChatMessage;
-    if (isOrchestrator) {
-      const lower = text.toLowerCase();
-      const wantsNewAgent = /new agent|set up|create|hire|spin up|branch|automate this|do this every|track|monitor|watch|chase|sort|audit|find|draft/.test(lower);
-      if (wantsNewAgent) {
-        const nameGuess = text.split(" ").slice(0, 2).join(" ").replace(/[^a-zA-Z ]/g, "").trim() || "New Agent";
-        branchNewAgent(nameGuess, "General", `Automates: ${text.slice(0, 100)}`);
-        setIsThinking(false);
-        return;
-      }
-      replyMsg = {
-        id: Math.random().toString(36).slice(2),
-        role: "agent",
-        content: `I can coordinate across your agents for that. Here's what I'd do:\n\n1. Check which agents are relevant\n2. Route the task to the best one (or set up a new one if needed)\n3. Report back with results\n\nWant me to proceed, or would you rather I set up a new dedicated agent for this?`,
-        createdAt: new Date().toISOString(),
-      };
-    } else {
-      replyMsg = {
-        id: Math.random().toString(36).slice(2),
-        role: "agent",
-        content: AGENT_REPLY,
-        workflowProposal: {
-          name: agent?.name ?? "Agent",
-          description: "Auto-generated workflow.",
-          department: agent?.department ?? "General",
-          steps: {
-            version: 1,
-            steps: [
-              { id: "s1", kind: "tool", label: "List inbox", tool: "files.list" },
-              { id: "s2", kind: "reason", label: "Identify client", prompt: "OCR + match" },
-              { id: "s3", kind: "gate", label: "Approve move" },
-              { id: "s4", kind: "tool", label: "Move file", tool: "files.move" },
-            ],
-          },
-        },
-        createdAt: new Date().toISOString(),
-      };
-    }
+    const replyId = Math.random().toString(36).slice(2);
+    const replyMsg: ChatMessage = {
+      id: replyId,
+      role: "agent",
+      content: "",
+      createdAt: new Date().toISOString(),
+    };
     setMessages((m) => [...m, replyMsg]);
-    void persistMessage(replyMsg);
-    setIsThinking(false);
-  }
 
-  async function sendDo(text: string) {
-    setIsThinking(true);
-    const traceMsg: ChatMessage = {
-      id: Math.random().toString(36).slice(2),
-      role: "agent",
-      content: `On it — running the autonomous agent loop to do this once, learn the process, then freeze a workflow.\n\nWatch the trace 👇`,
-      executionTrace: [],
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((m) => [...m, traceMsg]);
-    const trace: ExecutionStep[] = [
-      { id: "e1", action: `Listed items for "${text.slice(0, 40)}"`, tool: "files.list", status: "done", durationMs: 340, timestamp: new Date().toISOString(), result: "12 items found" },
-      { id: "e2", action: "Identified pattern", tool: "reason", status: "done", durationMs: 180, timestamp: new Date().toISOString(), result: "Pattern: client name in filename" },
-      { id: "e3", action: "Applied transformation", tool: "files.move", status: "done", durationMs: 620, timestamp: new Date().toISOString(), result: "10/12 processed, 2 flagged" },
-    ];
-    for (const step of trace) {
-      await new Promise((r) => setTimeout(r, 700));
+    try {
+      const agentContext = agent
+        ? `You are acting as the agent "${agent.name}"${agent.title ? ` (${agent.title})` : ""}. What it does: ${agent.description}`
+        : undefined;
+      const result = await streamAgentThink(text, {
+        context: agentContext,
+        history: chatHistoryForApi(priorMessages, true),
+        agentId: agent?.id ?? null,
+        attachments: turnAttachments,
+        allowCli: IS_TAURI,
+        isDesktop: IS_TAURI,
+        maxIterations: 18,
+        signal: controller.signal,
+        onTraceUpdate: (trace) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === replyId ? { ...m, executionTrace: trace } : m)),
+          );
+        },
+        onSandboxItem: addSandboxItem,
+      });
+
+      const finalContent =
+        result.finalAnswer?.trim() ||
+        "I couldn't produce a response. Please try again.";
+      if (!finalContent) {
+        throw new Error("No response from the assistant.");
+      }
+      const producedAttachments: ChatAttachment[] | undefined = result.attachments?.map((a) => ({
+        id: a.id,
+        name: a.name,
+        mimeType: a.mimeType,
+        kind: (a.kind as ChatAttachment["kind"]) || "file",
+        url: a.url,
+        sizeBytes: a.sizeBytes,
+      }));
+
+      // Surface produced files in Preview as downloadable deliverables.
+      for (const att of result.attachments ?? []) {
+        addSandboxItem(sandboxItemFromAttachment(att));
+      }
+
       setMessages((prev) =>
-        prev.map((msg, i) =>
-          i === prev.length - 1 ? { ...msg, executionTrace: [...(msg.executionTrace ?? []), step] } : msg,
+        prev.map((msg) =>
+          msg.id === replyId
+            ? {
+                ...msg,
+                content: finalContent,
+                executionTrace: result.trace,
+                attachments: producedAttachments,
+                ...(result.credentialRequest
+                  ? { credentialRequest: result.credentialRequest }
+                  : {}),
+                ...(result.workflowSavedToAgentId
+                  ? { workflowSaved: { agentName: agent?.name ?? "this agent" } }
+                  : {}),
+                // Only offer to create a NEW agent when the agent proposed a
+                // fresh workflow (orchestrator). When it saved to its own
+                // workflow, proposedWorkflow is undefined → no offer.
+                ...(result.proposedWorkflow
+                  ? {
+                      automateOffer: {
+                        traceId: replyId,
+                        summary: "I froze what worked into a reusable workflow.",
+                        name: agent?.name ?? "Agent",
+                        steps: result.proposedWorkflow,
+                      },
+                    }
+                  : {}),
+              }
+            : msg,
         ),
       );
+      // Persist the finished message (content only — the verbose live trace is
+      // ephemeral and not re-rendered from history).
+      void persistMessage({
+        ...replyMsg,
+        content: finalContent,
+        executionTrace: result.trace,
+        attachments: producedAttachments,
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === replyId
+              ? {
+                  ...msg,
+                  content: msg.content.trim() || "Stopped.",
+                }
+              : msg,
+          ),
+        );
+        return;
+      }
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === replyId
+            ? {
+                ...msg,
+                content: `(Something went wrong — ${(err as Error).message}. Check that an LLM provider is configured in Settings.)`,
+              }
+            : msg,
+        ),
+      );
+    } finally {
+      setIsThinking(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
-    const doneMsg: ChatMessage = {
-      id: Math.random().toString(36).slice(2),
-      role: "agent",
-      content: `Done — processed 12 items, 2 flagged for your review. I can freeze this into a workflow that runs on a schedule.`,
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((m) => [...m, doneMsg]);
-    void persistMessage(doneMsg);
-    setIsThinking(false);
   }
 
-  function send(text: string) {
-    if (!text.trim() || isThinking) return;
+  async function openArtifactForEdit(asset: ChatAttachment) {
+    try {
+      const text = await fetchArtifactText(asset.id);
+      setEditorInitial({ name: asset.name, content: text, assetId: asset.id });
+      setEditorOpen(true);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function send(payload: { text: string; attachments?: ChatAttachment[] }) {
+    const text = payload.text.trim();
+    const attachments = payload.attachments ?? [];
+    if ((!text && attachments.length === 0) || isThinking) return;
+
+    const content =
+      text ||
+      (attachments.length === 1
+        ? `[Attached ${attachments[0].name}]`
+        : `[Attached ${attachments.length} files]`);
+
     const userMsg: ChatMessage = {
       id: Math.random().toString(36).slice(2),
       role: "user",
-      content: text.trim(),
+      content,
+      attachments: attachments.length ? attachments : undefined,
       createdAt: new Date().toISOString(),
     };
-    setMessages((m) => [...m, userMsg]);
+    const nextMessages = [...messages, userMsg];
+    setMessages(nextMessages);
     setInput("");
     void persistMessage(userMsg);
-    if (mode === "do") {
-      void sendDo(text);
-    } else {
-      void sendPlan(text);
-    }
+    void runTurn(text || content, nextMessages, attachments);
   }
 
   return (
@@ -823,12 +1095,23 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
           </div>
         )}
         {!loading && messages.length === 0 && !isOrchestrator && (
-          <EmptyState onPick={(p) => send(p)} />
+          <EmptyState onPick={(p) => send({ text: p })} />
         )}
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} agentName={isOrchestrator ? "Apical" : agent?.name ?? "Agent"} />
+        {messages.map((m, i) => (
+          <MessageBubble
+            key={m.id}
+            message={m}
+            agentName={isOrchestrator ? "Apical" : agent?.name ?? "Agent"}
+            isStreaming={isThinking && i === messages.length - 1 && m.role === "agent"}
+            onEditArtifact={openArtifactForEdit}
+            onCredentialSaved={(info) =>
+              send({
+                text: `I've saved the ${info.label} to the vault. Please continue.`,
+              })
+            }
+          />
         ))}
-        {isThinking && (
+        {isThinking && messages[messages.length - 1]?.role !== "agent" && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-primary">
               {isOrchestrator ? <Sparkles className="h-3.5 w-3.5" /> : <ApicalMark className="h-3.5 w-3.5" />}
@@ -842,81 +1125,54 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
         )}
       </div>
 
-      {/* Composer */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          send(input);
+      <ChatComposer
+        value={input}
+        onChange={setInput}
+        disabled={isThinking}
+        working={isThinking}
+        onStop={stopTurn}
+        attachments={composerAttachments}
+        onAttachmentsChange={setComposerAttachments}
+        placeholder={
+          isOrchestrator
+            ? "Message Apical — ask anything or attach files…"
+            : `Message ${agent?.name ?? "this agent"}…`
+        }
+        onSend={send}
+      />
+
+      <ArtifactEditor
+        open={editorOpen}
+        onClose={() => {
+          setEditorOpen(false);
+          setEditorInitial(null);
         }}
-        className="shrink-0 border-t border-border bg-background p-3"
-      >
-        {!isOrchestrator && (
-          <div className="mb-2 flex items-center gap-1">
-            <div className="flex rounded-lg border border-border bg-muted/40 p-0.5">
-              <button
-                type="button"
-                onClick={() => setMode("plan")}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
-                  mode === "plan" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                )}
-                title="AI proposes a workflow plan, you approve, it runs on schedule."
-              >
-                <Sparkles className="h-3 w-3" /> Plan a workflow
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("do")}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
-                  mode === "do" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                )}
-                title="AI does the task once interactively, learns the process, then offers to automate it."
-              >
-                <Zap className="h-3 w-3" /> Do it once
-              </button>
-            </div>
-          </div>
-        )}
-        <div className="relative">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send(input);
-              }
-            }}
-            rows={2}
-            placeholder={
-              isOrchestrator
-                ? "Ask about your agents, coordinate a task, or set up something new…"
-                : mode === "do"
-                  ? "Describe a job — I'll do it once now…"
-                  : "Describe a job to hand off…"
-            }
-            className="min-h-[44px] resize-none border border-input bg-background pr-12 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || isThinking}
-            className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground transition hover:opacity-90 disabled:opacity-30"
-            aria-label="Send"
-          >
-            <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-          </button>
-        </div>
-        <p className="mt-1.5 text-[10px] text-muted-foreground">
-          Press Enter to send, Shift+Enter for newline
-        </p>
-      </form>
+        agentId={agent?.id ?? null}
+        initialFile={editorInitial}
+        onSaved={(asset) =>
+          setComposerAttachments((prev) =>
+            prev.some((a) => a.id === asset.id) ? prev : [...prev, asset],
+          )
+        }
+      />
     </div>
   );
 }
 
 
-function MessageBubble({ message, agentName }: { message: ChatMessage; agentName: string }) {
+function MessageBubble({
+  message,
+  agentName,
+  isStreaming,
+  onEditArtifact,
+  onCredentialSaved,
+}: {
+  message: ChatMessage;
+  agentName: string;
+  isStreaming?: boolean;
+  onEditArtifact?: (a: ChatAttachment) => void;
+  onCredentialSaved?: (info: { label: string; service: string }) => void;
+}) {
   const isUser = message.role === "user";
   // Flat block style — no bubbles.
   // User messages: a neutral slate-gray block (bg-muted), left-aligned, full-width-ish.
@@ -926,9 +1182,12 @@ function MessageBubble({ message, agentName }: { message: ChatMessage; agentName
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] space-y-1">
-          <div className="rounded-md bg-slate-600 px-3 py-2 text-sm text-white">
-            <RichText text={message.content} isUser />
+          <div className="rounded-md bg-[oklch(0.42_0.025_155)] px-3 py-2 text-sm text-white">
+            <MarkdownText text={message.content} isUser />
           </div>
+          {message.attachments && message.attachments.length > 0 && (
+            <AssetCards attachments={message.attachments} onEdit={onEditArtifact} />
+          )}
           <div className="text-right text-[10px] text-muted-foreground">
             {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </div>
@@ -941,22 +1200,49 @@ function MessageBubble({ message, agentName }: { message: ChatMessage; agentName
     <div className="space-y-1">
       <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
         <span>{agentName}</span>
-      </div>
-      <div className="text-sm text-foreground">
-        <RichText text={message.content} isUser={false} />
+        {isStreaming && (
+          <span className="flex items-center gap-1 text-primary">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Working…
+          </span>
+        )}
       </div>
       {message.executionTrace && message.executionTrace.length > 0 && (
-        <div className="mt-2 space-y-1 rounded-md border border-border bg-muted/30 p-2">
-          {message.executionTrace.map((step, i) => (
-            <TraceStep key={step.id} step={step} index={i} />
-          ))}
+        <ChatProgress steps={message.executionTrace} live={!!isStreaming} />
+      )}
+      <div className="text-sm text-foreground">
+        {message.content ? (
+          <MarkdownText text={message.content} />
+        ) : isStreaming ? null : (
+          <span className="text-muted-foreground italic">…</span>
+        )}
+      </div>
+      {message.attachments && message.attachments.length > 0 && (
+        <AssetCards attachments={message.attachments} onEdit={onEditArtifact} />
+      )}
+      {message.credentialRequest && (
+        <CredentialBox request={message.credentialRequest} onSaved={onCredentialSaved} />
+      )}
+      {message.workflowSaved && (
+        <div className="mt-2 flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+          <Save className="h-3 w-3 text-primary" />
+          Updated <span className="font-medium text-foreground">{message.workflowSaved.agentName}</span>&rsquo;s own workflow.
         </div>
       )}
       {message.workflowProposal && (
         <div className="mt-2 rounded-md border border-primary/30 bg-primary/5 p-2.5 text-xs">
           <div className="mb-1 font-semibold text-primary">Proposed workflow: {message.workflowProposal.name}</div>
           <div className="text-muted-foreground">{message.workflowProposal.description}</div>
-          <div className="mt-1.5 text-[10px] text-muted-foreground">{message.workflowProposal.steps.steps.length} steps · {message.workflowProposal.department}</div>
+          <div className="mt-1.5 text-[10px] text-muted-foreground">{message.workflowProposal.steps.steps.length} steps</div>
+        </div>
+      )}
+      {message.automateOffer && (
+        <div className="mt-2 rounded-md border border-primary/30 bg-primary/5 p-2.5 text-xs">
+          <div className="mb-1 font-semibold text-primary">Automate this?</div>
+          <p className="text-muted-foreground">{message.automateOffer.summary}</p>
+          <div className="mt-1.5 text-[10px] text-muted-foreground">
+            {message.automateOffer.steps.steps.length} steps
+          </div>
         </div>
       )}
       <div className="text-[10px] text-muted-foreground">
@@ -966,49 +1252,55 @@ function MessageBubble({ message, agentName }: { message: ChatMessage; agentName
   );
 }
 
-function TraceStep({ step, index }: { step: ExecutionStep; index: number }) {
-  const Icon =
-    step.status === "flagged" || step.status === "gate"
-      ? ShieldCheck
-      : step.tool === "reason"
-        ? Brain
-        : step.tool === "gate"
-          ? ShieldCheck
-          : Wrench;
-  const statusColor =
-    step.status === "done"
-      ? "text-emerald-500"
-      : step.status === "flagged"
-        ? "text-gate"
-        : step.status === "running"
-          ? "text-primary"
-          : "text-destructive";
+// Lightweight in-chat thinking feed — shows reasoning only (not tool calls).
+// Detailed tool activity lives in the Progress sidebar panel.
+function ChatProgress({ steps, live }: { steps: ExecutionStep[]; live: boolean }) {
+  const thoughts = React.useMemo(
+    () => steps.filter((s) => s.tool === "reason"),
+    [steps],
+  );
+  const [open, setOpen] = React.useState(true);
+  React.useEffect(() => {
+    if (!live) setOpen(false);
+  }, [live]);
+
+  if (thoughts.length === 0) return null;
+
+  const latest = thoughts[thoughts.length - 1];
+
   return (
-    <div className="flex items-start gap-2 text-[11px]">
-      <div className={cn("mt-0.5", statusColor)}>
-        {step.status === "running" ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : step.status === "done" ? (
-          <CheckCircle2 className="h-3 w-3" />
-        ) : step.status === "flagged" || step.status === "gate" ? (
-          <AlertTriangle className="h-3 w-3" />
+    <div className="rounded-md border border-border/70 bg-muted/30">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] font-medium text-muted-foreground hover:text-foreground"
+      >
+        {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+        {live ? (
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
         ) : (
-          <X className="h-3 w-3" />
+          <Brain className="h-3 w-3 shrink-0 text-reason" />
         )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[9px] text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
-          <Icon className="h-3 w-3 text-muted-foreground" />
-          <span className="truncate">{step.action}</span>
-          {step.durationMs && (
-            <span className="ml-auto shrink-0 font-mono text-[9px] text-muted-foreground">{formatDuration(step.durationMs)}</span>
-          )}
+        <span className="truncate">
+          {open
+            ? live
+              ? "Thinking…"
+              : `${thoughts.length} update${thoughts.length === 1 ? "" : "s"}`
+            : live && latest
+              ? (latest.result || latest.action).slice(0, 100)
+              : `${thoughts.length} update${thoughts.length === 1 ? "" : "s"}`}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-1.5 border-t border-border/60 px-2.5 py-2">
+          {thoughts.map((step) => (
+            <div key={step.id} className="flex items-start gap-1.5 text-[11px]">
+              <Brain className="mt-0.5 h-3 w-3 shrink-0 text-reason" />
+              <span className="italic text-muted-foreground">{step.result || step.action}</span>
+            </div>
+          ))}
         </div>
-        {step.result && (
-          <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{step.result}</div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -1046,41 +1338,75 @@ function Dot({ delay }: { delay: number }) {
   );
 }
 
-function RichText({ text, isUser }: { text: string; isUser: boolean }) {
-  const lines = text.split("\n");
-  return (
-    <div className={cn("space-y-1", isUser && "text-primary-foreground")}>
-      {lines.map((line, i) => (
-        <div key={i}>{renderLine(line)}</div>
-      ))}
-    </div>
-  );
-}
+// ─── Right rail: preview sandbox + agent inspector ─────────────────────────
 
-function renderLine(line: string) {
-  // Bold: **text**
-  const parts = line.split(/(\*\*[^*]+\*\*)/g);
+function RightRailPane({
+  agent,
+  showInspector,
+  showData,
+  tab,
+  onTabChange,
+}: {
+  agent?: Workflow;
+  showInspector: boolean;
+  showData: boolean;
+  tab: "preview" | "progress" | "inspector";
+  onTabChange: (t: "preview" | "progress" | "inspector") => void;
+}) {
+  const sandboxItems = useAppStore((s) => s.sandboxItems);
+  const hasResults = sandboxItems.some((i) => i.isResult);
+
+  // Build the available tabs in display order.
+  const tabs: Array<{ key: "preview" | "progress" | "inspector"; label: string }> = [];
+  if (showData) {
+    tabs.push({ key: "progress", label: "Progress" });
+    tabs.push({ key: "preview", label: "Preview" });
+  }
+  if (showInspector && agent) tabs.push({ key: "inspector", label: "Agent" });
+
+  // Progress is default; only land on Preview when there are actual results.
+  const activeTab = (() => {
+    if (tab === "preview" && !hasResults) return "progress";
+    return tabs.some((t) => t.key === tab) ? tab : tabs[0]?.key;
+  })();
+
   return (
-    <>
-      {parts.map((part, i) => {
-        if (part.startsWith("**") && part.endsWith("**")) {
-          return <strong key={i}>{part.slice(2, -2)}</strong>;
-        }
-        return <span key={i}>{part}</span>;
-      })}
-    </>
+    <div className="flex h-full min-w-0 flex-col overflow-hidden border-l border-border">
+      {tabs.length > 1 && (
+        <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background/50 p-1">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => onTabChange(t.key)}
+              className={cn(
+                "flex-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors",
+                activeTab === t.key ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/40",
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {activeTab === "preview" && showData && <SandboxPanel mode="preview" showClose={tabs.length === 1} className="border-l-0" />}
+        {activeTab === "progress" && showData && <SandboxPanel mode="progress" showClose={tabs.length === 1} className="border-l-0" />}
+        {activeTab === "inspector" && showInspector && agent && <InspectorPane agent={agent} embedded />}
+      </div>
+    </div>
   );
 }
 
 // ─── Right pane: inspector ─────────────────────────────────────────────────
 
-function InspectorPane({ agent }: { agent: Workflow }) {
+function InspectorPane({ agent, embedded }: { agent: Workflow; embedded?: boolean }) {
   const [section, setSection] = React.useState<"overview" | "dashboard" | "workflow" | "config">("overview");
   const status = agentStatus(agent);
   const autoPct = Math.round((agent.automaticCount / Math.max(agent.itemsProcessed, 1)) * 100);
 
   return (
-    <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-l border-border bg-muted/30 lg:flex">
+    <aside className={cn("flex h-full w-full min-w-0 flex-col overflow-hidden bg-muted/30", !embedded && "border-l border-border")}>
       {/* Section switcher — Overview / Dashboard / Workflow / Config as tabs WITHIN the right rail */}
       <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background/50 p-1">
         {(["overview", "dashboard", "workflow", "config"] as const).map((s) => (
@@ -1240,7 +1566,6 @@ function AgentDashboard({ agent }: { agent: Workflow }) {
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About</h3>
           <p className="mt-1.5 text-sm">{agent.description}</p>
           <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-3">
-            <Meta label="Department" value={agent.department} />
             <Meta label="Title" value={agent.title ?? "—"} />
             <Meta label="Trigger" value={agent.trigger === "schedule" ? `Schedule · ${agent.schedule}` : "Manual"} />
           </div>
@@ -1300,18 +1625,28 @@ function AgentWorkflow({ agent }: { agent: Workflow }) {
 
 function AgentConfig({ agent }: { agent: Workflow }) {
   const [name, setName] = React.useState(agent.name);
-  const [department, setDepartment] = React.useState(agent.department);
   const [title, setTitle] = React.useState(agent.title ?? "");
   const [description, setDescription] = React.useState(agent.description);
   const [trigger, setTrigger] = React.useState<"manual" | "schedule">(agent.trigger);
   const [schedule, setSchedule] = React.useState(agent.schedule ?? "");
   const [runtime, setRuntime] = React.useState<AgentRuntime>(agent.runtime);
-  const [modelPref, setModelPref] = React.useState("default");
+  const [modelPref, setModelPref] = React.useState(agent.modelPreference ?? "");
+  const [availableModels, setAvailableModels] = React.useState<Array<{ id: string; name: string; provider: string }>>([]);
   const [confidenceThreshold, setConfidenceThreshold] = React.useState("0.85");
   const [autoHardenAfter, setAutoHardenAfter] = React.useState("50");
   const [saving, setSaving] = React.useState(false);
   const [savedAt, setSavedAt] = React.useState<Date | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    void fetch("/api/llm/models")
+      .then((r) => r.json())
+      .then((data: { models?: Array<{ id: string; name: string; provider: string; tier: string; configured?: boolean }> }) => {
+        const hosted = (data.models ?? []).filter((m) => m.tier === "hosted" && m.configured !== false);
+        setAvailableModels(hosted.map((m) => ({ id: m.id, name: m.name, provider: m.provider })));
+      })
+      .catch(() => setAvailableModels([]));
+  }, []);
 
   async function save() {
     setSaving(true);
@@ -1322,13 +1657,12 @@ function AgentConfig({ agent }: { agent: Workflow }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          department: department.trim(),
           title: title.trim() || null,
           description,
           trigger,
           schedule: trigger === "schedule" ? schedule.trim() || null : null,
           runtime,
-          modelPreference: modelPref === "default" ? null : modelPref,
+          modelPreference: modelPref.trim() || null,
           confidenceThreshold: parseFloat(confidenceThreshold) || null,
           autoHardenAfter: parseInt(autoHardenAfter, 10) || null,
         }),
@@ -1355,13 +1689,9 @@ function AgentConfig({ agent }: { agent: Workflow }) {
               <Label className="text-xs">Name</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 text-sm" />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2">
               <Label className="text-xs">Title</Label>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} className="h-9 text-sm" placeholder="e.g. Sorter" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Department</Label>
-              <Input value={department} onChange={(e) => setDepartment(e.target.value)} className="h-9 text-sm" />
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} className="h-9 text-sm" placeholder="e.g. Filing Agent" />
             </div>
           </div>
           <div className="mt-3 space-y-1.5">
@@ -1426,9 +1756,12 @@ function AgentConfig({ agent }: { agent: Workflow }) {
             <div className="space-y-1.5">
               <Label className="text-xs">Model</Label>
               <select value={modelPref} onChange={(e) => setModelPref(e.target.value)} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm">
-                <option value="default">Default</option>
-                <option value="fast">Fast</option>
-                <option value="thinking">Thinking</option>
+                <option value="">Default (first available)</option>
+                {availableModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.provider})
+                  </option>
+                ))}
               </select>
             </div>
             <div className="space-y-1.5">

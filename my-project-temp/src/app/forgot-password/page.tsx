@@ -140,7 +140,7 @@ export default function ForgotPasswordPage() {
 
         <p className="mt-6 flex items-center justify-center gap-1 text-center text-[11px] text-muted-foreground">
           <Mail className="h-3 w-3" />
-          Need help? Contact support@apical.dev
+          Need help? Contact support@apic.al
         </p>
       </div>
     </div>

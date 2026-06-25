@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import ZAI from 'z-ai-web-dev-sdk'
+import { simpleStream } from '@/lib/platform/llm-gateway'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
 import { rateLimitByUser } from '@/lib/rate-limit'
@@ -78,8 +78,6 @@ export async function POST(req: Request, { params }: RouteCtx) {
 
     const intent = classifyAgentMessage(message)
 
-    const zai = await ZAI.create()
-
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder()
@@ -141,23 +139,16 @@ ${intent === 'run'
               content: m.content,
             }))
 
-          const completion = await zai.chat.completions.create({
+          let fullText = ''
+          for await (const text of simpleStream({
             messages: [
               { role: 'system', content: systemPrompt },
               ...history,
               { role: 'user', content: message },
             ],
-            thinking: { type: 'disabled' },
-            stream: true,
-          })
-
-          let fullText = ''
-          for await (const chunk of completion) {
-            const text = chunk.choices?.[0]?.delta?.content
-            if (text) {
-              fullText += text
-              send({ type: 'token', content: text })
-            }
+          })) {
+            fullText += text
+            send({ type: 'token', content: text })
           }
 
           // ---------- 'run' intent: mark all tasks done + emit action_complete ----------

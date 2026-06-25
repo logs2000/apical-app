@@ -2,11 +2,12 @@
 // (chat, agent loops, workflows, research) and every supported model provider.
 //
 // Three tiers of models (mirroring MODEL_REGISTRY):
-//   1. Hosted (apical:*) — Apical-managed. Routes to OpenAI/Anthropic/Google
-//      if their *_API_KEY env is set, else falls back to z-ai-web-dev-sdk
-//      (the in-house sandbox LLM) which is always available in dev.
-//   2. BYOK (user's own key) — user pays the provider directly. costCents = 0
-//      (we meter for the dashboard, but don't bill).
+//   1. Hosted — Apical holds the provider key in its environment
+//      (OPENAI_API_KEY / ANTHROPIC_API_KEY / GOOGLE_API_KEY / XAI_API_KEY).
+//      We pay the provider and bill the user (costCents > 0). A hosted model is
+//      only offered when its provider key is set; otherwise it is hidden.
+//   2. BYOK (user's own key, via CustomModel rows) — user pays the provider
+//      directly. costCents = 0 (we meter for the dashboard, but don't bill).
 //   3. Local (Ollama/llama.cpp) — runs on the user's machine. costCents = 0.
 //
 // Every call goes through `chat()` (or `chatStream()`) which:
@@ -19,8 +20,10 @@
 // vault module for BYOK keys at rest.
 
 import { db } from '@/lib/db'
+import { isDevBypass } from '@/lib/dev-bypass'
 import {
   MODEL_REGISTRY,
+  HOSTED_PROVIDERS,
   getModel,
   availableModels as registryAvailableModels,
   type ModelDefinition,
@@ -28,7 +31,9 @@ import {
 } from '@/lib/platform/models'
 import { getPlan, isOverAllowance } from '@/lib/platform/pricing'
 import { decrypt, looksLikeKey } from '@/lib/platform/vault'
-import ZAI from 'z-ai-web-dev-sdk'
+
+export const NO_LLM_PROVIDER_ERROR =
+  'No LLM provider configured. Set OPENAI_API_KEY (or ANTHROPIC_API_KEY / GOOGLE_API_KEY / XAI_API_KEY).'
 
 // ---------------- Public types ----------------
 
@@ -92,7 +97,7 @@ export interface RecordUsageParams {
 
 interface ResolvedModel {
   model: ModelDefinition
-  adapter: 'zai' | 'openai' | 'anthropic' | 'google' | 'ollama' | 'llamacpp'
+  adapter: 'openai' | 'anthropic' | 'google' | 'ollama' | 'llamacpp'
   apiKey?: string
   baseUrl?: string
   isCustom?: boolean
@@ -101,6 +106,10 @@ interface ResolvedModel {
 interface ChatOpts {
   maxTokens?: number
   temperature?: number
+  json?: boolean
+  /** Enable Anthropic extended thinking (chain-of-thought). Default on for Anthropic streams. */
+  thinking?: boolean
+  thinkingBudgetTokens?: number
 }
 
 interface AdapterResult {
@@ -110,6 +119,7 @@ interface AdapterResult {
 
 interface AdapterStreamChunk {
   delta?: string
+  thinkingDelta?: string
   done?: AdapterResult
 }
 
@@ -143,11 +153,11 @@ async function getOrCreateSubscription(userId: string) {
  * Order:
  *   1. CustomModel row (matched by `id`) — use it. If type=online, load its
  *      ByokKey and decrypt. If type=offline, use its baseUrl.
- *   2. MODEL_REGISTRY entry — byok models load the user's ByokKey for that
- *      provider; hosted `apical:*` models try env keys, falling back to ZAI;
- *      local models use OLLAMA_BASE_URL / LLAMACPP_BASE_URL env.
+ *   2. MODEL_REGISTRY entry — hosted models load the provider key from our env
+ *      (and resolve to null if it's missing); local models use
+ *      OLLAMA_BASE_URL / LLAMACPP_BASE_URL env.
  *
- * Returns null if the model is unknown or the user lacks a required BYOK key.
+ * Returns null if the model is unknown or its provider key isn't configured.
  */
 export async function resolveModel(
   userId: string,
@@ -160,7 +170,7 @@ export async function resolveModel(
   if (custom) {
     let apiKey: string | undefined
     let baseUrl: string | undefined
-    let adapter: ResolvedModel['adapter'] = 'zai'
+    let adapter: ResolvedModel['adapter'] | null = null
     let tier: ModelDefinition['tier'] = 'byok'
 
     if (custom.type === 'online') {
@@ -179,6 +189,8 @@ export async function resolveModel(
         }
       }
       adapter = pickAdapter(custom.provider as ProviderId)
+      if (!adapter) return null
+      if (!apiKey) return null
     } else if (custom.type === 'offline') {
       tier = 'local'
       baseUrl = custom.baseUrl ?? undefined
@@ -187,14 +199,13 @@ export async function resolveModel(
       // type === 'hosted'
       tier = 'hosted'
       const env = pickHostedEnv(custom.provider as ProviderId)
-      if (env) {
-        apiKey = env.apiKey
-        baseUrl = env.baseUrl
-        adapter = env.adapter
-      } else {
-        adapter = 'zai'
-      }
+      if (!env) return null
+      apiKey = env.apiKey
+      baseUrl = env.baseUrl
+      adapter = env.adapter
     }
+
+    if (!adapter) return null
 
     const model: ModelDefinition = {
       id: custom.id,
@@ -218,47 +229,9 @@ export async function resolveModel(
   if (!model) return null
 
   if (model.tier === 'hosted') {
-    if (model.provider === 'apical') {
-      // For apical:* models, prefer a real provider key if set; else ZAI.
-      const env = pickHostedEnv('openai') ||
-        pickHostedEnv('anthropic') ||
-        pickHostedEnv('google')
-      if (env) {
-        return {
-          model: { ...model, provider: env.provider },
-          adapter: env.adapter,
-          apiKey: env.apiKey,
-          baseUrl: env.baseUrl,
-        }
-      }
-      return { model, adapter: 'zai' }
-    }
-    // Other hosted providers (none currently in registry).
     const env = pickHostedEnv(model.provider)
-    if (env) {
-      return { model, adapter: env.adapter, apiKey: env.apiKey, baseUrl: env.baseUrl }
-    }
-    return { model, adapter: 'zai' }
-  }
-
-  if (model.tier === 'byok') {
-    const byok = await db.byokKey.findFirst({
-      where: { userId, provider: model.provider, status: 'active' },
-      orderBy: { updatedAt: 'desc' },
-    })
-    if (!byok) return null
-    let apiKey: string
-    try {
-      apiKey = decrypt(byok.encryptedKey)
-    } catch {
-      return null
-    }
-    return {
-      model,
-      adapter: pickAdapter(model.provider),
-      apiKey,
-      baseUrl: byok.baseUrl ?? undefined,
-    }
+    if (!env) return null
+    return { model, adapter: env.adapter, apiKey: env.apiKey, baseUrl: env.baseUrl }
   }
 
   // Local.
@@ -285,10 +258,10 @@ export async function resolveModel(
     }
   }
 
-  return { model, adapter: 'zai' }
+  return null
 }
 
-function pickAdapter(provider: ProviderId): ResolvedModel['adapter'] {
+function pickAdapter(provider: ProviderId): ResolvedModel['adapter'] | null {
   switch (provider) {
     case 'openai':
     case 'azure_openai':
@@ -296,7 +269,7 @@ function pickAdapter(provider: ProviderId): ResolvedModel['adapter'] {
     case 'mistral':
     case 'groq':
     case 'together':
-    case 'deepseek':
+    case 'xai':
     case 'vllm':
       return 'openai'
     case 'anthropic':
@@ -308,7 +281,7 @@ function pickAdapter(provider: ProviderId): ResolvedModel['adapter'] {
     case 'llamacpp':
       return 'llamacpp'
     default:
-      return 'zai'
+      return null
   }
 }
 
@@ -348,9 +321,37 @@ function pickHostedEnv(provider: ProviderId): {
         apiKey: k,
       }
     }
+    case 'xai': {
+      const k = process.env.XAI_API_KEY
+      if (!k) return null
+      return {
+        provider: 'xai',
+        adapter: 'openai', // xAI exposes an OpenAI-compatible endpoint.
+        apiKey: k,
+        baseUrl: process.env.XAI_BASE_URL || 'https://api.x.ai/v1',
+      }
+    }
     default:
       return null
   }
+}
+
+/** Hosted providers whose API key is present in our environment. */
+export function configuredHostedProviders(): ProviderId[] {
+  return HOSTED_PROVIDERS.filter((p) => pickHostedEnv(p) !== null)
+}
+
+/**
+ * The default hosted model id for the current environment: the first model in
+ * the registry whose provider key is configured. Returns null if no hosted
+ * provider key is set.
+ */
+export function getDefaultModelId(): string | null {
+  const configured = configuredHostedProviders()
+  const model = MODEL_REGISTRY.find(
+    (m) => m.tier === 'hosted' && configured.includes(m.provider),
+  )
+  return model?.id ?? null
 }
 
 // ---------------- Cost computation ----------------
@@ -362,7 +363,7 @@ function computeCost(model: ModelDefinition, usage: ChatUsage): number {
   return Math.ceil(input + output)
 }
 
-// ---------------- Token estimation (for ZAI which doesn't return counts) ----------------
+// ---------------- Token estimation (when providers omit usage) ----------------
 
 function estimateUsage(messages: ChatMessage[], completion: string): ChatUsage {
   const promptTokens = Math.ceil(JSON.stringify(messages).length / 4)
@@ -392,6 +393,7 @@ async function callOpenAI(
   }
   if (typeof opts.maxTokens === 'number') body.max_tokens = opts.maxTokens
   if (typeof opts.temperature === 'number') body.temperature = opts.temperature
+  if (opts.json) body.response_format = { type: 'json_object' }
 
   const res = await fetch(url, {
     method: 'POST',
@@ -574,24 +576,6 @@ async function callOllama(
   }
 }
 
-/** ZAI fallback — always works in dev. Doesn't return token counts. */
-async function callZai(
-  model: string,
-  messages: ChatMessage[],
-  opts: ChatOpts,
-): Promise<AdapterResult> {
-  const zai = await ZAI.create()
-  // Don't pass `model` for apical:* models — ZAI uses its internal default.
-  const isApical = model.startsWith('apical-')
-  const completion = await zai.chat.completions.create({
-    ...(isApical ? {} : { model }),
-    messages,
-    ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
-  })
-  const content = completion.choices?.[0]?.message?.content ?? ''
-  return { content, usage: estimateUsage(messages, content) }
-}
-
 // ---------------- Streaming adapters ----------------
 
 async function* streamOpenAI(
@@ -610,6 +594,7 @@ async function* streamOpenAI(
   }
   if (typeof opts.maxTokens === 'number') body.max_tokens = opts.maxTokens
   if (typeof opts.temperature === 'number') body.temperature = opts.temperature
+  if (opts.json) body.response_format = { type: 'json_object' }
 
   const res = await fetch(url, {
     method: 'POST',
@@ -680,11 +665,16 @@ async function* streamAnthropic(
   const url = `${baseUrl.replace(/\/$/, '')}/v1/messages`
   const systemMsgs = messages.filter((m) => m.role === 'system')
   const userMsgs = messages.filter((m) => m.role !== 'system')
+  const thinkingBudget = opts.thinkingBudgetTokens ?? 8_000
+  const maxTokens = opts.maxTokens ?? 16_000
   const body: Record<string, unknown> = {
     model,
     messages: userMsgs,
-    max_tokens: opts.maxTokens ?? 1024,
+    max_tokens: Math.max(maxTokens, thinkingBudget + 1_024),
     stream: true,
+  }
+  if (opts.thinking !== false) {
+    body.thinking = { type: 'enabled', budget_tokens: thinkingBudget }
   }
   if (systemMsgs.length) {
     body.system = systemMsgs.map((m) => m.content).join('\n\n')
@@ -724,12 +714,18 @@ async function* streamAnthropic(
       try {
         const ev = JSON.parse(payload) as {
           type?: string
-          delta?: { text?: string }
+          delta?: { type?: string; text?: string; thinking?: string }
           message?: { usage?: { input_tokens?: number } }
           usage?: { input_tokens?: number; output_tokens?: number }
         }
-        if (ev.type === 'content_block_delta' && ev.delta?.text) {
-          yield { delta: ev.delta.text }
+        if (ev.type === 'content_block_delta' && ev.delta) {
+          if (ev.delta.type === 'thinking_delta' && ev.delta.thinking) {
+            yield { thinkingDelta: ev.delta.thinking }
+          } else if (ev.delta.type === 'text_delta' && ev.delta.text) {
+            yield { delta: ev.delta.text }
+          } else if (ev.delta.text) {
+            yield { delta: ev.delta.text }
+          }
         } else if (ev.type === 'message_start' && ev.message?.usage?.input_tokens) {
           promptTokens = ev.message.usage.input_tokens
         } else if (ev.type === 'message_delta' && ev.usage?.output_tokens) {
@@ -823,42 +819,6 @@ async function* streamOllama(
   }
 }
 
-async function* streamZai(
-  model: string,
-  messages: ChatMessage[],
-  opts: ChatOpts,
-): AsyncGenerator<AdapterStreamChunk> {
-  const zai = await ZAI.create()
-  // Don't pass `model` for apical:* models — ZAI doesn't recognize those names
-  // and the SDK uses its default. (Match the pattern in /api/agent/stream.)
-  const isApical = model.startsWith('apical-')
-  const completion = await zai.chat.completions.create({
-    ...(isApical ? {} : { model }),
-    messages,
-    stream: true,
-    ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
-  })
-  let content = ''
-  for await (const chunk of completion as AsyncIterable<{
-    choices?: Array<{ delta?: { content?: string } }>
-  }>) {
-    const text = chunk.choices?.[0]?.delta?.content
-    if (text) {
-      content += text
-      yield { delta: text }
-    }
-  }
-  // If the stream yielded nothing, fall back to a non-streaming call so the
-  // caller still gets content + accurate usage.
-  if (!content) {
-    const fallback = await callZai(model, messages, opts)
-    yield { delta: fallback.content }
-    yield { done: { content: fallback.content, usage: fallback.usage } }
-    return
-  }
-  yield { done: { content, usage: estimateUsage(messages, content) } }
-}
-
 // ---------------- Adapter dispatch ----------------
 
 async function callAdapter(
@@ -910,9 +870,8 @@ async function callAdapter(
         messages,
         opts,
       )
-    case 'zai':
     default:
-      return callZai(resolved.model.apiModelId, messages, opts)
+      throw new Error(`Unsupported adapter: ${(resolved as ResolvedModel).adapter}`)
   }
 }
 
@@ -939,7 +898,7 @@ async function* streamAdapter(
         resolved.baseUrl || 'https://api.anthropic.com',
         resolved.model.apiModelId,
         messages,
-        opts,
+        { ...opts, thinking: opts.thinking ?? true },
       )
       return
     case 'ollama':
@@ -960,10 +919,22 @@ async function* streamAdapter(
         opts,
       )
       return
-    case 'zai':
-    default:
-      yield* streamZai(resolved.model.apiModelId, messages, opts)
+    case 'google':
+      // Google streaming not implemented — fall back to non-streaming.
+      {
+        const result = await callGoogle(
+          resolved.apiKey!,
+          resolved.baseUrl,
+          resolved.model.apiModelId,
+          messages,
+          opts,
+        )
+        if (result.content) yield { delta: result.content }
+        yield { done: result }
+      }
       return
+    default:
+      throw new Error(`Unsupported adapter: ${resolved.adapter}`)
   }
 }
 
@@ -976,7 +947,8 @@ export async function checkAllowance(userId: string): Promise<AllowanceStatus> {
   const used = sub.tokenUsedMonthly
   const overage = Math.max(0, used - allowance)
   const overrunEnabled = sub.overrunEnabled && plan.overrunAvailable
-  const allowed = !isOverAllowance(used, allowance) || overrunEnabled
+  const allowed =
+    isDevBypass() || !isOverAllowance(used, allowance) || overrunEnabled
   return {
     allowed,
     used,
@@ -1125,30 +1097,22 @@ export async function listAvailableModels(userId: string): Promise<{
   const sub = await getOrCreateSubscription(userId)
   const plan = getPlan(sub.plan)
 
-  // User's BYOK providers.
+  // User's BYOK providers (used only for CustomModel rows now).
   const byokKeys = await db.byokKey.findMany({
     where: { userId, status: 'active' },
     select: { id: true, provider: true },
   })
-  const byokProviders = Array.from(
-    new Set(byokKeys.map((k) => k.provider as ProviderId)),
-  )
 
-  // Filter the registry: hosted always available; local if plan allows; byok
-  // only if user has a key for that provider.
-  const registry = registryAvailableModels(byokProviders, plan.localModelsAllowed)
+  // Hosted providers we hold an env key for. A hosted model is only listed when
+  // its provider key is configured on our side.
+  const hostedProviders = configuredHostedProviders()
+
+  // Filter the registry: hosted only if we have the provider key; local if the
+  // plan allows.
+  const registry = registryAvailableModels(hostedProviders, plan.localModelsAllowed)
 
   const models: Array<ModelDefinition & { configured: boolean; custom?: boolean }> =
-    registry.map((m) => {
-      let configured = true
-      if (m.tier === 'byok') {
-        configured = byokProviders.includes(m.provider)
-      } else if (m.tier === 'hosted' && m.provider === 'apical') {
-        // Hosted Apical models are always available (ZAI fallback in dev).
-        configured = true
-      }
-      return { ...m, configured }
-    })
+    registry.map((m) => ({ ...m, configured: true }))
 
   // Append user's CustomModels.
   const customs = await db.customModel.findMany({
@@ -1215,6 +1179,7 @@ export async function validateByokKey(
   try {
     const provider = byok.provider as ProviderId
     const adapter = pickAdapter(provider)
+    if (!adapter) return { valid: false, error: 'Unsupported provider' }
     const baseUrl = byok.baseUrl ?? undefined
     const resolved: ResolvedModel = {
       model: {
@@ -1256,9 +1221,11 @@ function defaultTestModel(provider: ProviderId): string {
     case 'openai':
       return 'gpt-4o-mini'
     case 'anthropic':
-      return 'claude-3-5-haiku-20241022'
+      return 'claude-sonnet-4-6'
     case 'google':
       return 'gemini-2.0-flash'
+    case 'xai':
+      return 'grok-3-mini'
     case 'openrouter':
       return 'openai/gpt-4o-mini'
     case 'mistral':
@@ -1267,14 +1234,124 @@ function defaultTestModel(provider: ProviderId): string {
       return 'llama-3.1-8b-instant'
     case 'together':
       return 'meta-llama/Llama-3.3-70B-Instruct-Turbo'
-    case 'deepseek':
-      return 'deepseek-chat'
     case 'azure_openai':
       return 'gpt-4o-mini'
     case 'ollama':
       return 'llama3.1'
     default:
       return 'gpt-4o-mini'
+  }
+}
+
+/**
+ * Resolve a model preference string to a concrete registry model id.
+ * Accepts:
+ *   - null / undefined / 'default' → first configured hosted model
+ *   - a concrete registry id like 'openai:gpt-4o' → that model (if configured)
+ *   - legacy hints 'fast' / 'thinking' → first matching badge among configured models
+ */
+export function resolveModelPreference(pref?: string | null): string | null {
+  const configured = configuredHostedProviders()
+  const available = MODEL_REGISTRY.filter(
+    (m) => m.tier === 'hosted' && configured.includes(m.provider),
+  )
+
+  if (!pref || pref === 'default') {
+    const preferredProvider =
+      (process.env.LLM_DEFAULT_PROVIDER as ProviderId | undefined)
+      ?? (configured.includes('anthropic') ? 'anthropic' : configured[0])
+    const preferred = available.find((m) => m.provider === preferredProvider)
+    return preferred?.id ?? available[0]?.id ?? null
+  }
+
+  // Already a concrete registry id?
+  const direct = getModel(pref)
+  if (direct && direct.tier === 'hosted' && configured.includes(direct.provider)) {
+    return direct.id
+  }
+
+  // Legacy apical hints.
+  if (pref === 'fast') {
+    return available.find((m) => m.badge === 'fast')?.id ?? available[0]?.id ?? null
+  }
+  if (pref === 'thinking') {
+    return available.find((m) => m.badge === 'powerful')?.id ?? available[0]?.id ?? null
+  }
+
+  return available[0]?.id ?? null
+}
+
+function buildDefaultResolved(modelHint?: string): ResolvedModel | null {
+  const resolvedId = resolveModelPreference(modelHint)
+  if (!resolvedId) return null
+  const model = getModel(resolvedId)
+  if (!model) return null
+  const env = pickHostedEnv(model.provider)
+  if (!env) return null
+  return { model, adapter: env.adapter, apiKey: env.apiKey, baseUrl: env.baseUrl }
+}
+
+/** True when a hosted provider key is configured (OpenAI, Anthropic, etc.). */
+export function hasHostedLlmProvider(modelHint?: string): boolean {
+  return buildDefaultResolved(modelHint) !== null
+}
+
+/** Non-streaming completion using the first configured hosted provider. */
+export async function simpleComplete(opts: {
+  messages: ChatMessage[]
+  temperature?: number
+  maxTokens?: number
+  model?: string
+  json?: boolean
+}): Promise<string> {
+  const resolved = buildDefaultResolved(opts.model)
+  if (!resolved) throw new Error(NO_LLM_PROVIDER_ERROR)
+  const result = await callAdapter(resolved, opts.messages, {
+    temperature: opts.temperature,
+    maxTokens: opts.maxTokens,
+    json: opts.json,
+  })
+  return result.content
+}
+
+/** Streaming text deltas using the first configured hosted provider. */
+export async function* simpleStream(opts: {
+  messages: ChatMessage[]
+  temperature?: number
+  maxTokens?: number
+  model?: string
+  thinking?: boolean
+  thinkingBudgetTokens?: number
+}): AsyncGenerator<string> {
+  for await (const ev of simpleStreamEvents(opts)) {
+    if (ev.type === 'text') yield ev.delta
+  }
+}
+
+export type LlmStreamEvent =
+  | { type: 'thinking'; delta: string }
+  | { type: 'text'; delta: string }
+
+/** Stream thinking + text deltas (Anthropic extended thinking when available). */
+export async function* simpleStreamEvents(opts: {
+  messages: ChatMessage[]
+  temperature?: number
+  maxTokens?: number
+  model?: string
+  thinking?: boolean
+  thinkingBudgetTokens?: number
+}): AsyncGenerator<LlmStreamEvent> {
+  const resolved = buildDefaultResolved(opts.model)
+  if (!resolved) throw new Error(NO_LLM_PROVIDER_ERROR)
+  const useThinking = opts.thinking !== false && resolved.adapter === 'anthropic'
+  for await (const chunk of streamAdapter(resolved, opts.messages, {
+    temperature: opts.temperature,
+    maxTokens: opts.maxTokens,
+    thinking: useThinking,
+    thinkingBudgetTokens: opts.thinkingBudgetTokens,
+  })) {
+    if (chunk.thinkingDelta) yield { type: 'thinking', delta: chunk.thinkingDelta }
+    if (chunk.delta) yield { type: 'text', delta: chunk.delta }
   }
 }
 

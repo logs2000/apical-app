@@ -11,7 +11,7 @@
 // subscribe. Everything from here on is best-effort and logged to the server
 // console; it must NEVER crash the process.
 
-import ZAI from 'z-ai-web-dev-sdk'
+import { simpleComplete } from '@/lib/platform/llm-gateway'
 import { db } from './db'
 import { broadcastRun } from './relay-client'
 import { parseWorkflowJSON, resolveRefs } from './apical-server'
@@ -560,15 +560,12 @@ async function runReasonStep(
   let failed = false
 
   try {
-    const zai = await ZAI.create()
-    const completion = await zai.chat.completions.create({
+    const text = await simpleComplete({
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      thinking: { type: 'disabled' },
     })
-    const text = completion.choices[0]?.message?.content || ''
     aiTokens = Math.min(4000, Math.max(80, Math.ceil(text.length / 4) + 120))
     aiCostCents = Math.max(1, Math.ceil(aiTokens / 1000))
     const cleaned = stripFences(text)

@@ -21,7 +21,7 @@ const API_BASE = process.env.APICAL_API_BASE || 'http://localhost:3000'
 const SCHEDULER_SECRET =
   process.env.APICAL_SCHEDULER_SECRET || 'apical-scheduler-dev'
 const DATABASE_URL =
-  process.env.DATABASE_URL || 'file:/home/z/my-project/db/custom.db'
+  process.env.DATABASE_URL || 'file:./db/custom.db'
 
 // Prisma needs the URL in the env.
 if (!process.env.DATABASE_URL) {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import ZAI from 'z-ai-web-dev-sdk'
+import { simpleComplete } from '@/lib/platform/llm-gateway'
+import { searchWeb } from '@/lib/platform/web-search'
 import type {
   ApiDiscoveryCandidate,
   IntegrationKind,
@@ -127,30 +128,13 @@ export async function POST(req: Request) {
     // 1. Run the web search.
     let searchResults: SearchResult[] = []
     try {
-      const zai = await ZAI.create()
-      const raw = await zai.functions.invoke('web_search', {
-        query: `${query} API documentation`,
-        num: 8,
-      })
-      if (Array.isArray(raw)) {
-        searchResults = raw
-          .filter(
-            (r) =>
-              !!r && typeof r === 'object' && typeof (r as { url?: unknown }).url === 'string',
-          )
-          .map((r) => {
-            const o = r as unknown as Record<string, unknown>
-            return {
-              url: String(o.url),
-              name: typeof o.name === 'string' ? o.name : String(o.url),
-              snippet: typeof o.snippet === 'string' ? o.snippet : undefined,
-              host_name: typeof o.host_name === 'string' ? o.host_name : undefined,
-              rank: typeof o.rank === 'number' ? o.rank : undefined,
-              date: typeof o.date === 'string' ? o.date : undefined,
-              favicon: typeof o.favicon === 'string' ? o.favicon : undefined,
-            }
-          })
-      }
+      const raw = await searchWeb(`${query} API documentation`, 8)
+      searchResults = raw.map((r) => ({
+        url: r.url,
+        name: r.title || r.url,
+        snippet: r.snippet,
+        host_name: r.host,
+      }))
     } catch (err) {
       console.error('[api/research] web_search failed:', err)
       // Continue with empty results — the LLM can still say so honestly.
@@ -183,15 +167,13 @@ export async function POST(req: Request) {
     let candidates: ApiDiscoveryCandidate[] = []
 
     try {
-      const zai = await ZAI.create()
-      const completion = await zai.chat.completions.create({
+      const text = await simpleComplete({
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        thinking: { type: 'disabled' },
+        json: true,
       })
-      const text = completion.choices[0]?.message?.content || ''
       const cleaned = stripFences(text)
       const parsed = JSON.parse(cleaned) as {
         summary?: unknown

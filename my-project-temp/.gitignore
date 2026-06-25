@@ -42,7 +42,6 @@ yarn-error.log*
 next-env.d.ts
 local-*
 .claude
-.z-ai-config
 *.log
 dev.log
 dev.out.log
@@ -50,5 +49,14 @@ test
 prompt
 
 server.log
+/uploads/
 # Skills directory
 /skills/
+
+# prisma / sqlite
+/prisma/dev.db
+/prisma/prisma/
+
+# tauri build output
+/src-tauri/target/
+/src-tauri/gen/

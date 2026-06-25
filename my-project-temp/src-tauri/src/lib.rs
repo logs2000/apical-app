@@ -22,9 +22,15 @@
 
 use keyring::Entry;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
+
+/// Monotonic counter for unique secondary-window labels (multi-window).
+static WINDOW_COUNTER: AtomicU32 = AtomicU32::new(1);
 
 // ─── Keychain (F2 vault in local mode) ──────────────────────────────────────
 
@@ -58,7 +64,7 @@ async fn keychain_set(handle: String, value: String) -> Result<(), String> {
 async fn keychain_delete(handle: String) -> Result<(), String> {
     let entry = Entry::new(KEYCHAIN_SERVICE, &handle)
         .map_err(|e| format!("keychain entry create failed: {}", e))?;
-    match entry.delete_password() {
+    match entry.delete_credential() {
         Ok(_) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("keychain delete failed: {}", e)),
@@ -218,6 +224,169 @@ async fn spawn_mcp_stdio(
     Ok(pid)
 }
 
+// ─── Multi-window ───────────────────────────────────────────────────────────
+
+/// Open a new Apical window. Each window loads the same frontend; the label is
+/// unique so multiple can coexist. `path` is an app-relative route (defaults to
+/// "/"); pop-outs pass e.g. "/#popout=<conversationId>". Must run on the main
+/// thread (window creation is not thread-safe on all platforms), so this is
+/// exposed as a *synchronous* command and is also called directly from
+/// main-thread menu handlers.
+fn open_app_window(app: &tauri::AppHandle, path: Option<&str>) -> Result<(), String> {
+    // Only allow app-relative routes — never an absolute/external URL.
+    let route = match path {
+        Some(p) if p.starts_with('/') => p,
+        _ => "/",
+    };
+    let n = WINDOW_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let label = format!("apical-{}", n);
+    tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App(route.into()))
+        .title("Apical")
+        .inner_size(1100.0, 760.0)
+        .min_inner_size(900.0, 600.0)
+        .build()
+        .map_err(|e| format!("open window failed: {}", e))?;
+    Ok(())
+}
+
+/// JS-invokable wrapper around `open_app_window`. Non-async so Tauri runs it on
+/// the main thread.
+#[tauri::command]
+fn open_app_window_cmd(app: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
+    open_app_window(&app, path.as_deref())
+}
+
+// ─── Native menu + tray event routing ───────────────────────────────────────
+
+/// Bring the main window to the foreground.
+fn focus_main(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// Route a menu/tray action. Native-only actions (new window, show, quit) are
+/// handled here; front-end actions are forwarded to the webview via the
+/// `apical://menu` event so React can react (navigate, open palette, etc.).
+fn handle_menu_action(app: &tauri::AppHandle, id: &str) {
+    match id {
+        "window:new" => {
+            if let Err(e) = open_app_window(app, None) {
+                log::error!("open_app_window failed: {}", e);
+            }
+        }
+        "tray:show" => focus_main(app),
+        "app:quit" => app.exit(0),
+        // Front-end actions — make sure the window is up, then forward.
+        other => {
+            focus_main(app);
+            let _ = app.emit("apical://menu", other.to_string());
+        }
+    }
+}
+
+/// Build the application menu bar (File / View / Window / Help + the macOS app
+/// menu). Accelerators here are the single source of keyboard shortcuts in the
+/// desktop build — the web keydown handler defers to them when running native.
+fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    let settings = MenuItemBuilder::with_id("nav:settings", "Settings…")
+        .accelerator("CmdOrCtrl+,")
+        .build(app)?;
+
+    let app_menu = SubmenuBuilder::new(app, "Apical")
+        .item(&PredefinedMenuItem::about(app, Some("About Apical"), None)?)
+        .separator()
+        .item(&settings)
+        .separator()
+        .item(&PredefinedMenuItem::quit(app, Some("Quit Apical"))?)
+        .build()?;
+
+    let new_window = MenuItemBuilder::with_id("window:new", "New Window")
+        .accelerator("CmdOrCtrl+N")
+        .build(app)?;
+    let file_menu = SubmenuBuilder::new(app, "File")
+        .item(&new_window)
+        .separator()
+        .item(&PredefinedMenuItem::close_window(app, Some("Close Window"))?)
+        .build()?;
+
+    let go_agents = MenuItemBuilder::with_id("nav:agents", "Agents")
+        .accelerator("CmdOrCtrl+1")
+        .build(app)?;
+    let go_vault = MenuItemBuilder::with_id("nav:vault", "Vault")
+        .accelerator("CmdOrCtrl+2")
+        .build(app)?;
+    let go_data = MenuItemBuilder::with_id("nav:data", "Data")
+        .accelerator("CmdOrCtrl+3")
+        .build(app)?;
+    let toggle_inspector = MenuItemBuilder::with_id("view:inspector", "Toggle Inspector")
+        .accelerator("CmdOrCtrl+I")
+        .build(app)?;
+    let palette = MenuItemBuilder::with_id("view:palette", "Command Palette…")
+        .accelerator("CmdOrCtrl+K")
+        .build(app)?;
+    let view_menu = SubmenuBuilder::new(app, "View")
+        .item(&go_agents)
+        .item(&go_vault)
+        .item(&go_data)
+        .separator()
+        .item(&toggle_inspector)
+        .item(&palette)
+        .build()?;
+
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .item(&PredefinedMenuItem::minimize(app, Some("Minimize"))?)
+        .item(&PredefinedMenuItem::maximize(app, Some("Zoom"))?)
+        .build()?;
+
+    let docs = MenuItemBuilder::with_id("help:docs", "Documentation").build(app)?;
+    let shortcuts = MenuItemBuilder::with_id("help:shortcuts", "Keyboard Shortcuts").build(app)?;
+    let help_menu = SubmenuBuilder::new(app, "Help")
+        .item(&docs)
+        .item(&shortcuts)
+        .build()?;
+
+    MenuBuilder::new(app)
+        .items(&[&app_menu, &file_menu, &view_menu, &window_menu, &help_menu])
+        .build()
+}
+
+/// Build the system tray icon + its context menu.
+fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let show = MenuItemBuilder::with_id("tray:show", "Show Apical").build(app)?;
+    let settings = MenuItemBuilder::with_id("nav:settings", "Settings…").build(app)?;
+    let quit = MenuItemBuilder::with_id("app:quit", "Quit Apical").build(app)?;
+    let tray_menu = MenuBuilder::new(app)
+        .items(&[&show, &settings])
+        .separator()
+        .item(&quit)
+        .build()?;
+
+    let mut builder = TrayIconBuilder::with_id("apical-tray")
+        .tooltip("Apical")
+        .menu(&tray_menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| handle_menu_action(app, event.id.as_ref()))
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                focus_main(tray.app_handle());
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
 // ─── App entrypoint ─────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -243,8 +412,63 @@ pub fn run() {
             stop_loopback_listener,
             open_url,
             spawn_mcp_stdio,
+            open_app_window_cmd,
         ])
-        .setup(|_app| {
+        // Native menu-bar clicks (app menu) route through here.
+        .on_menu_event(|app, event| handle_menu_action(app, event.id.as_ref()))
+        .setup(|app| {
+            let handle = app.handle().clone();
+
+            // Native application menu bar.
+            let menu = build_app_menu(&handle)?;
+            app.set_menu(menu)?;
+
+            // System tray.
+            if let Err(e) = build_tray(&handle) {
+                log::error!("tray setup failed: {}", e);
+            }
+
+            // Global (OS-level) shortcut: summon/hide Apical from anywhere.
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{
+                    Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+                };
+
+                // Cmd/Ctrl + Shift + A.
+                let summon = Shortcut::new(
+                    Some(Modifiers::SUPER | Modifiers::SHIFT),
+                    Code::KeyA,
+                );
+                let summon_for_handler = summon;
+
+                handle.plugin(
+                    tauri_plugin_global_shortcut::Builder::new()
+                        .with_handler(move |app, shortcut, event| {
+                            if shortcut == &summon_for_handler
+                                && event.state() == ShortcutState::Pressed
+                            {
+                                if let Some(w) = app.get_webview_window("main") {
+                                    let visible = w.is_visible().unwrap_or(false);
+                                    let focused = w.is_focused().unwrap_or(false);
+                                    if visible && focused {
+                                        let _ = w.hide();
+                                    } else {
+                                        let _ = w.unminimize();
+                                        let _ = w.show();
+                                        let _ = w.set_focus();
+                                    }
+                                }
+                            }
+                        })
+                        .build(),
+                )?;
+
+                if let Err(e) = app.global_shortcut().register(summon) {
+                    log::warn!("global shortcut register failed: {}", e);
+                }
+            }
+
             log::info!("Apical desktop shell started");
             Ok(())
         })
