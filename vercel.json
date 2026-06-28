@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd my-project-temp && bun install",
+  "buildCommand": "cd my-project-temp && bun run build:vercel",
+  "framework": "nextjs",
+  "experimentalServices": {
+    "web": {
+      "entrypoint": "my-project-temp",
+      "routePrefix": "/"
+    }
+  }
+}
