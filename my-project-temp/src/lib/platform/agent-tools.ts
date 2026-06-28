@@ -210,7 +210,7 @@ function isGenericAgentName(name: string): boolean {
 import {
   invokeLocalDesktopTool,
   isLocalDesktopRuntime,
-} from './local-desktop-tools'
+} from './desktop-local-runtime'
 
 /**
  * Invoke a tool on the user's connected desktop via the desktop bridge.
