@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,17 @@ import { useAuth } from "@/components/auth/AuthDialog";
  */
 export function FullscreenApp() {
   const { appOpen, closeApp, user } = useAuth();
+
+  // Lock the underlying landing page's scroll while the app overlay is open —
+  // otherwise the wheel "leaks" through and scrolls the hidden marketing page.
+  React.useEffect(() => {
+    if (!appOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [appOpen]);
 
   return (
     <AnimatePresence>

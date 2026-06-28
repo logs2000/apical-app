@@ -128,7 +128,7 @@ export function CommandMenu({
                 <Icon className="h-4 w-4" />
                 <span>{item.label}</span>
                 {mode === item.key && (
-                  <span className="ml-2 text-[10px] text-primary">●</span>
+                  <span className="ml-2 text-[10px] text-foreground">●</span>
                 )}
                 {item.shortcut && (
                   <CommandShortcut>{fmtShortcut(item.shortcut)}</CommandShortcut>

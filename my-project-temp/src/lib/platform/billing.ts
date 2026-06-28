@@ -452,7 +452,7 @@ export async function handleWebhookEvent(event: unknown): Promise<void> {
 
   switch (ev.type) {
     case 'checkout.session.completed': {
-      const sess = obj as StripeCheckoutSession
+      const sess = obj as unknown as StripeCheckoutSession
       const userId = sess.client_reference_id || sess.metadata?.userId
       const planId = (sess.metadata?.plan ?? 'free') as PlanId
       if (!userId) {
@@ -496,7 +496,7 @@ export async function handleWebhookEvent(event: unknown): Promise<void> {
     }
 
     case 'customer.subscription.updated': {
-      const s = obj as StripeSubscription
+      const s = obj as unknown as StripeSubscription
       if (!s.id) return
       // Find the subscription by stripeSubscriptionId.
       const sub = await db.subscription.findFirst({
@@ -524,7 +524,7 @@ export async function handleWebhookEvent(event: unknown): Promise<void> {
     }
 
     case 'customer.subscription.deleted': {
-      const s = obj as StripeSubscription
+      const s = obj as unknown as StripeSubscription
       if (!s.id) return
       const sub = await db.subscription.findFirst({
         where: { stripeSubscriptionId: s.id },

@@ -6,7 +6,7 @@ import { useAppStore } from "@/lib/apical/store";
 import {
   DEMO_WORKFLOWS,
   agentInitials,
-  agentAvatarLightness,
+  agentAvatarSurface,
   type Workflow,
 } from "@/lib/apical";
 import { cn } from "@/lib/utils";
@@ -128,7 +128,7 @@ const KIND_META: Record<
   MemoryKind,
   { label: string; icon: React.ComponentType<{ className?: string }>; color: string }
 > = {
-  entity: { label: "Entities", icon: Boxes, color: "text-primary" },
+  entity: { label: "Entities", icon: Boxes, color: "text-foreground" },
   preference: { label: "Preferences", icon: Heart, color: "text-reason" },
   correction: { label: "Corrections", icon: AlertCircle, color: "text-gate-foreground" },
   pattern: { label: "Patterns", icon: TrendingUp, color: "text-hardened" },
@@ -168,9 +168,9 @@ export function MemoryView() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Explainer banner */}
-      <div className="shrink-0 border-b border-border bg-gradient-to-r from-primary/5 via-card to-card px-4 py-2.5 md:px-6">
+      <div className="shrink-0 border-b border-border bg-gradient-to-r from-brand/5 via-card to-card px-4 py-2.5 md:px-6">
         <div className="mx-auto flex max-w-5xl items-start gap-2">
-          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-foreground">
             <Info className="h-3.5 w-3.5" />
           </div>
           <div className="min-w-0 flex-1">
@@ -180,7 +180,7 @@ export function MemoryView() {
               Consistent patterns auto-harden into tool calls (no AI, near-free).
             </span>
           </div>
-          <Badge variant="outline" className="shrink-0 border-primary/30 bg-primary/5 text-primary">
+          <Badge variant="outline" className="shrink-0 border-border bg-muted text-foreground">
             <Sparkles className="h-2.5 w-2.5" /> {totalEntries - totalDeleted} memories
           </Badge>
         </div>
@@ -251,13 +251,13 @@ function AgentListItem({
       className={cn(
         "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
         active
-          ? "bg-primary/10 text-foreground"
+          ? "bg-accent text-foreground"
           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
       )}
     >
       <div
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-primary-foreground"
-        style={{ backgroundColor: `oklch(${agentAvatarLightness(agent.name)} 0.06 155)` }}
+        style={{ backgroundColor: agentAvatarSurface(agent.name) }}
       >
         {agentInitials(agent.name)}
       </div>
@@ -268,7 +268,7 @@ function AgentListItem({
       <span
         className={cn(
           "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium tabular-nums",
-          active ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
+          active ? "bg-accent text-foreground" : "bg-muted text-muted-foreground",
         )}
       >
         {count}
@@ -294,7 +294,7 @@ function AgentMemoryPanel({
       <div className="mb-4 flex items-center gap-3">
         <div
           className="flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold text-primary-foreground"
-          style={{ backgroundColor: `oklch(${agentAvatarLightness(agent.name)} 0.06 155)` }}
+          style={{ backgroundColor: agentAvatarSurface(agent.name) }}
         >
           {agentInitials(agent.name)}
         </div>
@@ -427,7 +427,7 @@ function MemoryEntryRow({
                 entry.confidence >= 90
                   ? "text-emerald-600"
                   : entry.confidence >= 70
-                    ? "text-primary"
+                    ? "text-foreground"
                     : "text-gate-foreground",
               )}
             >

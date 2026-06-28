@@ -54,6 +54,8 @@ interface CreateBody {
   workspaceId?: string | null
   /** Where this agent runs: local (desktop) or hosted (server). Default hosted. */
   runtime?: 'local' | 'hosted'
+  /** How created: agent (automation), chat (conversational), manual. */
+  origin?: 'agent' | 'manual' | 'chat'
 }
 
 // POST /api/workflows — create a new workflow (typically from the agent chat's
@@ -97,6 +99,11 @@ export async function POST(req: Request) {
         ? body.workspaceId.trim()
         : null
 
+    const origin =
+      body.origin === 'chat' || body.origin === 'manual' || body.origin === 'agent'
+        ? body.origin
+        : 'agent'
+
     const created = await db.workflow.create({
       data: {
         userId: user.id,
@@ -106,7 +113,7 @@ export async function POST(req: Request) {
         trigger: body.trigger || 'manual',
         schedule: body.schedule ?? null,
         status: 'active',
-        origin: 'agent',
+        origin,
         department,
         title,
         workspaceId,

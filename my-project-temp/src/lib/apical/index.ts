@@ -31,9 +31,11 @@ export interface Workflow {
   trigger: "manual" | "schedule";
   schedule?: string | null;
   status: WorkflowStatus;
+  origin?: "agent" | "manual" | "chat";
   department: string;
   title?: string | null;
   runtime: AgentRuntime;
+  modelPreference?: string | null;
   runsCount: number;
   itemsProcessed: number;
   automaticCount: number;
@@ -85,7 +87,7 @@ export interface ChatMessage {
     title?: string;
     steps: WorkflowJSON;
   };
-  /** Agent reasoning steps from /api/agent/chat. */
+  /** Agent reasoning steps from a completed turn. */
   trace?: { label: string; detail?: string }[];
   /** Glass-box events from /api/agents/[id]/chat. */
   events?: AgentEvent[];
@@ -98,6 +100,8 @@ export interface ChatMessage {
   suggestions?: { title: string; prompt: string; reason: string }[];
   /** A live execution trace — shown when the agent "does it once" before automating. */
   executionTrace?: ExecutionStep[];
+  /** Post-run LLM review — success check + workflow improvement suggestions. */
+  runAnalysis?: RunAnalysis;
   /** An offer to convert a completed trace into a reusable workflow. */
   automateOffer?: {
     traceId: string;
@@ -107,9 +111,39 @@ export interface ChatMessage {
   };
   /** When the agent updated its OWN workflow (vs. proposing a new agent). */
   workflowSaved?: { agentName: string };
+  /** When an agent created a sibling agent — UI opens it automatically. */
+  createdAgent?: { agentId: string; agentName: string };
   /** When the agent needs an API key — renders an inline, secure vault box. */
   credentialRequest?: CredentialRequestInfo;
+  /** The agent's live checklist (from update_plan) — rendered above the answer. */
+  checklist?: PlanItem[];
+  /** A multiple-choice question the user answers by clicking (from ask_clarification). */
+  clarificationRequest?: ClarificationRequestInfo;
+  /** Marked true once the user answers a clarificationRequest (buttons disabled). */
+  clarificationAnswered?: boolean;
+  /** Shown when a user message failed to send / get a response. */
+  deliveryError?: { message: string; retryable: boolean };
+  /** Original send payload — used by Retry on deliveryError messages. */
+  retryPayload?: { text: string; attachments?: ChatAttachment[] };
   createdAt: string;
+}
+
+/** A single item in the agent's live checklist (from update_plan). */
+export interface PlanItem {
+  id: string;
+  label: string;
+  status: "pending" | "in_progress" | "done";
+}
+
+/** A multiple-choice card the agent shows: a clarifying question
+ *  (ask_clarification) or an approval gate (request_review). */
+export interface ClarificationRequestInfo {
+  id: string;
+  question: string;
+  options: Array<{ key: string; label: string; description?: string }>;
+  multiple?: boolean;
+  /** 'clarification' = disambiguate; 'review' = approval gate. */
+  kind?: "clarification" | "review";
 }
 
 /** A request from an agent for the user to save an API key / token to the vault. */
@@ -133,12 +167,40 @@ export interface CredentialRequestInfo {
 
 export type ExecutionStatus = "running" | "done" | "flagged" | "gate" | "error";
 
+export type ChatRunStatus = "running" | "completed" | "failed" | "stopped" | "analyzing";
+
+/** Post-run review produced by the analyze-run model. */
+export interface RunAnalysis {
+  success: boolean;
+  outcomeAchieved?: boolean;
+  summary: string;
+  efficiencyNotes?: string;
+  workflowSuggestions?: string[];
+  /** True when the server auto-saved a workflow from a successful first run. */
+  workflowAutoSaved?: boolean;
+}
+
+/** One agent think-loop execution — shown as a thin timeline line in chat. */
+export interface ChatRun {
+  id: string;
+  status: ChatRunStatus;
+  startedAt: string;
+  finishedAt?: string;
+  steps: ExecutionStep[];
+  goal?: string;
+  analysis?: RunAnalysis;
+  /** True while the analyze-run model is still working. */
+  analyzing?: boolean;
+}
+
 export interface ExecutionStep {
   id: string;
   /** What the agent did — plain English, e.g. "Listed 12 files in /Scan Inbox" */
   action: string;
   /** The tool or capability used, e.g. "files.list", "ocr.read", "gmail.send" */
   tool?: string;
+  /** Full tool arguments captured at call time (for workflow replay). */
+  toolInput?: Record<string, unknown>;
   status: ExecutionStatus;
   /** Wall-clock duration in ms */
   durationMs?: number;
@@ -194,6 +256,28 @@ export function agentAvatarLightness(name: string): number {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   return 0.45 + (h % 100) / 380;
+}
+
+/** Safari 15–safe avatar colors (HSL neutrals). Light text on mid-gray bg. */
+export function agentAvatarStyle(name: string): {
+  backgroundColor: string;
+  color: string;
+} {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  const lightness = 38 + (h % 16); // 38–54%
+  return {
+    backgroundColor: `hsl(0, 0%, ${lightness}%)`,
+    color: lightness > 46 ? "#171717" : "#fafafa",
+  };
+}
+
+/** Neutral avatar surface (replaces green-tinted oklch). */
+export function agentAvatarSurface(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  const l = 0.88 + (h % 80) / 500;
+  return `oklch(${l.toFixed(3)} 0 0)`;
 }
 
 // ─── Time / currency formatting ─────────────────────────────────────────────
@@ -259,9 +343,6 @@ const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
 const daysAgo = (d: number) => new Date(now - d * 86_400_000).toISOString();
 
 export const DEMO_CONVERSATIONS: Conversation[] = [
-  // The Orchestrator — pinned at the top of the left rail. General context,
-  // aware of all agents. Has no workflowId (it's not an agent itself).
-  { id: "orchestrator", title: "Orchestrator", pinned: true, workflowId: undefined, createdAt: daysAgo(30), updatedAt: hoursAgo(0.05) },
   { id: "c1", title: "Compass", pinned: true, workflowId: "w1", createdAt: hoursAgo(2), updatedAt: hoursAgo(0.1) },
   { id: "c2", title: "Atlas", pinned: true, workflowId: "w2", createdAt: daysAgo(1), updatedAt: hoursAgo(3) },
   { id: "c3", title: "Sentinel", pinned: false, workflowId: "w3", createdAt: daysAgo(2), updatedAt: hoursAgo(8) },
@@ -594,6 +675,35 @@ export function messagesForAgent(agent: Workflow): ChatMessage[] {
       createdAt: ago(1),
     },
   ]
+}
+
+/** Blank-state welcome for an agent with no persisted chat history. */
+export function agentWelcomeMessage(
+  agent: Workflow,
+  user?: { name?: string | null } | null,
+): ChatMessage {
+  const firstName = user?.name?.trim().split(/\s+/)[0] || 'there'
+  const lines: string[] = []
+  lines.push(`Hi ${firstName} — I'm **${agent.name}**${agent.title ? `, your ${agent.title.toLowerCase()}` : ''}.`)
+
+  const desc = agent.description?.trim()
+  if (desc && !/^tell apical what repetitive job/i.test(desc)) {
+    lines.push(`\n${desc}`)
+  } else {
+    lines.push(
+      `\nAsk me anything — I have full context on your workspace. Or describe a job to automate and I'll take it over.`,
+    )
+  }
+
+  lines.push(`\n**What would you like done?**`)
+
+  return {
+    id: 'agent-welcome',
+    role: 'agent',
+    content: lines.join('\n'),
+    suggestions: DEFAULT_PROMPTS,
+    createdAt: new Date().toISOString(),
+  }
 }
 
 // ─── Apical (orchestrator) welcome message ──────────────────────────────────

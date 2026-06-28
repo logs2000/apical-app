@@ -90,7 +90,12 @@ export const POST = withDevAuth(async (req, { developer, apiKey }) => {
     broadcastRun(run.id, 'run:started', { runId: run.id, workflowId: agentId })
 
     // Fire and forget — the runtime streams progress over the relay.
-    void executeRun(run.id, workflow, steps, 'manual').catch((err) => {
+    void executeRun(
+      run.id,
+      { ...workflow, userId: workflow.userId ?? developer.id },
+      steps,
+      'manual',
+    ).catch((err) => {
       console.error('[api/dev/run] executeRun crashed:', err)
     })
 

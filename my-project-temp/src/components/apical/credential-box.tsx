@@ -61,7 +61,7 @@ export function CredentialBox({
 
   if (saved) {
     return (
-      <div className="mt-2 flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs">
+      <div className="mt-2 flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-xs">
         <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
         <span className="text-foreground">
           Saved <span className="font-medium">{request.label}</span> to the vault. The agent can now use it securely.
@@ -71,9 +71,9 @@ export function CredentialBox({
   }
 
   return (
-    <div className="mt-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
-      <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-primary">
-        <KeyRound className="h-3.5 w-3.5" />
+    <div className="mt-2 rounded-md border border-border bg-muted p-3 text-xs">
+      <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-foreground">
+        <KeyRound className="h-3.5 w-3.5 text-brand" />
         Add {request.label}
       </div>
       {request.instructions && (
@@ -101,7 +101,7 @@ export function CredentialBox({
               }}
               className={cn(
                 "w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs outline-none",
-                "focus:border-primary/50 focus:ring-1 focus:ring-primary/30",
+                "focus:border-foreground/20 focus:ring-1 focus:ring-primary/30",
               )}
             />
           </div>
@@ -119,7 +119,7 @@ export function CredentialBox({
               href={request.docsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[10px] text-primary underline-offset-2 hover:underline"
+              className="inline-flex items-center gap-1 text-[10px] text-foreground underline-offset-2 hover:underline"
             >
               Get key <ExternalLink className="h-2.5 w-2.5" />
             </a>

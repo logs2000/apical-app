@@ -13,10 +13,16 @@ export async function GET(req: Request) {
     }
     const url = new URL(req.url)
     const limitRaw = url.searchParams.get('limit')
+    const workflowId = url.searchParams.get('workflowId')
     const limit = Math.min(100, Math.max(1, Number(limitRaw) || 20))
 
     const rows = await db.run.findMany({
-      where: { workflow: { userId: user.id } },
+      where: {
+        workflow: {
+          userId: user.id,
+          ...(workflowId ? { id: workflowId } : {}),
+        },
+      },
       take: limit,
       orderBy: { startedAt: 'desc' },
       include: {

@@ -13,9 +13,10 @@
 // /api/dev/* routes until they migrate.
 
 import { createHash, randomBytes } from 'crypto'
-import { getServerSession } from 'next-auth'
 import { db } from './db'
-import { authOptions, getOrCreateDevUser, isDevBypass } from './auth'
+import { getOrCreateDevUser, isDevBypass } from './auth'
+import { createSupabaseServerClient } from './supabase/server'
+import type { User as SupabaseUser } from '@supabase/supabase-js'
 import type { PersonalAccessToken, User } from '@prisma/client'
 
 // ---------------- Session user ----------------
@@ -47,17 +48,56 @@ export async function getCurrentUser(req?: Request): Promise<User | null> {
     if (pat) return pat.user
   }
 
-  // 3. NextAuth session.
+  // 3. Supabase session — resolve the Supabase auth user, then mirror it into
+  //    the Prisma `User` table (the app's data anchor) on first use.
   try {
-    const session = await getServerSession(authOptions)
-    const userId = (session?.user as { userId?: string } | undefined)?.userId
-    if (!userId) return null
-    const user = await db.user.findUnique({ where: { id: userId } })
-    return user
+    const supabase = await createSupabaseServerClient()
+    if (!supabase) return null
+    const {
+      data: { user: supaUser },
+    } = await supabase.auth.getUser()
+    if (!supaUser) return null
+    return await syncSupabaseUser(supaUser)
   } catch (err) {
     console.error('[auth-helpers] getCurrentUser session lookup failed:', err)
     return null
   }
+}
+
+/**
+ * Lazy-mirror a Supabase auth user into the Prisma `User` table. The Prisma row
+ * id is set to the Supabase user id so every existing relation keys off it.
+ * Links by email if a row already exists (e.g. from another provider).
+ */
+export async function syncSupabaseUser(supaUser: SupabaseUser): Promise<User> {
+  const existingById = await db.user.findUnique({ where: { id: supaUser.id } })
+  if (existingById) return existingById
+
+  const email = (supaUser.email ?? '').toLowerCase()
+  const meta = (supaUser.user_metadata ?? {}) as Record<string, unknown>
+  const name =
+    (typeof meta.name === 'string' && meta.name) ||
+    (typeof meta.full_name === 'string' && meta.full_name) ||
+    (email ? email.split('@')[0] : 'User')
+  const image =
+    (typeof meta.avatar_url === 'string' && meta.avatar_url) ||
+    (typeof meta.picture === 'string' && meta.picture) ||
+    null
+
+  if (email) {
+    const existingByEmail = await db.user.findUnique({ where: { email } })
+    if (existingByEmail) return existingByEmail
+  }
+
+  return db.user.create({
+    data: {
+      id: supaUser.id,
+      email: email || `${supaUser.id}@supabase.local`,
+      name,
+      image,
+      provider: 'supabase',
+    },
+  })
 }
 
 /**
@@ -89,7 +129,7 @@ export function withUser<T extends unknown[]>(
 ) {
   return async (
     req: Request,
-    routeCtx?: { params?: Promise<Record<string, string>> },
+    routeCtx: { params: Promise<Record<string, string>> },
     ...rest: T
   ): Promise<Response> => {
     try {
@@ -97,7 +137,7 @@ export function withUser<T extends unknown[]>(
       if (!user) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 })
       }
-      const params = routeCtx?.params ? await routeCtx.params : {}
+      const params = await routeCtx.params
       return await handler(req, { user, params }, ...rest)
     } catch (err) {
       console.error('[auth-helpers] withUser handler crashed:', err)

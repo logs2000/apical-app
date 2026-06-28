@@ -50,11 +50,11 @@ const DEMO_TABS = [
 type DemoTab = (typeof DEMO_TABS)[number]["key"];
 
 const DEMO_AGENTS = [
-  { id: "a1", name: "Compass", department: "Filing", status: "active", flagged: 2, color: "bg-emerald-500", runtime: "local" as const },
-  { id: "a2", name: "Atlas", department: "Client", status: "active", flagged: 0, color: "bg-emerald-500", runtime: "hosted" as const },
+  { id: "a1", name: "Compass", department: "Filing", status: "active", flagged: 2, color: "bg-foreground", runtime: "local" as const },
+  { id: "a2", name: "Atlas", department: "Client", status: "active", flagged: 0, color: "bg-foreground", runtime: "hosted" as const },
   { id: "a3", name: "Sentinel", department: "Dispatch", status: "active", flagged: 12, color: "bg-gate", runtime: "hosted" as const },
   { id: "a4", name: "Tally", department: "Finance", status: "active", flagged: 5, color: "bg-gate", runtime: "hosted" as const },
-  { id: "a5", name: "Beacon", department: "Dispatch", status: "active", flagged: 0, color: "bg-emerald-500", runtime: "hosted" as const },
+  { id: "a5", name: "Beacon", department: "Dispatch", status: "active", flagged: 0, color: "bg-foreground", runtime: "hosted" as const },
   { id: "a6", name: "Scout", department: "Client", status: "paused", flagged: 0, color: "bg-muted-foreground", runtime: "hosted" as const },
 ];
 
@@ -127,7 +127,7 @@ export function DemoAppShell() {
           })}
         </div>
         <div className="ml-auto flex items-center gap-1">
-          <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">Demo</span>
+          <span className="rounded-md bg-accent px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-foreground">Demo</span>
           <button className="rounded-md p-1.5 text-muted-foreground hover:bg-accent/50 hover:text-foreground" title="Menu">
             <MoreHorizontal className="h-4 w-4" />
           </button>
@@ -167,10 +167,10 @@ export function DemoAppShell() {
                     onClick={() => { setActiveTab("apical"); if (!openTabs.includes("apical")) setOpenTabs([...openTabs, "apical"]); }}
                     className={cn(
                       "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
-                      activeTab === "apical" ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                      activeTab === "apical" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                     )}
                   >
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-foreground">
                       <Sparkles className="h-3.5 w-3.5" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -188,11 +188,11 @@ export function DemoAppShell() {
                         onClick={() => pickAgent(a.id)}
                         className={cn(
                           "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
-                          activeTab === a.id ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                          activeTab === a.id ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                         )}
                       >
                         <div className="relative shrink-0">
-                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/20 text-[9px] font-semibold text-primary">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-[9px] font-semibold text-foreground">
                             {a.name[0]}
                           </div>
                           <span className={cn("absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-muted/30", a.color)} />
@@ -219,7 +219,7 @@ export function DemoAppShell() {
               <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
                 {activeTab === "apical" ? (
                   <div className="flex items-center gap-2">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-foreground">
                       <Sparkles className="h-4 w-4" />
                     </div>
                     <div>
@@ -229,7 +229,7 @@ export function DemoAppShell() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-[10px] font-semibold text-primary">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[10px] font-semibold text-foreground">
                       {selectedAgent.name[0]}
                     </div>
                     <div>
@@ -238,7 +238,7 @@ export function DemoAppShell() {
                         <span className={cn(
                           "rounded border px-1 py-0.5 text-[9px] font-medium",
                           selectedAgent.runtime === "local"
-                            ? "border-primary/30 bg-primary/10 text-primary"
+                            ? "border-border bg-accent text-foreground"
                             : "border-border bg-muted text-muted-foreground",
                         )}>
                           {selectedAgent.runtime === "local" ? "Local" : "Hosted"}
@@ -268,7 +268,7 @@ export function DemoAppShell() {
                     {m.role === "user" ? (
                       <div className="flex justify-end">
                         <div className="max-w-[85%] space-y-1">
-                          <div className="rounded-md bg-[oklch(0.42_0.025_155)] px-3 py-2 text-sm text-white">
+                          <div className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground">
                             {m.content}
                           </div>
                         </div>
@@ -279,7 +279,7 @@ export function DemoAppShell() {
                   </div>
                 ))}
                 {gate && (
-                  <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-primary">
+                  <div className="rounded-md border border-border bg-muted p-3 text-xs text-foreground">
                     <div className="flex items-start gap-2">
                       <ApicalMark className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <div>
@@ -307,7 +307,7 @@ export function DemoAppShell() {
                     }}
                     rows={2}
                     placeholder={activeTab === "apical" ? "Ask about your agents, coordinate a task…" : "Describe a job to hand off…"}
-                    className="min-h-[44px] w-full resize-none rounded-md border border-input bg-background pr-12 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                    className="min-h-[44px] w-full resize-none rounded-md border border-input bg-background pr-12 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
                   />
                   <button
                     onClick={send}
@@ -333,7 +333,7 @@ export function DemoAppShell() {
                       onClick={() => s !== "overview" && showGate(`${s.charAt(0).toUpperCase() + s.slice(1)} view is available in the full app. Download Apical.`)}
                       className={cn(
                         "flex-1 rounded-md px-2 py-1 text-[10px] font-medium capitalize transition-colors",
-                        s === "overview" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+                        s === "overview" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
                       )}
                     >
                       {s}
@@ -348,7 +348,7 @@ export function DemoAppShell() {
                       <span className={cn(
                         "rounded border px-1 py-0.5 text-[9px] font-medium",
                         selectedAgent.runtime === "local"
-                          ? "border-primary/30 bg-primary/10 text-primary"
+                          ? "border-border bg-accent text-foreground"
                           : "border-border bg-muted text-muted-foreground",
                       )}>
                         {selectedAgent.runtime === "local" ? "Local" : "Hosted"}
@@ -423,7 +423,7 @@ function DemoVaultPanel({ onGate }: { onGate: () => void }) {
           { name: "Stripe", cat: "Payments", connected: false },
         ].map((c) => (
           <div key={c.name} className="flex items-center gap-3 rounded-lg border border-border bg-card p-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-sm font-bold text-primary">{c.name[0]}</div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent text-sm font-bold text-foreground">{c.name[0]}</div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <span className="truncate text-sm font-medium">{c.name}</span>
@@ -435,7 +435,7 @@ function DemoVaultPanel({ onGate }: { onGate: () => void }) {
               onClick={onGate}
               className={cn(
                 "rounded-md px-2.5 py-1 text-[11px] font-medium",
-                c.connected ? "text-muted-foreground hover:bg-accent/50" : "border border-border hover:border-primary/30",
+                c.connected ? "text-muted-foreground hover:bg-accent/50" : "border border-border hover:border-border",
               )}
             >
               {c.connected ? "Disconnect" : "Connect"}
@@ -461,9 +461,9 @@ function DemoDataPanel({ onGate }: { onGate: () => void }) {
           <button
             key={t.name}
             onClick={onGate}
-            className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left hover:border-primary/30"
+            className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left hover:border-border"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent text-foreground">
               <Database className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">

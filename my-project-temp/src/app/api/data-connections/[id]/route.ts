@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
 import { encrypt } from '@/lib/platform/vault'
 import { getPlugin } from '@/lib/platform/data-plugins'
-import { mapConnection } from '../route'
+import { mapConnection } from '@/lib/data-connections/connection-dto'
 
 // API routes for /api/data-connections/[id].
 //

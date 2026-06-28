@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
-import { mapSession } from '../route'
+import { mapSession } from '@/lib/desktop/session-dto'
 
 // DELETE /api/desktop/sessions/[id] — revoke a desktop session.
 //

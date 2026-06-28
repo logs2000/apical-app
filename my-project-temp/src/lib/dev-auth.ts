@@ -158,7 +158,7 @@ type DevAuthHandler = (
 export function withDevAuth(handler: DevAuthHandler) {
   return async (
     req: Request,
-    routeCtx?: { params?: Promise<Record<string, string>> },
+    routeCtx: { params: Promise<Record<string, string>> },
   ): Promise<Response> => {
     try {
       const auth = await authenticateDev(req)
@@ -168,7 +168,7 @@ export function withDevAuth(handler: DevAuthHandler) {
           { status: 401 },
         )
       }
-      const params = routeCtx?.params ? await routeCtx.params : {}
+      const params = await routeCtx.params
       return await handler(req, {
         developer: auth.developer,
         apiKey: auth.apiKey,

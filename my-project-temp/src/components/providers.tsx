@@ -2,8 +2,9 @@
 
 import * as React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { SessionProvider } from 'next-auth/react'
+import { SupabaseSessionProvider } from '@/lib/supabase/session-context'
 import { IS_TAURI, installTauriKeychain } from '@/lib/desktop/tauri-bridge'
+import { TauriShellMarker } from '@/components/desktop/tauri-shell-marker'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = React.useState(
@@ -29,8 +30,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <SessionProvider>
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    </SessionProvider>
+    <SupabaseSessionProvider>
+      <QueryClientProvider client={client}>
+        <TauriShellMarker />
+        {children}
+      </QueryClientProvider>
+    </SupabaseSessionProvider>
   )
 }

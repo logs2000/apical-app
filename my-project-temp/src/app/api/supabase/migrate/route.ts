@@ -189,10 +189,16 @@ export async function POST(request: NextRequest) {
 
   for (const tableName of tables) {
     const sql = TABLE_SQL[tableName]
-    const { error } = await admin.rpc('exec_sql', { query: sql }).catch(() => {
-      // If RPC doesn't exist, fall back to direct SQL via from
-      return { error: { message: 'Direct SQL execution requires the exec_sql RPC function in Supabase. Alternatively, run the migration SQL manually from /supabase/migrations/' } }
-    })
+    let error: { message?: string } | null = null
+    try {
+      const result = await admin.rpc('exec_sql', { query: sql })
+      error = result.error
+    } catch {
+      error = {
+        message:
+          'Direct SQL execution requires the exec_sql RPC function in Supabase. Alternatively, run the migration SQL manually from /supabase/migrations/',
+      }
+    }
 
     if (error) {
       results[tableName] = { success: false, error: error.message || String(error) }

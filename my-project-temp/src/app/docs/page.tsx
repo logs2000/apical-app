@@ -229,7 +229,7 @@ export default function DocsPage() {
           <Link href="/" className="flex items-center gap-2">
             <ApicalMark className="h-6 w-6" />
             <span className="text-sm font-semibold tracking-tight">
-              Apical<span className="text-primary">.</span>
+              Apical<span className="text-brand">.</span>
             </span>
             <span className="ml-2 text-xs text-muted-foreground">Docs</span>
           </Link>
@@ -266,7 +266,7 @@ export default function DocsPage() {
                   href={`#${s.id}`}
                   className="group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
                 >
-                  <Icon className="h-3.5 w-3.5 text-primary/70 group-hover:text-primary" />
+                  <Icon className="h-3.5 w-3.5 text-brand/70 group-hover:text-brand" />
                   {s.title}
                 </a>
               )
@@ -293,7 +293,7 @@ export default function DocsPage() {
                 <Card className="border-border/60">
                   <CardHeader>
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-foreground">
                         <Icon className="h-5 w-5" />
                       </div>
                       <div>
@@ -309,7 +309,7 @@ export default function DocsPage() {
           })}
 
           {/* CTA */}
-          <section className="rounded-xl border border-primary/20 bg-primary/5 p-6 text-center">
+          <section className="rounded-xl border border-border bg-muted p-6 text-center">
             <h2 className="text-lg font-semibold">Ready to build?</h2>
             <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
               Create a free account and ship your first agent in minutes.

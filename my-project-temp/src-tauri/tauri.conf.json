@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "dev.apical.desktop",
   "build": {
-    "beforeDevCommand": "bun run dev",
-    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "bash scripts/ensure-prod-server.sh",
+    "devUrl": "http://127.0.0.1:3000/api/auth/desktop-ui",
     "beforeBuildCommand": "bun run build",
     "frontendDist": "../.next/standalone"
   },
@@ -22,7 +22,8 @@
         "decorations": true,
         "transparent": false,
         "titleBarStyle": "Visible",
-        "visible": true
+        "visible": true,
+        "acceptFirstMouse": true
       }
     ],
     "security": {

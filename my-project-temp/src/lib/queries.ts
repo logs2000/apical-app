@@ -18,7 +18,7 @@ import type {
   OAuthDemoConnectResponse,
 } from './types'
 
-async function j<T>(res: Promise<Response>): Promise<T> {
+async function j<T>(res: Response | Promise<Response>): Promise<T> {
   const r = await res
   if (!r.ok) {
     const e = await r.json().catch(() => ({}))
@@ -113,6 +113,7 @@ export function useCreateWorkflow() {
       schedule?: string
       department?: string
       title?: string
+      origin?: 'agent' | 'manual' | 'chat'
     }) =>
       j<Workflow>(
         fetch('/api/workflows', {
@@ -121,7 +122,12 @@ export function useCreateWorkflow() {
           body: JSON.stringify(input),
         }).then((r) => r),
       ),
-    onSuccess: () => {
+    onSuccess: (created) => {
+      qc.setQueryData<Workflow[]>(['workflows'], (old) => {
+        const list = old ?? []
+        if (list.some((w) => w.id === created.id)) return list
+        return [created, ...list]
+      })
       qc.invalidateQueries({ queryKey: ['workflows'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
     },
@@ -136,7 +142,7 @@ export function useUpdateWorkflow() {
       patch,
     }: {
       id: string
-      patch: Partial<Pick<Workflow, 'name' | 'description' | 'trigger' | 'schedule' | 'status' | 'department' | 'title' | 'workspaceId' | 'runtime' | 'modelPreference' | 'confidenceThreshold' | 'autoHardenAfter' | 'allowedTools' | 'allowedCredentials'>> & { steps?: import('./types').WorkflowJSON }
+      patch: Partial<Pick<Workflow, 'name' | 'description' | 'trigger' | 'schedule' | 'status' | 'department' | 'title' | 'origin' | 'workspaceId' | 'runtime' | 'modelPreference' | 'confidenceThreshold' | 'autoHardenAfter' | 'allowedTools' | 'allowedCredentials'>> & { steps?: import('./types').WorkflowJSON }
     }) =>
       j<Workflow>(
         fetch(`/api/workflows/${id}`, {
@@ -149,6 +155,38 @@ export function useUpdateWorkflow() {
       qc.invalidateQueries({ queryKey: ['workflows'] })
       qc.invalidateQueries({ queryKey: ['workflow', wf.id] })
       qc.invalidateQueries({ queryKey: ['stats'] })
+    },
+  })
+}
+
+export function useDeleteWorkflow() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      j<{ ok: true; id: string }>(
+        fetch(`/api/workflows/${id}`, { method: 'DELETE' }).then((r) => r),
+      ),
+    // Optimistically remove the agent from the list so it disappears instantly,
+    // before the server round-trip. Roll back if the delete fails.
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ['workflows'] })
+      const previous = qc.getQueryData<Workflow[]>(['workflows'])
+      if (previous) {
+        qc.setQueryData<Workflow[]>(
+          ['workflows'],
+          previous.filter((w) => w.id !== id),
+        )
+      }
+      return { previous }
+    },
+    onError: (_err, _id, ctx) => {
+      const previous = (ctx as { previous?: Workflow[] } | undefined)?.previous
+      if (previous) qc.setQueryData(['workflows'], previous)
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['workflows'] })
+      qc.invalidateQueries({ queryKey: ['stats'] })
+      qc.invalidateQueries({ queryKey: ['runs'] })
     },
   })
 }
@@ -192,11 +230,30 @@ export function useRunWorkflow() {
 }
 
 // ---------------- Runs ----------------
-export function useRuns(limit = 20) {
+export function useRuns(limit = 20, workflowId?: string | null) {
   return useQuery<Run[]>({
-    queryKey: ['runs', limit],
-    queryFn: () => j(fetch(`/api/runs?limit=${limit}`).then((r) => r)),
+    queryKey: ['runs', limit, workflowId ?? 'all'],
+    queryFn: () =>
+      j(
+        fetch(
+          `/api/runs?limit=${limit}${workflowId ? `&workflowId=${encodeURIComponent(workflowId)}` : ''}`,
+        ).then((r) => r),
+      ),
     refetchInterval: 5000,
+  })
+}
+
+export function useCancelRun() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (runId: string) =>
+      j<{ ok: boolean; status: string }>(
+        fetch(`/api/runs/${runId}/cancel`, { method: 'POST' }).then((r) => r),
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['runs'] })
+      qc.invalidateQueries({ queryKey: ['run'] })
+    },
   })
 }
 
@@ -213,56 +270,14 @@ export function useRun(id: string | null) {
   })
 }
 
-// ---------------- Agent chat (Apical Assistant v2) ----------------
-export function useAgentChat() {
-  return useMutation({
-    mutationFn: (input: {
-      message: string
-      history: ChatMessage[]
-      mentionedAgentIds?: string[]
-      activeAgentId?: string | null
-      conversationId?: string | null
-      workspaceId?: string | null
-      attachedScript?: string
-      attachedScriptLanguage?: string
-      model?: string
-    }) =>
-      j<{
-        reply: string
-        trace: { label: string; detail?: string }[]
-        intent: 'new_agent' | 'edit_existing' | 'general' | 'needs_clarification' | 'needs_api'
-        workflowProposal?: {
-          name: string
-          description: string
-          department: string
-          title?: string
-          steps: WorkflowJSON
-        }
-        switchToAgentId?: string
-        editingAgentId?: string
-        clarification?: import('./types').ClarificationQuestion
-        apiDiscovery?: import('./types').ApiDiscoveryCandidate[]
-        research?: import('./types').ResearchResult
-        scriptAnalysis?: import('./types').ScriptAnalysis
-        researchPlan?: import('./types').ResearchPlan
-        suggestions?: { title: string; prompt: string; reason: string }[]
-        title?: string
-      }>(
-        fetch('/api/agent/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(input),
-        }).then((r) => r),
-      ),
-  })
-}
-
 // ---------------- Per-agent chat messages (persisted) ----------------
 export function useAgentMessages(agentId: string | null) {
   return useQuery<import('./types').AgentMessage[]>({
     queryKey: ['agent-messages', agentId],
     queryFn: () => j(fetch(`/api/agents/${agentId}/messages`).then((r) => r)),
     enabled: !!agentId,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
   })
 }
 
@@ -277,7 +292,34 @@ export function useSaveAgentMessage(agentId: string) {
           body: JSON.stringify(input),
         }).then((r) => r),
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent-messages', agentId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent-messages', agentId] })
+      qc.invalidateQueries({ queryKey: ['workflows'] })
+    },
+  })
+}
+
+export function useUpdateAgentMessage(agentId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: {
+      messageId: string
+      content?: string
+      events?: import('./types').AgentEvent[]
+    }) =>
+      j<import('./types').AgentMessage>(
+        fetch(`/api/agents/${agentId}/messages/${input.messageId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: input.content,
+            events: input.events,
+          }),
+        }).then((r) => r),
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent-messages', agentId] })
+    },
   })
 }
 
@@ -354,62 +396,6 @@ export function useBriefing(workspaceId?: string | null) {
         fetch(`/api/briefing${workspaceId ? `?workspaceId=${workspaceId}` : ''}`).then((r) => r),
       ),
     staleTime: 30_000,
-  })
-}
-
-// ---------------- Conversations (chat history) ----------------
-export function useConversations(workspaceId?: string | null) {
-  return useQuery<import('./types').Conversation[]>({
-    queryKey: ['conversations', workspaceId],
-    queryFn: () =>
-      j(
-        fetch(`/api/conversations${workspaceId ? `?workspaceId=${workspaceId}` : ''}`).then((r) => r),
-      ),
-  })
-}
-
-export function useCreateConversation() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (input: { title?: string; workspaceId?: string | null }) =>
-      j<import('./types').Conversation>(
-        fetch('/api/conversations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(input),
-        }).then((r) => r),
-      ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
-  })
-}
-
-export function useUpdateConversation() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({
-      id,
-      patch,
-    }: {
-      id: string
-      patch: { title?: string; pinned?: boolean }
-    }) =>
-      j<import('./types').Conversation>(
-        fetch(`/api/conversations/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch),
-        }).then((r) => r),
-      ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
-  })
-}
-
-export function useDeleteConversation() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) =>
-      fetch(`/api/conversations/${id}`, { method: 'DELETE' }).then((r) => r),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
   })
 }
 

@@ -1,7 +1,7 @@
 // Apical shared types — the contract between frontend, backend, and runtime.
-// Workflows are plain JSON: a list of steps. Each step's `kind` decides
-// whether the AI is involved (reason), it's mechanical (tool), it pauses
-// for a human (gate), or it delegates to a temporary subagent (spawn).
+// Workflows are n8n-like automations: an ordered list of deterministic nodes
+// (code, HTTP, MCP, integrations, gates). Production runs execute WITHOUT an
+// agent. Agents design, freeze, schedule, monitor, and improve workflows.
 
 export type StepKind = 'tool' | 'reason' | 'gate' | 'spawn'
 
@@ -145,6 +145,27 @@ export interface WorkflowStep {
   rule?: string
   /** Optional note shown in the UI. */
   note?: string
+  /** Integration that owns this tool step (OpenAPI/MCP/builtin). */
+  integrationId?: string
+  /** Deterministic MCP call — production runs invoke this without an agent. */
+  mcp?: McpCallSpec
+  /** Deterministic code/script — production runs execute without an agent. */
+  code?: CodeCallSpec
+}
+
+/** MCP node in a production workflow (n8n-like). */
+export interface McpCallSpec {
+  integrationId: string
+  tool: string
+  args?: Record<string, unknown>
+}
+
+/** Code/script node in a production workflow (n8n-like). */
+export interface CodeCallSpec {
+  language: 'javascript' | 'python' | 'shell'
+  source: string
+  /** Optional JSON passed as `data` to JS scripts. */
+  data?: unknown
 }
 
 /** An inline custom HTTP API call. Lets any tool step call any REST endpoint. */
@@ -188,7 +209,7 @@ export interface Workflow {
   trigger: TriggerKind
   schedule?: string | null
   status: WorkflowStatus
-  origin: 'agent' | 'manual'
+  origin: 'agent' | 'manual' | 'chat'
   /** Descriptive department label, created naturally by the agent. */
   department: Department
   /** Role title, e.g. "Sorter", "Bookkeeper". */
@@ -239,10 +260,22 @@ export interface RunReportItem {
   detail: string
 }
 
+/** Post-run agent review — success, outcome, efficiency, improvements. */
+export interface RunReview {
+  success: boolean
+  outcomeAchieved: boolean
+  summary: string
+  efficiencyNotes?: string
+  workflowSuggestions?: string[]
+  /** True when the server auto-saved a workflow from a successful first run. */
+  workflowAutoSaved?: boolean
+}
+
 export interface RunReport {
   summary: string
   items: RunReportItem[]
   flags: { stepId: string; reason: string; item: string }[]
+  review?: RunReview
 }
 
 export interface Run {
@@ -473,11 +506,12 @@ export interface WidgetData {
 export type AgentEvent =
   | { type: 'token'; content: string }
   | { type: 'reasoning'; content: string }
-  | { type: 'tool_call'; tool: string; input?: string; status: 'calling' | 'success' | 'error'; result?: string }
+  | { type: 'tool_call'; tool: string; input?: string; inputParams?: Record<string, unknown>; status: 'calling' | 'success' | 'error'; result?: string }
   | { type: 'task_list'; tasks: Array<{ id: string; label: string; done: boolean }> }
   | { type: 'action_complete'; summary: string; itemsProcessed?: number; flagged?: number }
   | { type: 'error'; message: string }
   | { type: 'status'; status: 'thinking' | 'acting' | 'observing' | 'waiting_for_input' | 'done' }
+  | { type: 'run_analysis'; success: boolean; outcomeAchieved?: boolean; summary: string; efficiencyNotes?: string; workflowSuggestions?: string[] }
 
 /** A message in an agent's conversation thread (per-agent chat, not the main assistant). */
 export interface AgentMessage {
@@ -507,7 +541,7 @@ export interface AgentDataRow {
 
 /** A live event from the autonomous agent loop (POST /api/agent/think). */
 export type AgentLoopEvent =
-  | { type: 'status'; status: 'thinking' | 'acting' | 'observing' | 'done' }
+  | { type: 'status'; status: 'started' | 'preparing' | 'thinking' | 'acting' | 'observing' | 'done' }
   | { type: 'thought'; text: string }
   | { type: 'tool_call'; tool: string; input: Record<string, unknown> }
   | { type: 'observation'; tool: string; ok: boolean; output: unknown; display?: { title: string; summary: string; kind?: string } }

@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     if (files.length === 0) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 })
     }
-    const assets = []
+    const assets: Awaited<ReturnType<typeof saveAsset>>[] = []
     for (const file of files) {
       const bytes = Buffer.from(await file.arrayBuffer())
       assets.push(

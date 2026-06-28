@@ -4,10 +4,7 @@ import * as React from "react";
 import { useAppStore } from "@/lib/apical/store";
 import {
   DEFAULT_PROMPTS,
-  messagesForAgent,
-  apicalWelcomeMessage,
-  agentInitials,
-  agentAvatarLightness,
+  agentWelcomeMessage,
   relativeTime,
   formatDuration,
   STEP_KIND_META,
@@ -15,21 +12,25 @@ import {
   type Workflow,
   type AgentRuntime,
 } from "@/lib/apical";
+import { formatSendError, isSendError, isRetryableSendError } from "@/lib/apical/send-error";
+import { SendFailureNotice } from "./send-failure-notice";
 import {
   AgentsDataProvider,
-  ORCHESTRATOR_CONVERSATION,
+  NEW_CHAT_CONVERSATION_ID,
   conversationIdForWorkflow,
   useActiveAgent,
   useAgentsData,
+  sortSidebarConversations,
 } from "@/lib/apical/agents-data";
+import { agentWorkflowRingClass, buildEditHandoffPrompt, agentHasSavedWorkflow } from "@/lib/apical/agent-display";
+import { routeAgentMessage } from "@/lib/apical/agent-route";
 import { useToast } from "@/hooks/use-toast";
-import { ApicalMark, RuntimeBadge } from "./logo";
+import { ApicalMark, RuntimeBadge, AgentAvatar, FlaggedCountBadge } from "./logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -39,9 +40,20 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { IS_TAURI, openAppWindow } from "@/lib/desktop/tauri-bridge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { IS_TAURI, openAppWindow, desktopPopoutPath } from "@/lib/desktop/tauri-bridge";
 import {
   Boxes,
   Plus,
@@ -65,8 +77,8 @@ import {
   Cloud,
   Monitor,
   Search,
-  Sparkles,
   Pin,
+  Trash2,
   X,
   ChevronRight,
   ChevronDown,
@@ -74,31 +86,40 @@ import {
   Columns2,
   SquareStack,
 } from "lucide-react";
-import type { ExecutionStep } from "@/lib/apical";
 import {
-  loadAgentMessages,
-  loadOrchestratorMessages,
-  persistOrchestratorMessage,
+  mapPersistedMessages,
   streamAgentThink,
   chatHistoryForApi,
-  thoughtEventsFromTrace,
+  eventsForPersistedMessage,
+  analyzeRun,
+  buildChatRun,
+  automationSaveSucceeded,
 } from "@/lib/apical/chat-stream";
 import { ChatComposer } from "./chat-composer";
+import { workflowStepDetail, workflowStepToolLabel } from "@/lib/apical/workflow-display";
 import { ArtifactEditor, type ArtifactEditorInitial } from "./artifact-editor";
 import { AssetCards } from "./asset-cards";
 import { SandboxPanel } from "./sandbox-panel";
 import { CredentialBox } from "./credential-box";
+import { AgentChecklist } from "./agent-checklist";
+import { ClarificationCard } from "./clarification-card";
 import { MarkdownText } from "./markdown-text";
+import { CopyMessageButton } from "./copy-message-button";
+import { RunTimeline } from "./run-timeline";
+import { AgentRunSection, RunLog, RunNowControls } from "./workflow-runs-console";
 import { fetchArtifactText } from "@/lib/apical/attachments";
 import { sandboxItemFromAttachment } from "@/lib/apical/sandbox";
 import type { ChatAttachment } from "@/lib/apical";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAgentMessages } from "@/lib/queries";
+import { useAuth } from "@/components/auth/AuthDialog";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function agentStatus(agent: Workflow): { color: string; label: string } {
   if (agent.status === "paused") return { color: "bg-muted-foreground", label: "Paused" };
   if (agent.flaggedCount > 0) return { color: "bg-gate", label: "Flagged" };
-  return { color: "bg-emerald-500", label: "Active" };
+  return { color: "bg-foreground", label: "Active" };
 }
 
 // ─── Main view: responsive 3-rail (desktop) / stacked (mobile) ─────────────
@@ -149,7 +170,7 @@ function DesktopAgentsView() {
   const rightRailTab = useAppStore((s) => s.rightRailTab);
   const setRightRailTab = useAppStore((s) => s.setRightRailTab);
   const clearSandbox = useAppStore((s) => s.clearSandbox);
-  const { activeAgent, isOrchestrator } = useActiveAgent();
+  const { activeAgent, isNewChat } = useActiveAgent();
 
   React.useEffect(() => {
     clearSandbox();
@@ -172,9 +193,22 @@ function DesktopAgentsView() {
   const popoutConversationId = useAppStore((s) => s.popoutConversationId);
   const isPopout = !!popoutConversationId;
 
+  // Pop-out windows get a descriptive title in the OS window chrome.
+  React.useEffect(() => {
+    if (!IS_TAURI || !isPopout) return;
+    const title = isNewChat
+      ? "New chat"
+      : activeAgent?.name
+        ? `${activeAgent.name} — Apical`
+        : "Apical";
+    void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      void getCurrentWindow().setTitle(title);
+    });
+  }, [isPopout, isNewChat, activeAgent?.name]);
+
   const hasData = sandboxItems.length > 0;
   const showData = sandboxOpen && hasData;
-  const showInspectorPanel = isWide && inspectorOpen && !!activeAgent && !isOrchestrator;
+  const showInspectorPanel = isWide && inspectorOpen && !!activeAgent && !isNewChat;
   const showRightRail = isWide && (showData || showInspectorPanel);
 
   return (
@@ -198,9 +232,12 @@ function DesktopAgentsView() {
       <ResizablePanel id="center" order={2} minSize={30} className="flex min-w-0 flex-col">
         <CenterPane
           agent={activeAgent}
-          isOrchestrator={isOrchestrator}
+          isNewChat={isNewChat}
+          conversationId={activeConversationId}
+          isPopout={isPopout}
           inspectorOpen={inspectorOpen}
           onToggleInspector={toggleInspector}
+          showInspectorToggle={isWide}
           previewOpen={showData}
           onTogglePreview={() => setSandboxOpen(!sandboxOpen)}
           hasPreviewContent={hasData}
@@ -236,31 +273,44 @@ function AgentNavigator({
   onPick: (id: string) => void;
 }) {
   const [search, setSearch] = React.useState("");
-  const { workflows, conversations, createAgent, isCreating, isLoading } = useAgentsData();
+  const { workflows, conversations, deleteAgent, togglePin, isLoading } = useAgentsData();
   const { toast } = useToast();
+  const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string } | null>(null);
 
-  const orchestrator = ORCHESTRATOR_CONVERSATION;
-  const agentConvos = conversations.filter((c) => c.id !== "orchestrator");
-  const filtered = agentConvos.filter((c) => {
-    if (!search) return true;
-    const wf = workflows.find((w) => w.id === c.workflowId);
-    return (
-      c.title.toLowerCase().includes(search.toLowerCase()) ||
-      (wf?.title ?? "").toLowerCase().includes(search.toLowerCase())
-    );
-  });
+  const agentConvos = sortSidebarConversations(conversations);
+  const filtered = sortSidebarConversations(
+    agentConvos.filter((c) => {
+      if (!search) return true;
+      const wf = workflows.find((w) => w.id === c.workflowId);
+      return (
+        c.title.toLowerCase().includes(search.toLowerCase()) ||
+        (wf?.title ?? "").toLowerCase().includes(search.toLowerCase())
+      );
+    }),
+  );
+  const pinnedAgents = filtered.filter((c) => c.pinned);
+  const recentAgents = filtered.filter((c) => !c.pinned);
 
-  async function handleNewAgent() {
+  async function handleDeleteAgent(workflowId: string, name: string) {
+    const convoId = conversationIdForWorkflow(workflowId);
     try {
-      const created = await createAgent();
-      onPick(conversationIdForWorkflow(created.id));
+      await deleteAgent(workflowId);
+      if (activeId === convoId) {
+        onPick(NEW_CHAT_CONVERSATION_ID);
+      }
+      toast({ title: "Agent deleted", description: `${name} was removed.` });
+      setDeleteTarget(null);
     } catch (err) {
       toast({
-        title: "Could not create agent",
+        title: "Could not delete agent",
         description: err instanceof Error ? err.message : "Something went wrong",
-        variant: "destructive",
+        variant: "warning",
       });
     }
+  }
+
+  function handleNewChat() {
+    onPick(NEW_CHAT_CONVERSATION_ID);
   }
 
   return (
@@ -276,44 +326,82 @@ function AgentNavigator({
           />
         </div>
         <Button
-          variant="ghost"
+          variant="default"
           size="sm"
-          className="mt-1.5 w-full justify-start gap-1.5 text-[11px] text-muted-foreground"
-          onClick={() => void handleNewAgent()}
-          disabled={isCreating || isLoading}
+          className="mt-1.5 w-full justify-start gap-1.5 text-[11px]"
+          onClick={handleNewChat}
         >
-          {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-          New agent
+          <Plus className="h-3 w-3" />
+          New chat
         </Button>
+        {IS_TAURI && (
+          <p className="mt-2 px-1 text-[9px] leading-relaxed text-muted-foreground">
+            Drag an agent outside this window, click{" "}
+            <SquareStack className="inline h-2.5 w-2.5 align-text-bottom" />, or right-click
+            to open in a separate window.
+          </p>
+        )}
       </div>
       <div className="flex-1 min-h-0 space-y-3 overflow-y-auto overscroll-contain p-2">
-        <div>
-          <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Apical</div>
-          <OrchestratorRow
-            convo={orchestrator}
-            active={orchestrator.id === activeId}
-            onClick={() => onPick(orchestrator.id)}
-          />
-        </div>
-        <div>
-          <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Agents</div>
-          <div className="space-y-0.5">
-            {filtered.map((c) => {
-              const wf = workflows.find((w) => w.id === c.workflowId);
-              if (!wf) return null;
-              return (
-                <AgentRailRow
-                  key={c.id}
-                  convo={c}
-                  agent={wf}
-                  active={c.id === activeId}
-                  onClick={() => onPick(c.id)}
-                />
-              );
-            })}
-          </div>
+        <div className="space-y-3">
+          {pinnedAgents.length > 0 && (
+            <div>
+              <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Pinned
+              </div>
+              <div className="space-y-0.5">
+                {pinnedAgents.map((c) => {
+                  const wf = workflows.find((w) => w.id === c.workflowId);
+                  if (!wf) return null;
+                  return (
+                    <AgentRailRow
+                      key={c.id}
+                      convo={c}
+                      agent={wf}
+                      active={c.id === activeId}
+                      onClick={() => onPick(c.id)}
+                      onTogglePin={() => togglePin(c.id)}
+                      onDelete={() => setDeleteTarget({ id: wf.id, name: wf.name })}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {recentAgents.length > 0 && (
+            <div>
+              <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {pinnedAgents.length > 0 ? "Recent" : "Agents"}
+              </div>
+              <div className="space-y-0.5">
+                {recentAgents.map((c) => {
+                  const wf = workflows.find((w) => w.id === c.workflowId);
+                  if (!wf) return null;
+                  return (
+                    <AgentRailRow
+                      key={c.id}
+                      convo={c}
+                      agent={wf}
+                      active={c.id === activeId}
+                      onClick={() => onPick(c.id)}
+                      onTogglePin={() => togglePin(c.id)}
+                      onDelete={() => setDeleteTarget({ id: wf.id, name: wf.name })}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {filtered.length === 0 && !isLoading && (
+            <p className="px-1.5 py-2 text-[10px] text-muted-foreground">No agents match your search.</p>
+          )}
         </div>
       </div>
+      <DeleteAgentDialog
+        target={deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && void handleDeleteAgent(deleteTarget.id, deleteTarget.name)}
+      />
     </aside>
   );
 }
@@ -326,7 +414,15 @@ function AgentNavigator({
 // at "/#popout=<conversationId>". All of this is desktop (Tauri) only.
 
 function openAgentPopout(conversationId: string) {
-  void openAppWindow(`/#popout=${encodeURIComponent(conversationId)}`);
+  void openAppWindow(desktopPopoutPath(conversationId));
+}
+
+/** A drag that ends outside the window bounds pops the agent into a new window. */
+function rowDragStartHandler() {
+  return (e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", "apical-agent-popout");
+  };
 }
 
 /** A drag that ends outside the window bounds pops the agent into a new window. */
@@ -341,60 +437,146 @@ function rowDragEndHandler(conversationId: string) {
   };
 }
 
-/** Wraps a row with a right-click "Open in new window" menu (desktop only). */
-function PopoutMenu({
+/** Wraps a row with pin/delete actions and optional desktop pop-out menu. */
+function AgentRowMenu({
   conversationId,
+  pinned,
+  canDelete,
+  onTogglePin,
+  onDelete,
   children,
 }: {
   conversationId: string;
+  pinned: boolean;
+  canDelete?: boolean;
+  onTogglePin: () => void;
+  onDelete?: () => void;
   children: React.ReactNode;
 }) {
-  if (!IS_TAURI) return <>{children}</>;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent className="w-52">
-        <ContextMenuItem
-          onClick={() => openAgentPopout(conversationId)}
-          className="gap-2 text-xs"
-        >
-          <SquareStack className="h-3.5 w-3.5" /> Open in new window
+        <ContextMenuItem onClick={onTogglePin} className="gap-2 text-xs">
+          <Pin className={cn("h-3.5 w-3.5", pinned && "fill-current")} />
+          {pinned ? "Unpin" : "Pin"}
         </ContextMenuItem>
+        {IS_TAURI && (
+          <ContextMenuItem
+            onClick={() => openAgentPopout(conversationId)}
+            className="gap-2 text-xs"
+          >
+            <SquareStack className="h-3.5 w-3.5" /> Open in new window
+          </ContextMenuItem>
+        )}
+        {canDelete && onDelete && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={onDelete} className="gap-2 text-xs text-destructive focus:text-destructive">
+              <Trash2 className="h-3.5 w-3.5" /> Delete agent
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
 }
 
-function OrchestratorRow({
-  convo,
-  active,
-  onClick,
+function DeleteAgentDialog({
+  target,
+  onOpenChange,
+  onConfirm,
 }: {
-  convo: { id: string; title: string };
-  active: boolean;
-  onClick: () => void;
+  target: { id: string; name: string } | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
 }) {
   return (
-    <PopoutMenu conversationId={convo.id}>
+    <AlertDialog open={!!target} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete {target?.name}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This removes the agent, its chat history, runs, and saved data. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={onConfirm}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function RailRowActions({
+  conversationId,
+  pinned,
+  canDelete,
+  onTogglePin,
+  onDelete,
+}: {
+  conversationId: string;
+  pinned: boolean;
+  canDelete?: boolean;
+  onTogglePin: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
       <button
-        onClick={onClick}
-        draggable={IS_TAURI}
-        onDragEnd={IS_TAURI ? rowDragEndHandler(convo.id) : undefined}
+        type="button"
+        title={pinned ? "Unpin" : "Pin"}
+        onClick={(e) => {
+          e.stopPropagation();
+          onTogglePin();
+        }}
         className={cn(
-          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
-          active ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          "rounded p-0.5 transition-opacity transition-colors",
+          pinned
+            ? "text-foreground opacity-100"
+            : "text-muted-foreground opacity-0 hover:bg-surface-hover hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100",
         )}
       >
-        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
-          <Sparkles className="h-3.5 w-3.5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[11px] font-medium">{convo.title}</div>
-          <div className="truncate text-[9px] text-muted-foreground">General · all agents</div>
-        </div>
-        <Pin className="h-2.5 w-2.5 shrink-0 text-primary/60" />
+        <Pin className={cn("h-3 w-3", pinned && "fill-current")} />
       </button>
-    </PopoutMenu>
+      {IS_TAURI && <PopoutButton conversationId={conversationId} />}
+      {canDelete && onDelete && (
+        <button
+          type="button"
+          title="Delete agent"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 group-focus-within:opacity-100"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+
+function PopoutButton({ conversationId }: { conversationId: string }) {
+  return (
+    <button
+      type="button"
+      title="Open in new window"
+      onClick={(e) => {
+        e.stopPropagation();
+        openAgentPopout(conversationId);
+      }}
+      className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-surface-hover hover:text-foreground group-hover:opacity-100"
+    >
+      <SquareStack className="h-3 w-3" />
+    </button>
   );
 }
 
@@ -403,49 +585,59 @@ function AgentRailRow({
   agent,
   active,
   onClick,
+  onTogglePin,
+  onDelete,
 }: {
-  convo: { id: string; title: string };
+  convo: { id: string; title: string; pinned?: boolean };
   agent: Workflow;
   active: boolean;
   onClick: () => void;
+  onTogglePin: () => void;
+  onDelete: () => void;
 }) {
-  const status = agentStatus(agent);
+  const ringClass = agentWorkflowRingClass(agent);
   return (
-    <PopoutMenu conversationId={convo.id}>
-    <button
-      onClick={onClick}
+    <AgentRowMenu
+      conversationId={convo.id}
+      pinned={!!convo.pinned}
+      canDelete
+      onTogglePin={onTogglePin}
+      onDelete={onDelete}
+    >
+    <div
       draggable={IS_TAURI}
+      onDragStart={IS_TAURI ? rowDragStartHandler() : undefined}
       onDragEnd={IS_TAURI ? rowDragEndHandler(convo.id) : undefined}
       className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
-        active ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+        "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors",
+        active ? "bg-surface-active text-foreground" : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
       )}
     >
-      <div className="relative shrink-0">
-        <div
-          className="flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-semibold text-primary-foreground"
-          style={{ backgroundColor: `oklch(${agentAvatarLightness(agent.name)} 0.06 155)` }}
-        >
-          {agentInitials(agent.name)}
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+      >
+        <div className="relative shrink-0">
+          <AgentAvatar name={agent.name} className={cn("h-6 w-6", ringClass)} />
         </div>
-        <span
-          className={cn("absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-muted/30", status.color)}
-          title={status.label}
-        />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1">
-          <span className="truncate text-[11px] font-medium">{convo.title}</span>
-          {agent.flaggedCount > 0 && (
-            <Badge variant="outline" className="shrink-0 border-gate/40 bg-gate/10 px-1 text-[8px] font-semibold text-gate">
-              {agent.flaggedCount}
-            </Badge>
-          )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1">
+            <span className="truncate text-[11px] font-medium">{convo.title}</span>
+            <FlaggedCountBadge count={agent.flaggedCount} />
+          </div>
+          <div className="truncate text-[9px] text-muted-foreground">{agent.title ?? "Agent"}</div>
         </div>
-        <div className="truncate text-[9px] text-muted-foreground">{agent.title ?? "Agent"}</div>
-      </div>
-    </button>
-    </PopoutMenu>
+      </button>
+      <RailRowActions
+        conversationId={convo.id}
+        pinned={!!convo.pinned}
+        canDelete
+        onTogglePin={onTogglePin}
+        onDelete={onDelete}
+      />
+    </div>
+    </AgentRowMenu>
   );
 }
 
@@ -463,7 +655,7 @@ function MobileAgentsView() {
   const setMobilePane = useAppStore((s) => s.setMobilePane);
   const sandboxItems = useAppStore((s) => s.sandboxItems);
   const clearSandbox = useAppStore((s) => s.clearSandbox);
-  const { activeAgent, isOrchestrator, workflows } = useActiveAgent();
+  const { activeAgent, isNewChat, workflows } = useActiveAgent();
 
   React.useEffect(() => {
     clearSandbox();
@@ -484,11 +676,11 @@ function MobileAgentsView() {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* Top bar — current agent name + ApicalMark */}
+      {/* Top bar — current agent name (no logo on desktop) */}
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
-        <ApicalMark className="h-5 w-5" />
+        {!IS_TAURI && <ApicalMark className="h-5 w-5" />}
         <span className="text-sm font-semibold">
-          {isOrchestrator ? "Apical" : activeAgent?.name ?? "Agents"}
+          {isNewChat ? "New chat" : activeAgent?.name ?? "Agents"}
         </span>
         {activeAgent && (
           <span className="ml-auto text-[10px] text-muted-foreground">{activeAgent.title ?? "Agent"}</span>
@@ -507,13 +699,17 @@ function MobileAgentsView() {
           />
         )}
         {mobilePane === "chat" && (
-          <ChatPane agent={activeAgent} isOrchestrator={isOrchestrator} />
+          <ChatPane
+            key={isNewChat ? NEW_CHAT_CONVERSATION_ID : activeAgent?.id ?? "pending-agent"}
+            agent={activeAgent}
+            isNewChat={isNewChat}
+          />
         )}
-        {mobilePane === "detail" && activeAgent && !isOrchestrator && (
+        {mobilePane === "detail" && activeAgent && !isNewChat && (
           <MobileDetailPane agent={activeAgent} />
         )}
         {mobilePane === "preview" && hasPreview && <SandboxPanel mode="preview" showClose={false} />}
-        {mobilePane === "detail" && (isOrchestrator || !activeAgent) && (
+        {mobilePane === "detail" && (isNewChat || !activeAgent) && (
           <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
             Select an agent to see its details.
           </div>
@@ -553,7 +749,7 @@ function MobileAgentsView() {
           onClick={() => setMobilePane("detail")}
           icon={Activity}
           label="Detail"
-          disabled={isOrchestrator || !activeAgent}
+          disabled={isNewChat || !activeAgent}
         />
       </nav>
     </div>
@@ -581,14 +777,14 @@ function MobileTabButton({
       disabled={disabled}
       className={cn(
         "flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[9px] font-medium transition-colors",
-        active ? "text-primary" : "text-muted-foreground",
+        active ? "text-foreground" : "text-muted-foreground",
         disabled && "opacity-30",
       )}
     >
       <div className="relative">
         <Icon className="h-5 w-5" />
         {badge && badge > 0 ? (
-          <span className="absolute -top-1 -right-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-gate px-1 text-[7px] font-semibold text-white">
+          <span className="absolute -top-1 -right-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-amber-600/70 bg-amber-500 px-1 text-[7px] font-bold leading-none text-amber-950">
             {badge > 99 ? "99+" : badge}
           </span>
         ) : null}
@@ -605,102 +801,119 @@ function MobileAgentList({
   activeId: string | null;
   onPick: (id: string) => void;
 }) {
-  const { workflows, conversations, createAgent, isCreating, isLoading } = useAgentsData();
+  const { workflows, conversations, deleteAgent, togglePin, isLoading } = useAgentsData();
   const { toast } = useToast();
-  const orchestrator = ORCHESTRATOR_CONVERSATION;
-  const agentConvos = conversations.filter((c) => c.id !== "orchestrator");
+  const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string } | null>(null);
+  const agentConvos = sortSidebarConversations(conversations);
+  const pinnedAgents = agentConvos.filter((c) => c.pinned);
+  const recentAgents = agentConvos.filter((c) => !c.pinned);
 
-  async function handleNewAgent() {
+  function handleNewChat() {
+    onPick(NEW_CHAT_CONVERSATION_ID);
+  }
+
+  async function handleDeleteAgent(workflowId: string, name: string) {
+    const convoId = conversationIdForWorkflow(workflowId);
     try {
-      const created = await createAgent();
-      onPick(conversationIdForWorkflow(created.id));
+      await deleteAgent(workflowId);
+      if (activeId === convoId) {
+        onPick(NEW_CHAT_CONVERSATION_ID);
+      }
+      toast({ title: "Agent deleted", description: `${name} was removed.` });
+      setDeleteTarget(null);
     } catch (err) {
       toast({
-        title: "Could not create agent",
+        title: "Could not delete agent",
         description: err instanceof Error ? err.message : "Something went wrong",
-        variant: "destructive",
+        variant: "warning",
       });
     }
+  }
+
+  function renderAgentRow(c: (typeof agentConvos)[number]) {
+    const wf = workflows.find((w) => w.id === c.workflowId);
+    if (!wf) return null;
+    const ringClass = agentWorkflowRingClass(wf);
+    return (
+      <AgentRowMenu
+        key={c.id}
+        conversationId={c.id}
+        pinned={!!c.pinned}
+        canDelete
+        onTogglePin={() => togglePin(c.id)}
+        onDelete={() => setDeleteTarget({ id: wf.id, name: wf.name })}
+      >
+        <div
+          className={cn(
+            "group flex w-full items-center gap-2.5 rounded-lg p-2.5 transition-colors",
+            c.id === activeId ? "bg-surface-active" : "hover:bg-surface-hover",
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => onPick(c.id)}
+            className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+          >
+            <div className="relative shrink-0">
+              <AgentAvatar name={wf.name} className={cn("h-9 w-9", ringClass)} textClassName="text-[11px] font-semibold" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="truncate text-sm font-medium">{wf.name}</span>
+                <FlaggedCountBadge count={wf.flaggedCount} />
+              </div>
+              <div className="truncate text-[10px] text-muted-foreground">{wf.title ?? "Agent"}</div>
+            </div>
+          </button>
+          <RailRowActions
+            conversationId={c.id}
+            pinned={!!c.pinned}
+            canDelete
+            onTogglePin={() => togglePin(c.id)}
+            onDelete={() => setDeleteTarget({ id: wf.id, name: wf.name })}
+          />
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </div>
+      </AgentRowMenu>
+    );
   }
 
   return (
     <div className="h-full overflow-y-auto overscroll-contain p-2">
       <Button
-        variant="outline"
+        variant="default"
         size="sm"
         className="mb-2 w-full gap-1.5 text-[11px]"
-        onClick={() => void handleNewAgent()}
-        disabled={isCreating || isLoading}
+        onClick={handleNewChat}
       >
-        {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-        New agent
+        <Plus className="h-3 w-3" />
+        New chat
       </Button>
-      {/* Orchestrator */}
-      <div className="mb-2">
-        <div className="px-1.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Apical</div>
-        <button
-          onClick={() => onPick(orchestrator.id)}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-lg p-2.5 text-left transition-colors",
-            orchestrator.id === activeId ? "bg-primary/10" : "hover:bg-accent/50",
-          )}
-        >
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 text-primary">
-            <Sparkles className="h-4 w-4" />
+      {pinnedAgents.length > 0 && (
+        <div className="mb-2">
+          <div className="mb-1 px-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Pinned</div>
+          <div className="space-y-1">{pinnedAgents.map(renderAgentRow)}</div>
+        </div>
+      )}
+      {recentAgents.length > 0 && (
+        <div>
+          <div className="mb-1 px-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {pinnedAgents.length > 0 ? "Recent" : "Agents"}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium">Apical</div>
-            <div className="text-[10px] text-muted-foreground">General · all agents</div>
-          </div>
-        </button>
-      </div>
-      {/* Agents */}
-      <div className="mb-1 px-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Agents</div>
-      <div className="space-y-1">
-        {agentConvos.map((c) => {
-          const wf = workflows.find((w) => w.id === c.workflowId);
-          if (!wf) return null;
-          const status = agentStatus(wf);
-          return (
-            <button
-              key={c.id}
-              onClick={() => onPick(c.id)}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg p-2.5 text-left transition-colors",
-                c.id === activeId ? "bg-primary/10" : "hover:bg-accent/50",
-              )}
-            >
-              <div className="relative shrink-0">
-                <div
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-semibold text-primary-foreground"
-                  style={{ backgroundColor: `oklch(${agentAvatarLightness(wf.name)} 0.06 155)` }}
-                >
-                  {agentInitials(wf.name)}
-                </div>
-                <span className={cn("absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background", status.color)} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-medium">{wf.name}</span>
-                  {wf.flaggedCount > 0 && (
-                    <Badge variant="outline" className="shrink-0 border-gate/40 bg-gate/10 px-1 text-[8px] font-semibold text-gate">
-                      {wf.flaggedCount}
-                    </Badge>
-                  )}
-                </div>
-                <div className="truncate text-[10px] text-muted-foreground">{wf.title ?? "Agent"}</div>
-              </div>
-              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-            </button>
-          );
-        })}
-      </div>
+          <div className="space-y-1">{recentAgents.map(renderAgentRow)}</div>
+        </div>
+      )}
+      <DeleteAgentDialog
+        target={deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && void handleDeleteAgent(deleteTarget.id, deleteTarget.name)}
+      />
     </div>
   );
 }
 
 function MobileDetailPane({ agent }: { agent: Workflow }) {
-  const [section, setSection] = React.useState<"overview" | "dashboard" | "workflow" | "config">("overview");
+  const [section, setSection] = React.useState<"overview" | "dashboard" | "workflow" | "config" | "runs">("overview");
   const status = agentStatus(agent);
   const autoPct = Math.round((agent.automaticCount / Math.max(agent.itemsProcessed, 1)) * 100);
 
@@ -708,13 +921,13 @@ function MobileDetailPane({ agent }: { agent: Workflow }) {
     <div className="flex h-full flex-col">
       {/* Section tabs */}
       <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background/50 p-1">
-        {(["overview", "dashboard", "workflow", "config"] as const).map((s) => (
+        {(["overview", "dashboard", "workflow", "config", "runs"] as const).map((s) => (
           <button
             key={s}
             onClick={() => setSection(s)}
             className={cn(
               "flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium capitalize transition-colors",
-              section === s ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+              section === s ? "bg-surface-active text-foreground" : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
             )}
           >
             {s}
@@ -728,6 +941,11 @@ function MobileDetailPane({ agent }: { agent: Workflow }) {
         {section === "dashboard" && <AgentDashboard agent={agent} />}
         {section === "workflow" && <AgentWorkflow agent={agent} />}
         {section === "config" && <AgentConfig agent={agent} />}
+        {section === "runs" && (
+          <div className="p-3">
+            <AgentRunSection workflowId={agent.id} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -736,17 +954,23 @@ function MobileDetailPane({ agent }: { agent: Workflow }) {
 
 function CenterPane({
   agent,
-  isOrchestrator,
+  isNewChat,
+  conversationId,
+  isPopout,
   inspectorOpen,
   onToggleInspector,
+  showInspectorToggle = true,
   previewOpen,
   onTogglePreview,
   hasPreviewContent,
 }: {
   agent: Workflow | undefined;
-  isOrchestrator: boolean;
+  isNewChat: boolean;
+  conversationId: string | null;
+  isPopout: boolean;
   inspectorOpen: boolean;
   onToggleInspector: () => void;
+  showInspectorToggle?: boolean;
   previewOpen?: boolean;
   onTogglePreview?: () => void;
   hasPreviewContent?: boolean;
@@ -757,24 +981,19 @@ function CenterPane({
     <>
       {/* Sub-header: agent identity + inspector toggle */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
-        {isOrchestrator ? (
+        {isNewChat ? (
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary">
-              <Sparkles className="h-4 w-4" />
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-foreground">
+              <MessageSquare className="h-4 w-4" />
             </div>
             <div>
-              <div className="text-sm font-semibold">Apical</div>
-              <div className="text-[10px] text-muted-foreground">General · context to all agents</div>
+              <div className="text-sm font-semibold">New chat</div>
+              <div className="text-[10px] text-muted-foreground">Ask anything · start a new task</div>
             </div>
           </div>
         ) : agent ? (
           <div className="flex items-center gap-2">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold text-primary-foreground"
-              style={{ backgroundColor: `oklch(${agentAvatarLightness(agent.name)} 0.06 155)` }}
-            >
-              {agentInitials(agent.name)}
-            </div>
+            <AgentAvatar name={agent.name} className={cn("h-7 w-7", agentWorkflowRingClass(agent))} textClassName="text-[10px] font-semibold" />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-semibold">{agent.name}</span>
@@ -787,24 +1006,33 @@ function CenterPane({
 
         {/* Preview + inspector toggles */}
         <div className="ml-auto flex items-center gap-1">
+          {IS_TAURI && !isPopout && conversationId && conversationId !== NEW_CHAT_CONVERSATION_ID && (
+            <button
+              onClick={() => openAgentPopout(conversationId)}
+              className="flex items-center gap-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+              title="Open in new window"
+            >
+              <SquareStack className="h-4 w-4" />
+            </button>
+          )}
           {hasPreviewContent && onTogglePreview && (
             <button
               onClick={onTogglePreview}
               className={cn(
                 "flex items-center gap-1 rounded-md p-1.5 transition-colors",
-                previewOpen ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                previewOpen ? "bg-surface-active text-foreground" : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
               )}
               title={previewOpen ? "Hide preview" : "Show preview"}
             >
               <Database className="h-4 w-4" />
             </button>
           )}
-          {!isOrchestrator && agent && (
+          {showInspectorToggle && !isNewChat && agent && (
             <button
               onClick={onToggleInspector}
               className={cn(
                 "flex items-center gap-1 rounded-md p-1.5 transition-colors",
-                inspectorOpen ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                inspectorOpen ? "bg-surface-active text-foreground" : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
               )}
               title={inspectorOpen ? "Hide inspector" : "Show inspector"}
             >
@@ -816,7 +1044,11 @@ function CenterPane({
 
       {/* Chat only */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        <ChatPane agent={agent} isOrchestrator={isOrchestrator} />
+        <ChatPane
+          key={isNewChat ? NEW_CHAT_CONVERSATION_ID : agent?.id ?? "pending-agent"}
+          agent={agent}
+          isNewChat={isNewChat}
+        />
       </div>
     </>
   );
@@ -824,84 +1056,157 @@ function CenterPane({
 
 // ─── Chat pane (center) ────────────────────────────────────────────────────
 
-function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOrchestrator: boolean }) {
+function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat: boolean }) {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [isThinking, setIsThinking] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
   const [composerAttachments, setComposerAttachments] = React.useState<ChatAttachment[]>([]);
+  const [composerError, setComposerError] = React.useState<string | null>(null);
   const [editorOpen, setEditorOpen] = React.useState(false);
   const [editorInitial, setEditorInitial] = React.useState<ArtifactEditorInitial | null>(null);
   const addSandboxItem = useAppStore((s) => s.addSandboxItem);
-  const { workflows } = useAgentsData();
+  const setActiveConversation = useAppStore((s) => s.setActiveConversation);
+  const setPendingAgentHandoff = useAppStore((s) => s.setPendingAgentHandoff);
+  const setMobilePane = useAppStore((s) => s.setMobilePane);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { workflows, createConversationFromMessage } = useAgentsData();
+  const { user } = useAuth();
+  const agentIdForQuery = isNewChat ? null : agent?.id ?? null;
+  const { data: persistedRows, isLoading: messagesLoading } = useAgentMessages(agentIdForQuery);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const abortRef = React.useRef<AbortController | null>(null);
-
-
+  const lastFailedSendRef = React.useRef<{
+    text: string;
+    attachments: ChatAttachment[];
+    priorMessages: ChatMessage[];
+    pendingUserMsg: ChatMessage;
+  } | null>(null);
+  const [analyzingId, setAnalyzingId] = React.useState<string | null>(null);
+  // ChatPane is keyed by agent id, so these refs reset on a genuine agent
+  // switch via remount. We intentionally do NOT reset them in an effect — doing
+  // so makes the handoff guard fire twice under React StrictMode, which double-
+  // invokes runTurn and aborts the first (live) turn, leaving a blank reply.
+  const processedHandoffIdRef = React.useRef<string | null>(null);
+  // Tracks the agent id we've already hydrated from the server. Once hydrated
+  // (or once a handoff turn starts), local message state owns this session so a
+  // background refetch can never wipe a streaming/finished reply.
+  const hydratedAgentRef = React.useRef<string | null>(null);
+  const mountedRef = React.useRef(true);
   React.useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, isThinking]);
-
-  // Load REAL chat history from the API. Each agent's conversation is
-  // persisted in the AgentMessage table (POST /api/agents/[id]/messages).
-  // For the Apical chat, the welcome summary is PREPENDED to the history
-  // (shown at the top), then the real conversation flows below it.
-  // If the API returns nothing (new agent, demo mode, or DB not seeded),
-  // we fall back to messagesForAgent() so the UI isn't empty.
-  React.useEffect(() => {
-    let cancelled = false;
-    async function loadHistory() {
-      setLoading(true);
-      try {
-        if (isOrchestrator) {
-          // Apical chat: the welcome summary at the top, then the orchestrator's
-          // persistent running history below it. The orchestrator isn't an agent
-          // (no Workflow row), so its thread lives in its own Conversation —
-          // loaded via /api/orchestrator/messages so it survives reloads.
-          const welcome = apicalWelcomeMessage({
-            user: { name: "Jordan" },
-            agents: workflows,
-            lastSeenAgoHours: 6,
-          });
-          const history = await loadOrchestratorMessages();
-          if (!cancelled) setMessages([welcome, ...history]);
-        } else if (agent) {
-          const history = await loadAgentMessages(agent.id);
-          if (!cancelled) {
-            setMessages(history.length > 0 ? history : messagesForAgent(agent));
-          }
-        } else {
-          if (!cancelled) setMessages([]);
-        }
-      } catch {
-        // Network/DB error — fall back to demo messages so the UI still works.
-        if (!cancelled && agent) setMessages(messagesForAgent(agent));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    void loadHistory();
-    return () => { cancelled = true; };
-  }, [isOrchestrator, agent?.id]);
-
-  // Persist a message to the active thread (so it survives reloads). The
-  // orchestrator persists to its own Conversation; agents to AgentMessage.
-  async function persistMessage(msg: ChatMessage) {
-    const thoughtEvents = thoughtEventsFromTrace(msg.executionTrace);
-    const payload = {
-      ...msg,
-      events: [
-        ...(msg.events ?? []).filter((e) => e.type !== "reasoning"),
-        ...thoughtEvents,
-      ],
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
     };
-    if (isOrchestrator) {
-      await persistOrchestratorMessage(payload);
+  }, []);
+
+  const runTurnRef = React.useRef<
+    (
+      text: string,
+      priorMessages: ChatMessage[],
+      turnAttachments: ChatAttachment[],
+      pendingUserMsg: ChatMessage,
+      clearHandoffId?: string,
+    ) => Promise<void>
+  >(() => Promise.resolve());
+
+  function filterLoadedMessages(rows: ChatMessage[]): ChatMessage[] {
+    return rows.filter((m) => !(m.role === "agent" && isSendError(m.content)));
+  }
+
+
+  const lastMessage = messages[messages.length - 1];
+  const scrollTick = `${messages.length}:${lastMessage?.content?.length ?? 0}:${lastMessage?.executionTrace?.length ?? 0}`;
+
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: isThinking ? "auto" : "smooth",
+    });
+  }, [scrollTick, isThinking]);
+
+  // Load chat history from React Query cache. New chat is ephemeral until first send.
+  React.useEffect(() => {
+    if (isNewChat) {
+      const handoff = useAppStore.getState().pendingAgentHandoff;
+      if (handoff) {
+        setActiveConversation(conversationIdForWorkflow(handoff.agentId));
+        return;
+      }
+      setMessages([]);
       return;
     }
-    if (!agent) return;
+
+    const handoff = useAppStore.getState().pendingAgentHandoff;
+    const agentId = agent?.id ?? handoff?.agentId;
+    if (!agentId) {
+      setMessages([]);
+      return;
+    }
+
+    const awaitingHandoff = handoff?.agentId === agentId;
+
+    if (awaitingHandoff && handoff && processedHandoffIdRef.current !== handoff.id) {
+      processedHandoffIdRef.current = handoff.id;
+      // The handoff turn drives the conversation from here — local state owns it.
+      hydratedAgentRef.current = agentId;
+      setMessages([]);
+      queueMicrotask(() => {
+        if (!mountedRef.current) return;
+        setIsThinking(true);
+        const handoffAttachments = (handoff.attachments ?? []) as ChatAttachment[];
+        const handoffUserMsg: ChatMessage = {
+          id: Math.random().toString(36).slice(2),
+          role: "user",
+          content: handoff.prompt,
+          attachments: handoffAttachments.length ? handoffAttachments : undefined,
+          createdAt: new Date().toISOString(),
+        };
+        void runTurnRef.current(
+          handoff.prompt,
+          [handoffUserMsg],
+          handoffAttachments,
+          handoffUserMsg,
+          handoff.id,
+        );
+      });
+      return;
+    }
+
+    if (awaitingHandoff) return;
+
+    // Cold-hydrate from the server exactly once per agent. After that, local
+    // message state is the source of truth for this session, so a background
+    // refetch (triggered by persisting messages) can never clobber a streaming
+    // or just-finished reply.
+    if (hydratedAgentRef.current === agentId) return;
+    if (isThinking) return;
+    if (!persistedRows) return;
+    hydratedAgentRef.current = agentId;
+    const loaded =
+      persistedRows.length > 0
+        ? filterLoadedMessages(mapPersistedMessages(persistedRows))
+        : agent
+          ? [agentWelcomeMessage(agent, user)]
+          : [];
+    setMessages(loaded);
+  }, [isNewChat, agent?.id, agent, persistedRows, user, setActiveConversation, isThinking]);
+
+  function resolveAgentId(): string | undefined {
+    return agent?.id ?? useAppStore.getState().pendingAgentHandoff?.agentId;
+  }
+
+  async function persistMessage(msg: ChatMessage): Promise<string | null> {
+    const agentId = resolveAgentId();
+    if (!agentId) return null;
+    const payload = {
+      ...msg,
+      events: eventsForPersistedMessage(msg),
+    };
     try {
-      await fetch(`/api/agents/${agent.id}/messages`, {
+      const res = await fetch(`/api/agents/${agentId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -910,8 +1215,39 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
           events: payload.events,
         }),
       });
-    } catch {
-      // non-fatal — the message is already in local state
+      if (!res.ok) {
+        throw new Error(`Failed to save message (${res.status})`);
+      }
+      const saved = (await res.json()) as { id: string };
+      void queryClient.invalidateQueries({ queryKey: ["agent-messages", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["workflows"] });
+      return saved.id;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save message";
+      toast({ title: "Could not save message", description: message, variant: "destructive" });
+      return null;
+    }
+  }
+
+  async function patchMessage(serverId: string, msg: ChatMessage) {
+    const agentId = resolveAgentId();
+    if (!agentId) return;
+    try {
+      const res = await fetch(`/api/agents/${agentId}/messages/${serverId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: msg.content,
+          events: eventsForPersistedMessage(msg),
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to update message (${res.status})`);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["agent-messages", agentId] });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update message";
+      toast({ title: "Could not update message", description: message, variant: "destructive" });
     }
   }
 
@@ -926,11 +1262,20 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
     text: string,
     priorMessages: ChatMessage[],
     turnAttachments: ChatAttachment[] = [],
+    pendingUserMsg: ChatMessage,
+    clearHandoffId?: string,
   ) {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    if (!mountedRef.current) return;
     setIsThinking(true);
+    setComposerError(null);
+    const handoff = useAppStore.getState().pendingAgentHandoff;
+    const agentId = agent?.id ?? handoff?.agentId ?? null;
+    const agentName = agent?.name ?? handoff?.agentName ?? "Agent";
+    const agentTitle = agent?.title;
+    const agentDescription = agent?.description;
     const replyId = Math.random().toString(36).slice(2);
     const replyMsg: ChatMessage = {
       id: replyId,
@@ -938,35 +1283,87 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
       content: "",
       createdAt: new Date().toISOString(),
     };
-    setMessages((m) => [...m, replyMsg]);
+
+    let userCommitted = false;
+    const commitUser = () => {
+      if (userCommitted) return;
+      userCommitted = true;
+      if (!mountedRef.current) return;
+      setMessages((m) => {
+        const hasUser = m.some((msg) => msg.id === pendingUserMsg.id);
+        const hasReply = m.some((msg) => msg.id === replyId);
+        if (hasUser && hasReply) return m;
+        const base = m.filter((msg) => msg.id !== pendingUserMsg.id && msg.id !== replyId);
+        return [...base, pendingUserMsg, replyMsg];
+      });
+      void persistMessage(pendingUserMsg);
+      setInput("");
+      setComposerAttachments([]);
+      if (clearHandoffId && handoff?.id === clearHandoffId) {
+        setPendingAgentHandoff(null);
+      }
+    };
+
+    // Show the user message and an empty agent bubble immediately — don't wait
+    // for the SSE stream to open or the first model token.
+    commitUser();
 
     try {
-      const agentContext = agent
-        ? `You are acting as the agent "${agent.name}"${agent.title ? ` (${agent.title})` : ""}. What it does: ${agent.description}`
+      const agentContext = agentId
+        ? `You are acting as the agent "${agentName}"${agentTitle ? ` (${agentTitle})` : ""}. What it does: ${agentDescription ?? "A general assistant."}`
         : undefined;
       const result = await streamAgentThink(text, {
         context: agentContext,
         history: chatHistoryForApi(priorMessages, true),
-        agentId: agent?.id ?? null,
+        agentId,
         attachments: turnAttachments,
         allowCli: IS_TAURI,
         isDesktop: IS_TAURI,
-        maxIterations: 18,
+        maxIterations: 64,
         signal: controller.signal,
+        onStreamOpen: commitUser,
         onTraceUpdate: (trace) => {
+          commitUser();
+          if (!mountedRef.current) return;
           setMessages((prev) =>
-            prev.map((m) => (m.id === replyId ? { ...m, executionTrace: trace } : m)),
+            prev.some((m) => m.id === replyId)
+              ? prev.map((m) => (m.id === replyId ? { ...m, executionTrace: trace } : m))
+              : prev,
+          );
+        },
+        onAnswerDelta: (answerSoFar) => {
+          commitUser();
+          if (!mountedRef.current) return;
+          setMessages((prev) =>
+            prev.some((m) => m.id === replyId)
+              ? prev.map((m) => (m.id === replyId ? { ...m, content: answerSoFar } : m))
+              : prev,
+          );
+        },
+        onPlanUpdate: (items) => {
+          commitUser();
+          if (!mountedRef.current) return;
+          setMessages((prev) =>
+            prev.some((m) => m.id === replyId)
+              ? prev.map((m) => (m.id === replyId ? { ...m, checklist: items } : m))
+              : prev,
           );
         },
         onSandboxItem: addSandboxItem,
       });
 
+      if (!userCommitted) commitUser();
+
       const finalContent =
         result.finalAnswer?.trim() ||
         "I couldn't produce a response. Please try again.";
+      if (isSendError(finalContent)) {
+        throw new Error(finalContent);
+      }
       if (!finalContent) {
         throw new Error("No response from the assistant.");
       }
+      lastFailedSendRef.current = null;
       const producedAttachments: ChatAttachment[] | undefined = result.attachments?.map((a) => ({
         id: a.id,
         name: a.name,
@@ -981,6 +1378,7 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
         addSandboxItem(sandboxItemFromAttachment(att));
       }
 
+      if (!mountedRef.current) return;
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === replyId
@@ -989,16 +1387,25 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
                 content: finalContent,
                 executionTrace: result.trace,
                 attachments: producedAttachments,
+                ...(result.checklist ? { checklist: result.checklist } : {}),
+                ...(result.clarificationRequest
+                  ? { clarificationRequest: result.clarificationRequest }
+                  : {}),
                 ...(result.credentialRequest
                   ? { credentialRequest: result.credentialRequest }
                   : {}),
-                ...(result.workflowSavedToAgentId
+                ...(automationSaveSucceeded(result.trace, result.workflowSavedToAgentId)
                   ? { workflowSaved: { agentName: agent?.name ?? "this agent" } }
                   : {}),
-                // Only offer to create a NEW agent when the agent proposed a
-                // fresh workflow (orchestrator). When it saved to its own
-                // workflow, proposedWorkflow is undefined → no offer.
-                ...(result.proposedWorkflow
+                ...(result.createdAgentId
+                  ? {
+                      createdAgent: {
+                        agentId: result.createdAgentId,
+                        agentName: result.createdAgentName ?? "New agent",
+                      },
+                    }
+                  : {}),
+                ...(result.proposedWorkflow && !result.createdAgentId
                   ? {
                       automateOffer: {
                         traceId: replyId,
@@ -1012,42 +1419,193 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
             : msg,
         ),
       );
-      // Persist the finished message (content only — the verbose live trace is
-      // ephemeral and not re-rendered from history).
-      void persistMessage({
+
+      const finishedMsg: ChatMessage = {
         ...replyMsg,
         content: finalContent,
         executionTrace: result.trace,
         attachments: producedAttachments,
+        ...(result.checklist ? { checklist: result.checklist } : {}),
+        ...(result.clarificationRequest ? { clarificationRequest: result.clarificationRequest } : {}),
+        ...(result.credentialRequest ? { credentialRequest: result.credentialRequest } : {}),
+        ...(result.createdAgentId
+          ? {
+              createdAgent: {
+                agentId: result.createdAgentId,
+                agentName: result.createdAgentName ?? "New agent",
+              },
+            }
+          : {}),
+      };
+      if (result.createdAgentId) {
+        setPendingAgentHandoff({
+          id: newHandoffId(),
+          agentId: result.createdAgentId,
+          agentName: result.createdAgentName ?? "New agent",
+          prompt: text,
+          kind: "continue",
+          attachments: turnAttachments.length ? turnAttachments : undefined,
+        });
+        await queryClient.refetchQueries({ queryKey: ["workflows"] });
+        setActiveConversation(conversationIdForWorkflow(result.createdAgentId));
+        setMobilePane("chat");
+      }
+
+      void persistMessage(finishedMsg).then((serverId) => {
+        setAnalyzingId(replyId);
+        void analyzeRun({
+          goal: text,
+          trace: result.trace,
+          finalAnswer: finalContent,
+          agentId: agent?.id ?? null,
+        })
+          .then((analysis) => {
+            if (!mountedRef.current) return;
+            const showWorkflowSaved =
+              automationSaveSucceeded(result.trace, result.workflowSavedToAgentId) &&
+              (analysis.workflowAutoSaved || !!result.workflowSavedToAgentId) &&
+              analysis.success &&
+              analysis.outcomeAchieved !== false;
+            const analyzedMsg: ChatMessage = {
+              ...finishedMsg,
+              runAnalysis: analysis,
+              ...(showWorkflowSaved
+                ? { workflowSaved: { agentName: agent?.name ?? "this agent" } }
+                : {}),
+            };
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === replyId
+                  ? {
+                      ...m,
+                      runAnalysis: analysis,
+                      ...(showWorkflowSaved
+                        ? { workflowSaved: { agentName: agent?.name ?? "this agent" } }
+                        : {}),
+                    }
+                  : m,
+              ),
+            );
+            if (serverId) {
+              void patchMessage(serverId, analyzedMsg);
+            }
+            if (analysis.workflowAutoSaved && showWorkflowSaved) {
+              void queryClient.refetchQueries({ queryKey: ["workflows"] });
+            }
+          })
+          .catch(() => {
+            // Trace already persisted — analysis is optional.
+          })
+          .finally(() => {
+            if (mountedRef.current) {
+              setAnalyzingId((id) => (id === replyId ? null : id));
+            }
+          });
       });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === replyId
-              ? {
-                  ...msg,
-                  content: msg.content.trim() || "Stopped.",
-                }
-              : msg,
-          ),
-        );
+        if (userCommitted && mountedRef.current) {
+          setMessages((prev) => {
+            const trace = prev.find((m) => m.id === replyId)?.executionTrace;
+            const stoppedAnalysis = { success: false, summary: "Run was stopped before completion." };
+            void persistMessage({
+              ...replyMsg,
+              content: "Stopped.",
+              executionTrace: trace,
+              runAnalysis: stoppedAnalysis,
+            });
+            return prev.map((msg) =>
+              msg.id === replyId
+                ? {
+                    ...msg,
+                    content: msg.content.trim() || "Stopped.",
+                    runAnalysis: stoppedAnalysis,
+                  }
+                : msg,
+            );
+          });
+        } else if (mountedRef.current) {
+          setMessages((prev) => prev.filter((m) => m.id !== replyId));
+        }
         return;
       }
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === replyId
-            ? {
-                ...msg,
-                content: `(Something went wrong — ${(err as Error).message}. Check that an LLM provider is configured in Settings.)`,
-              }
-            : msg,
-        ),
-      );
+      if (!mountedRef.current) return;
+      const errorMessage = formatSendError(err);
+      const retryable = isRetryableSendError(errorMessage);
+      lastFailedSendRef.current = {
+        text,
+        attachments: turnAttachments,
+        priorMessages: priorMessages.filter((m) => m.id !== pendingUserMsg.id),
+        pendingUserMsg,
+      };
+      // Surface the failure ONCE — as an in-chat notice (with Retry). Do not
+      // also set the composer banner, which would double-show the same error.
+      setMessages((prev) => [
+        ...prev.filter((m) => m.id !== replyId && m.id !== pendingUserMsg.id),
+        {
+          id: `delivery-error-${Date.now()}`,
+          role: "agent",
+          content: "",
+          deliveryError: { message: errorMessage, retryable },
+          retryPayload: { text, attachments: turnAttachments },
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      setInput(text);
+      setComposerAttachments(turnAttachments);
     } finally {
-      setIsThinking(false);
+      if (mountedRef.current) setIsThinking(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
+  }
+  runTurnRef.current = runTurn;
+
+  function newHandoffId() {
+    return `handoff_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function retryFailedSend() {
+    const failed = lastFailedSendRef.current;
+    if (!failed || isThinking) return;
+    setComposerError(null);
+    setMessages((prev) => prev.filter((m) => !m.deliveryError));
+    void runTurn(
+      failed.text,
+      failed.priorMessages,
+      failed.attachments,
+      failed.pendingUserMsg,
+    );
+  }
+
+  // User clicked a multiple-choice clarification option — mark it answered and
+  // send the choice back so the agent resumes with the answer.
+  function handleClarificationAnswer(messageId: string, answer: string) {
+    if (isThinking) return;
+    setMessages((prev) =>
+      prev.map((m) => (m.id === messageId ? { ...m, clarificationAnswered: true } : m)),
+    );
+    void send({ text: answer });
+  }
+
+  function dismissDeliveryError(messageId: string) {
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    if (lastFailedSendRef.current) {
+      setInput(lastFailedSendRef.current.text);
+      setComposerAttachments(lastFailedSendRef.current.attachments);
+    }
+  }
+
+  function retryFromDeliveryError(payload: { text: string; attachments?: ChatAttachment[] }) {
+    const failed = lastFailedSendRef.current;
+    if (!failed || isThinking) return;
+    setComposerError(null);
+    setMessages((prev) => prev.filter((m) => !m.deliveryError));
+    void runTurn(
+      payload.text,
+      failed.priorMessages,
+      payload.attachments ?? [],
+      failed.pendingUserMsg,
+    );
   }
 
   async function openArtifactForEdit(asset: ChatAttachment) {
@@ -1060,10 +1618,16 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
     }
   }
 
-  function send(payload: { text: string; attachments?: ChatAttachment[] }) {
+  async function send(payload: {
+    text: string;
+    attachments?: ChatAttachment[];
+  }) {
     const text = payload.text.trim();
     const attachments = payload.attachments ?? [];
     if ((!text && attachments.length === 0) || isThinking) return;
+
+    setComposerError(null);
+    setIsThinking(true);
 
     const content =
       text ||
@@ -1071,19 +1635,63 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
         ? `[Attached ${attachments[0].name}]`
         : `[Attached ${attachments.length} files]`);
 
-    const userMsg: ChatMessage = {
-      id: Math.random().toString(36).slice(2),
-      role: "user",
-      content,
-      attachments: attachments.length ? attachments : undefined,
-      createdAt: new Date().toISOString(),
-    };
-    const nextMessages = [...messages, userMsg];
-    setMessages(nextMessages);
-    setInput("");
-    void persistMessage(userMsg);
-    void runTurn(text || content, nextMessages, attachments);
+    try {
+      const route = await routeAgentMessage({
+        message: content,
+        currentAgentId: agent?.id ?? null,
+        agents: workflows,
+      });
+
+      if (route.action === "route" && route.targetAgentId && route.targetAgentId !== agent?.id) {
+        setPendingAgentHandoff({
+          id: newHandoffId(),
+          agentId: route.targetAgentId,
+          agentName: route.targetAgentName ?? "Agent",
+          prompt: buildEditHandoffPrompt(content, route.changeSummary ?? content),
+          kind: "edit",
+          attachments: attachments.length ? attachments : undefined,
+        });
+        setActiveConversation(conversationIdForWorkflow(route.targetAgentId));
+        setMobilePane("chat");
+        return;
+      }
+
+      if (isNewChat) {
+        const created = await createConversationFromMessage(content);
+        if (!mountedRef.current) return;
+        setPendingAgentHandoff({
+          id: newHandoffId(),
+          agentId: created.id,
+          agentName: created.name,
+          prompt: content,
+          kind: "continue",
+          attachments: attachments.length ? attachments : undefined,
+        });
+        setActiveConversation(conversationIdForWorkflow(created.id));
+        setMobilePane("chat");
+        setIsThinking(false);
+        return;
+      }
+
+      const pendingUserMsg: ChatMessage = {
+        id: Math.random().toString(36).slice(2),
+        role: "user",
+        content,
+        attachments: attachments.length ? attachments : undefined,
+        createdAt: new Date().toISOString(),
+      };
+      void runTurn(text || content, messages, attachments, pendingUserMsg, undefined);
+    } catch (err) {
+      if (mountedRef.current) {
+        setComposerError(formatSendError(err));
+        setIsThinking(false);
+      }
+    }
   }
+
+  const handoff = useAppStore((s) => s.pendingAgentHandoff);
+  const awaitingHandoff = !isNewChat && handoff?.agentId === agent?.id;
+  const loading = !isNewChat && messagesLoading && !persistedRows && !awaitingHandoff && !isThinking;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1094,27 +1702,32 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
             <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Loading chat history…
           </div>
         )}
-        {!loading && messages.length === 0 && !isOrchestrator && (
-          <EmptyState onPick={(p) => send({ text: p })} />
+        {!loading && messages.length === 0 && (isNewChat || !agent) && (
+          <EmptyState onPick={(p) => void send({ text: p })} />
         )}
         {messages.map((m, i) => (
           <MessageBubble
             key={m.id}
             message={m}
-            agentName={isOrchestrator ? "Apical" : agent?.name ?? "Agent"}
+            agentName={isNewChat ? "Apical" : agent?.name ?? "Agent"}
             isStreaming={isThinking && i === messages.length - 1 && m.role === "agent"}
+            isAnalyzing={analyzingId === m.id}
             onEditArtifact={openArtifactForEdit}
             onCredentialSaved={(info) =>
               send({
                 text: `I've saved the ${info.label} to the vault. Please continue.`,
               })
             }
+            onPickPrompt={(prompt) => send({ text: prompt })}
+            onClarify={handleClarificationAnswer}
+            onRetryFailedSend={retryFromDeliveryError}
+            onDismissDeliveryError={dismissDeliveryError}
           />
         ))}
         {isThinking && messages[messages.length - 1]?.role !== "agent" && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-primary">
-              {isOrchestrator ? <Sparkles className="h-3.5 w-3.5" /> : <ApicalMark className="h-3.5 w-3.5" />}
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-foreground">
+              {isNewChat ? <MessageSquare className="h-3.5 w-3.5" /> : <ApicalMark className="h-3.5 w-3.5" />}
             </div>
             <span className="flex gap-1">
               <Dot delay={0} />
@@ -1127,16 +1740,22 @@ function ChatPane({ agent, isOrchestrator }: { agent: Workflow | undefined; isOr
 
       <ChatComposer
         value={input}
-        onChange={setInput}
+        onChange={(v) => {
+          setInput(v);
+          if (composerError) setComposerError(null);
+        }}
         disabled={isThinking}
         working={isThinking}
         onStop={stopTurn}
         attachments={composerAttachments}
         onAttachmentsChange={setComposerAttachments}
+        sendError={composerError}
+        onDismissError={() => setComposerError(null)}
+        onRetrySend={composerError && isRetryableSendError(composerError) ? retryFailedSend : undefined}
         placeholder={
-          isOrchestrator
-            ? "Message Apical — ask anything or attach files…"
-            : `Message ${agent?.name ?? "this agent"}…`
+          isNewChat
+            ? "Ask anything or describe work to automate…"
+            : `Message ${agent?.name ?? "Apical"}…`
         }
         onSend={send}
       />
@@ -1164,15 +1783,40 @@ function MessageBubble({
   message,
   agentName,
   isStreaming,
+  isAnalyzing,
   onEditArtifact,
   onCredentialSaved,
+  onPickPrompt,
+  onClarify,
+  onRetryFailedSend,
+  onDismissDeliveryError,
 }: {
   message: ChatMessage;
   agentName: string;
   isStreaming?: boolean;
+  isAnalyzing?: boolean;
   onEditArtifact?: (a: ChatAttachment) => void;
   onCredentialSaved?: (info: { label: string; service: string }) => void;
+  onPickPrompt?: (prompt: string) => void;
+  onClarify?: (messageId: string, answer: string) => void;
+  onRetryFailedSend?: (payload: { text: string; attachments?: ChatAttachment[] }) => void;
+  onDismissDeliveryError?: (messageId: string) => void;
 }) {
+  if (message.deliveryError) {
+    return (
+      <SendFailureNotice
+        message={message.deliveryError.message}
+        retryable={message.deliveryError.retryable}
+        onRetry={
+          message.deliveryError.retryable && message.retryPayload && onRetryFailedSend
+            ? () => onRetryFailedSend(message.retryPayload!)
+            : undefined
+        }
+        onDismiss={onDismissDeliveryError ? () => onDismissDeliveryError(message.id) : undefined}
+      />
+    );
+  }
+
   const isUser = message.role === "user";
   // Flat block style — no bubbles.
   // User messages: a neutral slate-gray block (bg-muted), left-aligned, full-width-ish.
@@ -1182,13 +1826,13 @@ function MessageBubble({
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] space-y-1">
-          <div className="rounded-md bg-[oklch(0.42_0.025_155)] px-3 py-2 text-sm text-white">
+          <div className="rounded-md bg-muted px-3 py-2 text-sm text-foreground">
             <MarkdownText text={message.content} isUser />
           </div>
           {message.attachments && message.attachments.length > 0 && (
             <AssetCards attachments={message.attachments} onEdit={onEditArtifact} />
           )}
-          <div className="text-right text-[10px] text-muted-foreground">
+          <div className="select-none text-right text-[10px] text-muted-foreground">
             {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </div>
         </div>
@@ -1197,18 +1841,34 @@ function MessageBubble({
   }
   // Agent — no bubble, plain text. Name label for context (which agent is talking).
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+    <div className="group/message space-y-1">
+      <div className="flex select-none items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
         <span>{agentName}</span>
         {isStreaming && (
-          <span className="flex items-center gap-1 text-primary">
+          <span className="flex items-center gap-1 text-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
             Working…
           </span>
         )}
       </div>
-      {message.executionTrace && message.executionTrace.length > 0 && (
-        <ChatProgress steps={message.executionTrace} live={!!isStreaming} />
+      {(message.executionTrace?.length || isStreaming) && (
+        <div className="select-none">
+          <RunTimeline
+            run={buildChatRun(message.id, message.executionTrace ?? [], {
+              startedAt: message.createdAt,
+              finishedAt: isStreaming ? undefined : message.createdAt,
+              analysis: message.runAnalysis,
+              live: !!isStreaming,
+              stopped: message.runAnalysis?.summary === "Run was stopped before completion.",
+              analyzing: !!isAnalyzing && !message.runAnalysis,
+            })}
+          />
+        </div>
+      )}
+      {message.checklist && message.checklist.length > 0 && (
+        <div className="select-none">
+          <AgentChecklist items={message.checklist} />
+        </div>
       )}
       <div className="text-sm text-foreground">
         {message.content ? (
@@ -1217,90 +1877,69 @@ function MessageBubble({
           <span className="text-muted-foreground italic">…</span>
         )}
       </div>
+      {message.clarificationRequest && (
+        <div className="select-none">
+          <ClarificationCard
+            request={message.clarificationRequest}
+            answered={message.clarificationAnswered}
+            onAnswer={(text) => onClarify?.(message.id, text)}
+          />
+        </div>
+      )}
+      {message.suggestions && message.suggestions.length > 0 && onPickPrompt && (
+        <div className="select-none">
+          <SuggestionCards suggestions={message.suggestions} onPick={onPickPrompt} />
+        </div>
+      )}
       {message.attachments && message.attachments.length > 0 && (
-        <AssetCards attachments={message.attachments} onEdit={onEditArtifact} />
+        <div className="select-none">
+          <AssetCards attachments={message.attachments} onEdit={onEditArtifact} />
+        </div>
       )}
       {message.credentialRequest && (
-        <CredentialBox request={message.credentialRequest} onSaved={onCredentialSaved} />
+        <div className="select-none">
+          <CredentialBox request={message.credentialRequest} onSaved={onCredentialSaved} />
+        </div>
       )}
       {message.workflowSaved && (
-        <div className="mt-2 flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-          <Save className="h-3 w-3 text-primary" />
+        <div className="mt-2 flex select-none items-center gap-1.5 rounded-md border border-surface-subtle bg-surface-subtle px-2.5 py-1.5 text-[11px] text-muted-foreground">
+          <Save className="h-3 w-3 text-foreground" />
           Updated <span className="font-medium text-foreground">{message.workflowSaved.agentName}</span>&rsquo;s own workflow.
         </div>
       )}
+      {message.createdAgent && (
+        <div className="mt-2 flex select-none items-center gap-1.5 rounded-md border border-surface-subtle bg-surface-subtle px-2.5 py-1.5 text-[11px] text-muted-foreground">
+          <Boxes className="h-3 w-3 text-foreground" />
+          Opened <span className="font-medium text-foreground">{message.createdAgent.agentName}</span> — onboarding context is in its chat.
+        </div>
+      )}
       {message.workflowProposal && (
-        <div className="mt-2 rounded-md border border-primary/30 bg-primary/5 p-2.5 text-xs">
-          <div className="mb-1 font-semibold text-primary">Proposed workflow: {message.workflowProposal.name}</div>
+        <div className="mt-2 select-none rounded-md border border-border bg-muted p-2.5 text-xs">
+          <div className="mb-1 font-semibold text-foreground">Proposed workflow: {message.workflowProposal.name}</div>
           <div className="text-muted-foreground">{message.workflowProposal.description}</div>
           <div className="mt-1.5 text-[10px] text-muted-foreground">{message.workflowProposal.steps.steps.length} steps</div>
         </div>
       )}
       {message.automateOffer && (
-        <div className="mt-2 rounded-md border border-primary/30 bg-primary/5 p-2.5 text-xs">
-          <div className="mb-1 font-semibold text-primary">Automate this?</div>
+        <div className="mt-2 select-none rounded-md border border-border bg-muted p-2.5 text-xs">
+          <div className="mb-1 font-semibold text-foreground">Automate this?</div>
           <p className="text-muted-foreground">{message.automateOffer.summary}</p>
           <div className="mt-1.5 text-[10px] text-muted-foreground">
             {message.automateOffer.steps.steps.length} steps
           </div>
         </div>
       )}
-      <div className="text-[10px] text-muted-foreground">
-        {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-      </div>
-    </div>
-  );
-}
-
-// Lightweight in-chat thinking feed — shows reasoning only (not tool calls).
-// Detailed tool activity lives in the Progress sidebar panel.
-function ChatProgress({ steps, live }: { steps: ExecutionStep[]; live: boolean }) {
-  const thoughts = React.useMemo(
-    () => steps.filter((s) => s.tool === "reason"),
-    [steps],
-  );
-  const [open, setOpen] = React.useState(true);
-  React.useEffect(() => {
-    if (!live) setOpen(false);
-  }, [live]);
-
-  if (thoughts.length === 0) return null;
-
-  const latest = thoughts[thoughts.length - 1];
-
-  return (
-    <div className="rounded-md border border-border/70 bg-muted/30">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] font-medium text-muted-foreground hover:text-foreground"
-      >
-        {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
-        {live ? (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
-        ) : (
-          <Brain className="h-3 w-3 shrink-0 text-reason" />
-        )}
-        <span className="truncate">
-          {open
-            ? live
-              ? "Thinking…"
-              : `${thoughts.length} update${thoughts.length === 1 ? "" : "s"}`
-            : live && latest
-              ? (latest.result || latest.action).slice(0, 100)
-              : `${thoughts.length} update${thoughts.length === 1 ? "" : "s"}`}
+      <div className="flex select-none items-center gap-1 text-[10px] text-muted-foreground">
+        <span>
+          {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </span>
-      </button>
-      {open && (
-        <div className="space-y-1.5 border-t border-border/60 px-2.5 py-2">
-          {thoughts.map((step) => (
-            <div key={step.id} className="flex items-start gap-1.5 text-[11px]">
-              <Brain className="mt-0.5 h-3 w-3 shrink-0 text-reason" />
-              <span className="italic text-muted-foreground">{step.result || step.action}</span>
-            </div>
-          ))}
-        </div>
-      )}
+        {message.content && !isStreaming && (
+          <CopyMessageButton
+            text={message.content}
+            className="opacity-0 transition-opacity group-hover/message:opacity-100 focus-visible:opacity-100"
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -1308,23 +1947,43 @@ function ChatProgress({ steps, live }: { steps: ExecutionStep[]; live: boolean }
 function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
   return (
     <div className="mx-auto max-w-md py-8 text-center">
-      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-foreground">
         <MessageSquare className="h-5 w-5" />
       </div>
       <h3 className="text-sm font-semibold">Start a conversation</h3>
-      <p className="mt-1 text-xs text-muted-foreground">Describe a job to hand off, or pick a starting point:</p>
-      <div className="mt-4 grid gap-2">
-        {DEFAULT_PROMPTS.map((p) => (
-          <button
-            key={p.title}
-            onClick={() => onPick(p.prompt)}
-            className="rounded-lg border border-border bg-card p-2.5 text-left transition-colors hover:border-primary/30"
-          >
-            <div className="text-xs font-medium">{p.title}</div>
-            <div className="mt-0.5 text-[10px] text-muted-foreground">{p.reason}</div>
-          </button>
-        ))}
-      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Ask anything, describe a task, or pick a starting point:
+      </p>
+      <SuggestionCards suggestions={DEFAULT_PROMPTS} onPick={onPick} className="mt-4" />
+    </div>
+  );
+}
+
+function SuggestionCards({
+  suggestions,
+  onPick,
+  className,
+}: {
+  suggestions: { title: string; prompt: string; reason: string }[];
+  onPick: (prompt: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn("grid gap-2", className)}>
+      {suggestions.map((p) => (
+        <button
+          key={p.title}
+          type="button"
+          onClick={() => onPick(p.prompt)}
+          className="rounded-lg border border-border bg-card p-2.5 text-left transition-colors hover:border-border hover:bg-surface-hover"
+        >
+          <div className="text-xs font-medium">{p.title}</div>
+          <div className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">{p.prompt}</div>
+          <div className="mt-1 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+            {p.reason}
+          </div>
+        </button>
+      ))}
     </div>
   );
 }
@@ -1381,7 +2040,7 @@ function RightRailPane({
               onClick={() => onTabChange(t.key)}
               className={cn(
                 "flex-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors",
-                activeTab === t.key ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/40",
+                activeTab === t.key ? "bg-surface-active text-foreground" : "text-muted-foreground hover:bg-surface-hover",
               )}
             >
               {t.label}
@@ -1401,7 +2060,7 @@ function RightRailPane({
 // ─── Right pane: inspector ─────────────────────────────────────────────────
 
 function InspectorPane({ agent, embedded }: { agent: Workflow; embedded?: boolean }) {
-  const [section, setSection] = React.useState<"overview" | "dashboard" | "workflow" | "config">("overview");
+  const [section, setSection] = React.useState<"overview" | "dashboard" | "workflow" | "config" | "runs">("overview");
   const status = agentStatus(agent);
   const autoPct = Math.round((agent.automaticCount / Math.max(agent.itemsProcessed, 1)) * 100);
 
@@ -1409,13 +2068,13 @@ function InspectorPane({ agent, embedded }: { agent: Workflow; embedded?: boolea
     <aside className={cn("flex h-full w-full min-w-0 flex-col overflow-hidden bg-muted/30", !embedded && "border-l border-border")}>
       {/* Section switcher — Overview / Dashboard / Workflow / Config as tabs WITHIN the right rail */}
       <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background/50 p-1">
-        {(["overview", "dashboard", "workflow", "config"] as const).map((s) => (
+        {(["overview", "dashboard", "workflow", "config", "runs"] as const).map((s) => (
           <button
             key={s}
             onClick={() => setSection(s)}
             className={cn(
               "flex-1 rounded-md px-2 py-1 text-[10px] font-medium capitalize transition-colors",
-              section === s ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+              section === s ? "bg-surface-active text-foreground" : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
             )}
           >
             {s}
@@ -1428,6 +2087,11 @@ function InspectorPane({ agent, embedded }: { agent: Workflow; embedded?: boolea
         {section === "dashboard" && <AgentDashboard agent={agent} />}
         {section === "workflow" && <AgentWorkflow agent={agent} />}
         {section === "config" && <AgentConfig agent={agent} />}
+        {section === "runs" && (
+          <div className="p-3">
+            <AgentRunSection workflowId={agent.id} />
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -1442,7 +2106,7 @@ function InspectorOverview({
   agent: Workflow;
   status: { color: string; label: string };
   autoPct: number;
-  onGoSection: (s: "overview" | "dashboard" | "workflow" | "config") => void;
+  onGoSection: (s: "overview" | "dashboard" | "workflow" | "config" | "runs") => void;
 }) {
   return (
     <div className="space-y-3 p-3">
@@ -1482,7 +2146,7 @@ function InspectorOverview({
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Workflow</span>
-          <button onClick={() => onGoSection("workflow")} className="text-[10px] text-primary hover:underline">View →</button>
+          <button onClick={() => onGoSection("workflow")} className="text-[10px] text-muted-foreground hover:text-foreground hover:underline">View →</button>
         </div>
         <div className="space-y-1">
           {agent.steps.steps.slice(0, 5).map((step, i) => {
@@ -1506,7 +2170,7 @@ function InspectorOverview({
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Stats</span>
-          <button onClick={() => onGoSection("dashboard")} className="text-[10px] text-primary hover:underline">Full dashboard →</button>
+          <button onClick={() => onGoSection("dashboard")} className="text-[10px] text-muted-foreground hover:text-foreground hover:underline">Full dashboard →</button>
         </div>
         <div className="grid grid-cols-2 gap-2 text-[10px]">
           <div><div className="text-muted-foreground">Processed</div><div className="font-semibold tabular-nums">{agent.itemsProcessed.toLocaleString()}</div></div>
@@ -1516,33 +2180,23 @@ function InspectorOverview({
         </div>
       </div>
 
-      {/* Recent runs (mocked) */}
-      <div className="rounded-lg border border-border bg-card p-3">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Recent runs</div>
-        <div className="space-y-1">
-          {[
-            { status: "completed", when: "15m ago", items: 32 },
-            { status: "completed", when: "30m ago", items: 18 },
-            { status: "running", when: "now", items: 12 },
-            { status: "failed", when: "1h ago", items: 0 },
-          ].map((r, i) => (
-            <div key={i} className="flex items-center gap-2 text-[10px]">
-              <div className={cn("h-1.5 w-1.5 rounded-full", r.status === "completed" && "bg-emerald-500", r.status === "running" && "bg-primary", r.status === "failed" && "bg-destructive")} />
-              <span className="capitalize">{r.status}</span>
-              <span className="text-muted-foreground">· {r.items} items</span>
-              <span className="ml-auto text-muted-foreground">{r.when}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Run log shortcut */}
+      <button
+        onClick={() => onGoSection("runs")}
+        className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-border"
+      >
+        <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+        View full run log
+        <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground" />
+      </button>
 
       {/* Quick links to other sections */}
       <div className="flex flex-col gap-1">
-        <button onClick={() => onGoSection("dashboard")} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-primary/30">
+        <button onClick={() => onGoSection("dashboard")} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-border">
           <Activity className="h-3.5 w-3.5 text-muted-foreground" /> Full dashboard
           <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground" />
         </button>
-        <button onClick={() => onGoSection("config")} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-primary/30">
+        <button onClick={() => onGoSection("config")} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-border">
           <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" /> Edit config
           <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground" />
         </button>
@@ -1558,8 +2212,8 @@ function AgentDashboard({ agent }: { agent: Workflow }) {
     <div className="h-full overflow-y-auto overscroll-contain p-4">
       <div className="mx-auto max-w-3xl space-y-4">
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
-          <StatCard label="Items processed" value={agent.itemsProcessed.toLocaleString()} icon={Activity} accent="bg-primary/10 text-primary" />
-          <StatCard label="Automatic" value={`${autoPct}%`} icon={CheckCircle2} accent="bg-emerald-500/10 text-emerald-500" />
+          <StatCard label="Items processed" value={agent.itemsProcessed.toLocaleString()} icon={Activity} accent="bg-accent text-foreground" />
+          <StatCard label="Automatic" value={`${autoPct}%`} icon={CheckCircle2} accent="bg-accent text-foreground" />
           <StatCard label="Flagged" value={agent.flaggedCount.toLocaleString()} icon={AlertTriangle} accent="bg-gate/15 text-gate" />
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
@@ -1570,6 +2224,7 @@ function AgentDashboard({ agent }: { agent: Workflow }) {
             <Meta label="Trigger" value={agent.trigger === "schedule" ? `Schedule · ${agent.schedule}` : "Manual"} />
           </div>
         </div>
+        <RunLog workflowId={agent.id} title="Recent runs" limit={15} maxHeight="max-h-96" />
       </div>
     </div>
   );
@@ -1607,8 +2262,13 @@ function AgentWorkflow({ agent }: { agent: Workflow }) {
                     )}
                   </div>
                   <div className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {meta.label}{step.tool && ` · ${step.tool}`}
+                    {workflowStepToolLabel(step)}
                   </div>
+                  {workflowStepDetail(step) && (
+                    <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+                      {workflowStepDetail(step)}
+                    </p>
+                  )}
                   {step.prompt && (
                     <p className="mt-1.5 rounded bg-muted/40 p-2 text-[11px] text-muted-foreground">{step.prompt}</p>
                   )}
@@ -1707,23 +2367,23 @@ function AgentConfig({ agent }: { agent: Workflow }) {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setRuntime("local")}
-                className={cn("rounded-lg border p-3 text-left transition", runtime === "local" ? "border-primary/50 bg-primary/5" : "border-border hover:border-border/80")}
+                className={cn("rounded-lg border p-3 text-left transition", runtime === "local" ? "border-foreground/20 bg-muted" : "border-border hover:border-border/80")}
               >
                 <div className="flex items-center gap-2">
-                  <Monitor className={cn("h-4 w-4", runtime === "local" ? "text-primary" : "text-muted-foreground")} />
+                  <Monitor className={cn("h-4 w-4", runtime === "local" ? "text-foreground" : "text-muted-foreground")} />
                   <span className="text-xs font-semibold">Local (desktop)</span>
-                  {runtime === "local" && <Check className="ml-auto h-3 w-3 text-primary" />}
+                  {runtime === "local" && <Check className="ml-auto h-3 w-3 text-foreground" />}
                 </div>
                 <div className="mt-1 text-[10px] text-muted-foreground">Runs on your machine via the Tauri shell. Filesystem + shell access. Private.</div>
               </button>
               <button
                 onClick={() => setRuntime("hosted")}
-                className={cn("rounded-lg border p-3 text-left transition", runtime === "hosted" ? "border-primary/50 bg-primary/5" : "border-border hover:border-border/80")}
+                className={cn("rounded-lg border p-3 text-left transition", runtime === "hosted" ? "border-foreground/20 bg-muted" : "border-border hover:border-border/80")}
               >
                 <div className="flex items-center gap-2">
-                  <Cloud className={cn("h-4 w-4", runtime === "hosted" ? "text-primary" : "text-muted-foreground")} />
+                  <Cloud className={cn("h-4 w-4", runtime === "hosted" ? "text-foreground" : "text-muted-foreground")} />
                   <span className="text-xs font-semibold">Hosted (cloud)</span>
-                  {runtime === "hosted" && <Check className="ml-auto h-3 w-3 text-primary" />}
+                  {runtime === "hosted" && <Check className="ml-auto h-3 w-3 text-foreground" />}
                 </div>
                 <div className="mt-1 text-[10px] text-muted-foreground">Runs on Apical servers. Always-on, even when your desktop is offline.</div>
               </button>
@@ -1776,22 +2436,20 @@ function AgentConfig({ agent }: { agent: Workflow }) {
         </div>
 
         {error && (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-xs text-destructive">{error}</div>
+          <div className="rounded-md border border-orange-500/30 bg-orange-500/10 p-2.5 text-xs text-orange-950 dark:text-orange-100">{error}</div>
         )}
         {savedAt && !error && (
-          <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-xs text-emerald-600">
+          <div className="flex items-center gap-2 rounded-md border border-border bg-muted p-2.5 text-xs text-foreground">
             <Check className="h-3.5 w-3.5" /> Saved at {savedAt.toLocaleTimeString()}
           </div>
         )}
         <div className="flex items-center justify-between gap-2">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" className="gap-1.5">
               {agent.status === "paused" ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
               {agent.status === "paused" ? "Resume" : "Pause"}
             </Button>
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <Activity className="h-3 w-3" /> Run now
-            </Button>
+            <RunNowControls workflowId={agent.id} />
           </div>
           <Button size="sm" className="gap-1.5" onClick={save} disabled={saving}>
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Save changes

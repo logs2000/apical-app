@@ -20,7 +20,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const bytes = await readAssetBytes(user.id, id)
   if (!bytes) return NextResponse.json({ error: 'File missing on disk' }, { status: 404 })
 
-  return new Response(bytes, {
+  return new Response(new Uint8Array(bytes), {
     headers: {
       'Content-Type': row.mimeType,
       'Content-Disposition': `attachment; filename="${encodeURIComponent(row.name)}"`,

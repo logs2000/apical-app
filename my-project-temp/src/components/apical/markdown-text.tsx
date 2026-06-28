@@ -2,25 +2,26 @@
 
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { remarkGfmSafePlugin } from "@/lib/apical/remark-gfm-safe";
 import { cn } from "@/lib/utils";
+import { CHAT_CONTENT_SELECT } from "@/lib/apical/chat-copy";
 import { normalizeMarkdownTables } from "@/lib/apical/markdown-normalize";
 
-const TABLE_WRAPPER = "my-3 max-w-full overflow-x-auto rounded-md border border-border";
+const TABLE_WRAPPER = "my-3 max-w-full overflow-x-auto rounded-md border border-border select-none";
 const TABLE = "w-full min-w-[280px] border-collapse text-left text-xs";
-const TH = "whitespace-nowrap border-b border-border bg-muted/70 px-2.5 py-1.5 font-semibold text-foreground";
-const TD = "border-b border-border/60 px-2.5 py-1.5 text-muted-foreground align-top";
-const TR = "even:bg-muted/15";
+const TH = "whitespace-nowrap border-b border-border bg-muted px-2.5 py-1.5 font-semibold text-foreground select-none";
+const TD = "border-b border-border px-2.5 py-1.5 text-foreground/90 align-top";
+const TR = "even:bg-muted/30";
 
 const markdownComponents = {
   h1: ({ children }: { children?: React.ReactNode }) => (
-    <h1 className="mb-1.5 mt-3 text-base font-bold first:mt-0">{children}</h1>
+    <h1 className="mb-1.5 mt-3 select-none text-base font-bold first:mt-0">{children}</h1>
   ),
   h2: ({ children }: { children?: React.ReactNode }) => (
-    <h2 className="mb-1 mt-2.5 text-sm font-semibold first:mt-0">{children}</h2>
+    <h2 className="mb-1 mt-2.5 select-none text-sm font-semibold first:mt-0">{children}</h2>
   ),
   h3: ({ children }: { children?: React.ReactNode }) => (
-    <h3 className="mb-0.5 mt-2 text-sm font-medium first:mt-0">{children}</h3>
+    <h3 className="mb-0.5 mt-2 select-none text-sm font-medium first:mt-0">{children}</h3>
   ),
   p: ({ children }: { children?: React.ReactNode }) => <p className="my-1.5">{children}</p>,
   ul: ({ children }: { children?: React.ReactNode }) => (
@@ -46,7 +47,7 @@ const markdownComponents = {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-primary underline underline-offset-2 hover:text-primary/80"
+      className="text-foreground underline underline-offset-2 hover:text-muted-foreground"
     >
       {children}
     </a>
@@ -77,14 +78,16 @@ export function MarkdownText({
   className?: string;
 }) {
   if (isUser) {
-    return <span className={cn("whitespace-pre-wrap", className)}>{text}</span>;
+    return (
+      <span className={cn("whitespace-pre-wrap", CHAT_CONTENT_SELECT, className)}>{text}</span>
+    );
   }
 
   const normalized = React.useMemo(() => normalizeMarkdownTables(text), [text]);
 
   return (
-    <div className={cn("text-sm leading-relaxed text-foreground", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+    <div className={cn("text-sm leading-relaxed text-foreground", CHAT_CONTENT_SELECT, className)}>
+      <ReactMarkdown remarkPlugins={[remarkGfmSafePlugin]} components={markdownComponents}>
         {normalized}
       </ReactMarkdown>
     </div>

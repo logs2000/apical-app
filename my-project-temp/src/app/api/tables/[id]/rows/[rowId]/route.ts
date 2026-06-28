@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
-import { normalizeColumn, validateRow } from '../../../route'
+import { normalizeColumn, validateRow } from '@/lib/tables/table-dto'
 
 // API routes for /api/tables/[id]/rows/[rowId].
 //

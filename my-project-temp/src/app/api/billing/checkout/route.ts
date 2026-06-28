@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { withUser } from '@/lib/auth-helpers'
 import { createCheckoutSession } from '@/lib/platform/billing'
-import type { PlanId } from '@/lib/platform/pricing'
 
 interface CheckoutBody {
   planId?: string
@@ -18,10 +17,11 @@ interface CheckoutBody {
 export const POST = withUser(async (req, { user }) => {
   const body = (await req.json().catch(() => ({}))) as CheckoutBody
 
-  const planId = body.planId as PlanId | undefined
+  const VALID_PLAN_IDS = ['personal', 'team', 'enterprise'] as const
+  type PaidPlanId = (typeof VALID_PLAN_IDS)[number]
+  const planId = body.planId as PaidPlanId | undefined
   const interval = (body.interval as 'monthly' | 'yearly' | undefined) ?? 'monthly'
 
-  const VALID_PLAN_IDS: PlanId[] = ['personal', 'team', 'enterprise']
   if (!planId || !VALID_PLAN_IDS.includes(planId)) {
     return NextResponse.json(
       { error: "planId must be 'personal', 'team', or 'enterprise'" },

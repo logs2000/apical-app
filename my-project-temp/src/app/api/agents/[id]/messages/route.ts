@@ -49,10 +49,10 @@ export async function GET(req: Request, { params }: RouteCtx) {
     if (guard) return guard
     const rows = await db.agentMessage.findMany({
       where: { agentId: id },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: 200,
     })
-    return NextResponse.json(rows.map(mapAgentMessage))
+    return NextResponse.json(rows.reverse().map(mapAgentMessage))
   } catch (err) {
     console.error('[api/agents/[id]/messages] GET failed:', err)
     return NextResponse.json({ error: 'Failed to load messages' }, { status: 500 })
@@ -84,6 +84,10 @@ export async function POST(req: Request, { params }: RouteCtx) {
           ? JSON.stringify(body.events.filter((e) => e.type !== 'token'))
           : null,
       },
+    })
+    await db.workflow.update({
+      where: { id },
+      data: { updatedAt: new Date() },
     })
     return NextResponse.json(mapAgentMessage(created))
   } catch (err) {

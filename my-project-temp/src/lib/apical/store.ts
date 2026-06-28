@@ -5,6 +5,26 @@ import { create } from "zustand";
 import type { SandboxItem } from "@/lib/apical/sandbox";
 import { isAccumulatingDeliverable } from "@/lib/apical/sandbox";
 
+const PINNED_CONVERSATIONS_KEY = "apical:pinned-conversations";
+const DEFAULT_PINNED: string[] = [];
+
+function readPinnedConversationIds(): string[] {
+  if (typeof window === "undefined") return DEFAULT_PINNED;
+  try {
+    const raw = localStorage.getItem(PINNED_CONVERSATIONS_KEY);
+    if (!raw) return DEFAULT_PINNED;
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : DEFAULT_PINNED;
+  } catch {
+    return DEFAULT_PINNED;
+  }
+}
+
+function writePinnedConversationIds(ids: string[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(PINNED_CONVERSATIONS_KEY, JSON.stringify(ids));
+}
+
 export type Mode =
   | "agents"
   | "vault"
@@ -21,6 +41,24 @@ export type InspectorSection = "overview" | "dashboard" | "workflow" | "config";
 export type VaultSection = "connections" | "tokens" | "integrations" | "desktop";
 export type RightRailTab = "preview" | "progress" | "inspector";
 export type MobilePane = "list" | "chat" | "detail" | "preview" | "progress";
+
+/** Auto-navigate to an agent chat and send an opening prompt (edit routing or first message). */
+export interface PendingAgentHandoff {
+  id: string;
+  agentId: string;
+  agentName: string;
+  prompt: string;
+  /** Edit handoffs require the agent to confirm before applying changes. */
+  kind?: "edit" | "continue";
+  attachments?: Array<{
+    id: string;
+    name: string;
+    mimeType: string;
+    kind: string;
+    url: string;
+    localPath?: string | null;
+  }>;
+}
 
 /** A template the user has installed (one-click from the Templates gallery). */
 export interface InstalledTemplate {
@@ -65,18 +103,25 @@ interface AppState {
   /** Deleted memory-entry ids, per agent (demo-only). Keyed by agentId. */
   deletedMemory: Record<string, string[]>;
   deleteMemoryEntry: (agentId: string, entryId: string) => void;
+  /** Drives tab switch + auto-sent prompt when routing to another agent. */
+  pendingAgentHandoff: PendingAgentHandoff | null;
+  setPendingAgentHandoff: (handoff: PendingAgentHandoff | null) => void;
+  /** Sidebar pin order — persisted in localStorage (conversation ids). */
+  pinnedConversationIds: string[];
+  hydratePinnedConversations: () => void;
+  togglePinConversation: (id: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
   mode: "agents",
   setMode: (m) => set({ mode: m }),
-  activeConversationId: "orchestrator",
+  activeConversationId: "new-chat",
   setActiveConversation: (id) => set({ activeConversationId: id }),
   selectedWorkflowId: null,
   selectWorkflow: (id) => set({ selectedWorkflowId: id }),
   popoutConversationId: null,
   setPopoutConversation: (id) => set({ popoutConversationId: id }),
-  inspectorOpen: true,
+  inspectorOpen: false,
   setInspectorOpen: (v) => set({ inspectorOpen: v }),
   toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
   mobilePane: "list",
@@ -127,4 +172,18 @@ export const useAppStore = create<AppState>((set) => ({
         [agentId]: [...(s.deletedMemory[agentId] ?? []), entryId],
       },
     })),
+  pendingAgentHandoff: null,
+  setPendingAgentHandoff: (handoff) => set({ pendingAgentHandoff: handoff }),
+  pinnedConversationIds: DEFAULT_PINNED,
+  hydratePinnedConversations: () =>
+    set({ pinnedConversationIds: readPinnedConversationIds() }),
+  togglePinConversation: (id) =>
+    set((s) => {
+      const has = s.pinnedConversationIds.includes(id);
+      const next = has
+        ? s.pinnedConversationIds.filter((x) => x !== id)
+        : [...s.pinnedConversationIds, id];
+      writePinnedConversationIds(next);
+      return { pinnedConversationIds: next };
+    }),
 }));

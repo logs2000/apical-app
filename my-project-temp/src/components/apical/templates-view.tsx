@@ -31,7 +31,7 @@ const CATEGORY_META: Record<
 > = {
   Filing: {
     color: "var(--primary)",
-    badge: "bg-primary/10 text-primary border-primary/30",
+    badge: "bg-accent text-foreground border-border",
     icon: FileStack,
   },
   Finance: {
@@ -307,7 +307,7 @@ export function TemplatesView() {
           {installedCount > 0 && (
             <Badge
               variant="outline"
-              className="gap-1 border-primary/30 bg-primary/5 text-primary"
+              className="gap-1 border-border bg-muted text-foreground"
             >
               <Check className="h-3 w-3" /> {installedCount} installed
             </Badge>
@@ -451,8 +451,8 @@ function TemplateCard({
       className={cn(
         "group relative flex h-full flex-col overflow-hidden rounded-xl border bg-card p-4 transition-all",
         installed
-          ? "border-primary/40 shadow-sm"
-          : "border-border hover:border-primary/30 hover:shadow-md",
+          ? "border-foreground/20 shadow-sm"
+          : "border-border hover:border-border hover:shadow-md",
       )}
     >
       {/* Top accent bar */}
@@ -516,7 +516,7 @@ function TemplateCard({
             <Button
               size="sm"
               variant="outline"
-              className="h-7 flex-1 gap-1.5 border-primary/30 text-[11px] text-primary"
+              className="h-7 flex-1 gap-1.5 border-border text-[11px] text-foreground"
               onClick={onViewAgents}
             >
               <ArrowRight className="h-3 w-3" /> View in agents

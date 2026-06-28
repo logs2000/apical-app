@@ -1,10 +1,9 @@
 // Apical — workflow runtime engine.
 //
 // `executeRun(runId, workflow, steps)` walks a workflow's steps in order,
-// emitting socket events through the relay so the browser can watch the run
-// unfold live. Tool steps simulate mechanical work, reason steps call the LLM
-// once (with a per-step confidence + flagged/automatic split), and gate steps
-// simulate human approval.
+// emitting socket events through the relay. Production nodes (code, HTTP, MCP,
+// integrations, fs/cli) execute deterministically via workflow-executor — no
+// agent in the loop. Unmapped steps fall back to legacy simulation.
 //
 // The runtime is invoked fire-and-forget from the POST /api/workflows/[id]/run
 // route — the HTTP response returns `{ runId }` immediately so the browser can
@@ -12,6 +11,8 @@
 // console; it must NEVER crash the process.
 
 import { simpleComplete } from '@/lib/platform/llm-gateway'
+import { generateRunReview } from '@/lib/platform/run-review'
+import { executeProductionStep } from '@/lib/platform/workflow-executor'
 import { db } from './db'
 import { broadcastRun } from './relay-client'
 import { parseWorkflowJSON, resolveRefs } from './apical-server'
@@ -424,18 +425,26 @@ function simulateHttpOutput(
   }
 }
 
-/** Run a single tool step: simulate mechanical work + realistic output. */
+/** Run a single tool step: production executor first, then legacy simulation. */
 async function runToolStep(
   runId: string,
   step: WorkflowStep,
   state: ExecState,
   order: number,
+  workflow: Pick<WorkflowRow, 'id' | 'userId' | 'runtime'>,
 ): Promise<{ output: unknown; aiTokens: number; aiCostCents: number }> {
-  // If the step has an inline `http` spec, execute that for real instead of
-  // simulating a named tool. Resolves {{stepId.field}} refs against earlier
-  // step outputs + {{cred:service.field}} refs against the credential vault.
-  if (step.http) {
-    return runHttpStep(runId, step, state)
+  const prod = await executeProductionStep(step, {
+    userId: workflow.userId ?? '',
+    workflowId: workflow.id,
+    runId,
+    runtime: (workflow.runtime === 'local' ? 'local' : 'hosted') as import('@/lib/types').AgentRuntime,
+    outputs: state.outputs,
+  })
+  if (prod) {
+    if (!prod.ok) {
+      throw new Error(prod.error ?? 'Production step failed')
+    }
+    return { output: prod.output, aiTokens: prod.aiTokens, aiCostCents: prod.aiCostCents }
   }
 
   const tool = step.tool || 'unknown.action'
@@ -650,6 +659,9 @@ interface WorkflowRow {
   name: string
   description: string
   stepsJson: string
+  userId: string
+  runtime?: string | null
+  modelPreference?: string | null
 }
 
 /**
@@ -683,9 +695,19 @@ export async function executeRun(
   broadcastRun(runId, 'run:started', { runId, workflowId: workflow.id })
 
   let runFailed = false
+  let runCancelled = false
 
   try {
     for (let i = 0; i < steps.length; i++) {
+      const runRow = await db.run.findUnique({
+        where: { id: runId },
+        select: { status: true },
+      })
+      if (runRow?.status === 'cancelled') {
+        runCancelled = true
+        break
+      }
+
       const step = steps[i]
       const order = i
       broadcastRun(runId, 'step:started', {
@@ -709,7 +731,11 @@ export async function executeRun(
       let stepStatus: RunStepStatus = 'completed'
       try {
         if (step.kind === 'tool') {
-          const r = await runToolStep(runId, step, state, order)
+          const r = await runToolStep(runId, step, state, order, {
+            id: workflow.id,
+            runtime: (workflow.runtime as 'local' | 'hosted') ?? 'hosted',
+            userId: workflow.userId ?? undefined,
+          })
           output = r.output
           aiTokens = r.aiTokens
           aiCostCents = r.aiCostCents
@@ -777,7 +803,9 @@ export async function executeRun(
 
     // Build the report.
     const noun = itemNoun(workflow)
-    const summary = runFailed
+    const summary = runCancelled
+      ? 'Run was cancelled before completion.'
+      : runFailed
       ? `Ran ${state.itemsProcessed} ${noun} but hit an error partway through. ${state.automaticCount} processed automatically, ${state.flaggedCount} flagged.`
       : `Did ${state.itemsProcessed} ${noun}, ${state.automaticCount} automatic, ${state.flaggedCount} I flagged for you.`
 
@@ -820,7 +848,52 @@ export async function executeRun(
 
     const report: RunReport = { summary, items, flags }
 
-    const finalStatus: RunRow['status'] = runFailed ? 'failed' : 'completed'
+    const finalStatus: RunRow['status'] = runCancelled
+      ? 'cancelled'
+      : runFailed
+        ? 'failed'
+        : 'completed'
+
+    broadcastRun(runId, 'run:reviewing', { runId })
+
+    const stepRows = await db.runStep.findMany({
+      where: { runId },
+      orderBy: { order: 'asc' },
+    })
+
+    let review
+    try {
+      review = await generateRunReview({
+        userId: workflow.userId,
+        runId,
+        agentName: workflow.name,
+        agentGoal: workflow.description,
+        runStatus: finalStatus === 'cancelled' ? 'cancelled' : finalStatus === 'failed' ? 'failed' : 'completed',
+        durationMs,
+        reportSummary: summary,
+        workflowStepsJson: workflow.stepsJson,
+        modelPreference: workflow.modelPreference,
+        steps: stepRows.map((s) => ({
+          label: s.label,
+          kind: s.kind,
+          status: s.status,
+          output: s.outputJson
+            ? (() => {
+                try {
+                  const parsed = JSON.parse(s.outputJson)
+                  return typeof parsed === 'string' ? parsed : JSON.stringify(parsed).slice(0, 500)
+                } catch {
+                  return s.outputJson.slice(0, 500)
+                }
+              })()
+            : undefined,
+        })),
+      })
+      report.review = review
+    } catch (err) {
+      console.error('[runtime] run review failed:', err)
+    }
+
     await db.run.update({
       where: { id: runId },
       data: {

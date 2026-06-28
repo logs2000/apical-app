@@ -211,11 +211,6 @@ async function main() {
   ]
   for (const c of creds) await db.credential.create({ data: { id: c.id, userId: devUser.id, service: c.service, label: c.label, kind: c.kind, status: c.status, metaJson: JSON.stringify(c.meta), agentProvisioned: c.agentProvisioned, canPay: c.canPay } })
 
-  // ---------------- Conversations (chat history) ----------------
-  await db.conversation.create({ data: { id: 'conv_1', userId: devUser.id, title: 'Set up scanner sorting', workspaceId: wsMain.id, pinned: true, updatedAt: new Date(now - 1000 * 60 * 60 * 2) } })
-  await db.conversation.create({ data: { id: 'conv_2', userId: devUser.id, title: 'Weekly client digest', workspaceId: wsMain.id, updatedAt: new Date(now - 1000 * 60 * 60 * 26) } })
-  await db.conversation.create({ data: { id: 'conv_3', userId: devUser.id, title: 'Invoice chase \u2014 escalation tone', workspaceId: wsMain.id, updatedAt: new Date(now - 1000 * 60 * 60 * 50) } })
-
   // ---------------- User profile (for custom suggestions + agentNameStyle) ----------------
   await db.userProfile.create({ data: { id: 'profile_main', userId: devUser.id, companyName: 'Apical Inc', industry: 'Small professional services', notes: 'Uses Gmail, QuickBooks, Stripe, Slack. Scans paper docs daily. ~40 clients.', agentNameStyle: 'descriptive', dataSourcesJson: JSON.stringify([
     { label: 'Gmail', kind: 'email', detail: 'ops@apical.test' },
@@ -284,7 +279,7 @@ async function main() {
   console.log(`  Workspaces: 3`)
   console.log(`  Integrations: ${builtin.length} builtin + ${publicLib.length} public + 1 private`)
   console.log(`  Agents: ${agents.length} (Vexa, Runa, Kovo, Sova)`)
-  console.log(`  Runs: 3, Conversations: 3, Credentials: ${creds.length}`)
+  console.log(`  Runs: 3, Credentials: ${creds.length}`)
   console.log(`  PAT: ${demoPatRaw} (demo — use in MCP client config)`)
   console.log('  Developer account: dev@apical.test (pro, $25.00 balance)')
   console.log('  API keys: 2 (Production, Local dev)')

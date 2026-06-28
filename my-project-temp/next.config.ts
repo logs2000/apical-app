@@ -8,7 +8,16 @@ loadEnv({ path: path.resolve(__dirname, "../.env") });
 loadEnv({ path: path.resolve(__dirname, ".env.local") });
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Standalone output is for the Tauri desktop bundle (a long-running Node
+  // server). On Vercel we use the default serverless output instead.
+  output: process.env.VERCEL ? undefined : "standalone",
+  // Tauri on macOS 12 uses Safari 15 WebKit — Turbopack emits syntax it can't
+  // parse (named RegExp groups). Production builds must use webpack + browserslist.
+  transpilePackages: [
+    "framer-motion",
+    "@mdxeditor/editor",
+    "@modelcontextprotocol/sdk",
+  ],
   typescript: {
     // Do NOT silently swallow type errors at build time.
     // Surface them so production builds fail loudly when types drift.
@@ -18,9 +27,29 @@ const nextConfig: NextConfig = {
   // run separately via `next lint` (or `bun run lint`) — it does NOT run
   // during `next build` by default. CI should run `bun run lint` explicitly.
   reactStrictMode: true,
+  devIndicators: false,
   allowedDevOrigins: [
     "localhost",
+    "127.0.0.1",
   ],
+  async headers() {
+    return [
+      {
+        source: "/desktop",
+        headers: [
+          { key: "Cache-Control", value: "no-store, no-cache, must-revalidate" },
+          { key: "Pragma", value: "no-cache" },
+        ],
+      },
+      {
+        source: "/api/auth/desktop-ui",
+        headers: [
+          { key: "Cache-Control", value: "no-store, no-cache, must-revalidate" },
+          { key: "Pragma", value: "no-cache" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

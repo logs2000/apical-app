@@ -49,16 +49,16 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-b from-primary/5 via-background to-background px-4 py-12">
+    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-b from-brand/5 via-background to-background px-4 py-12">
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-32 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-primary/15 blur-3xl"
+        className="pointer-events-none absolute -top-32 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-accent blur-3xl"
       />
       <div className="relative w-full max-w-md">
         <div className="mb-6 flex items-center justify-center gap-2">
           <ApicalMark className="h-7 w-7" withGlow />
           <Link href="/" className="text-lg font-semibold tracking-tight">
-            Apical<span className="text-primary">.</span>
+            Apical<span className="text-brand">.</span>
           </Link>
         </div>
 
@@ -75,8 +75,8 @@ export default function ForgotPasswordPage() {
           <CardContent>
             {sent ? (
               <div className="space-y-4 py-2">
-                <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                <div className="flex items-start gap-3 rounded-lg border border-border bg-muted p-4">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
                   <div className="text-sm">
                     <p className="font-medium">Check your email</p>
                     <p className="mt-1 text-muted-foreground">
@@ -130,7 +130,7 @@ export default function ForgotPasswordPage() {
           <CardFooter className="justify-center">
             <Link
               href="/login"
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-brand hover:underline"
             >
               <ArrowLeft className="h-3 w-3" />
               Back to sign in

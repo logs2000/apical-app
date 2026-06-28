@@ -38,7 +38,7 @@ import { DesktopStage, DraggableWindow } from "@/components/landing/DesktopStage
 import { DemoAppShell } from "@/components/landing/DemoAppShell";
 import { ApicalMark } from "@/components/apical/logo";
 import { AuthProvider, useAuth } from "@/components/auth/AuthDialog";
-import { FullscreenApp } from "@/components/landing/FullscreenApp";
+import { IS_TAURI } from "@/lib/desktop/tauri-bridge";
 
 // ─── OS detection (inlined so the page is self-contained) ──────────────────
 
@@ -132,27 +132,43 @@ const PLAN_LIST: Plan[] = [
 
 function HomeContent() {
   const [os, setOs] = React.useState<DetectedOS>("other");
+  const [mounted, setMounted] = React.useState(false);
   const prefersReducedMotion = useReducedMotion();
   const { launch } = useAuth();
 
   React.useEffect(() => {
     setOs(detectOS());
+    setMounted(true);
   }, []);
 
+  // Desktop shell must never stay on the marketing home page (needs JS to run).
+  React.useEffect(() => {
+    if (IS_TAURI) {
+      window.location.replace("/api/auth/desktop-ui");
+    }
+  }, []);
+
+  if (IS_TAURI) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <span className="text-sm text-muted-foreground">Opening Apical…</span>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <Nav os={os} onLaunch={launch} />
+    <div className="flex min-h-screen flex-col bg-background text-foreground" suppressHydrationWarning>
+      <Nav os={mounted ? os : "other"} onLaunch={launch} />
       <main className="flex-1">
-        <Hero os={os} onLaunch={launch} reduced={prefersReducedMotion} />
+        <Hero os={mounted ? os : "other"} onLaunch={launch} reduced={prefersReducedMotion} />
         <SocialProof />
         <HowItWorks reduced={prefersReducedMotion} />
         <UseCases reduced={prefersReducedMotion} />
-        <Pricing os={os} onLaunch={launch} />
+        <Pricing os={mounted ? os : "other"} onLaunch={launch} />
         <ForDevelopers />
-        <FinalCTA os={os} onLaunch={launch} />
+        <FinalCTA os={mounted ? os : "other"} onLaunch={launch} />
       </main>
       <Footer />
-      <FullscreenApp />
     </div>
   );
 }
@@ -262,7 +278,7 @@ function Hero({
         className="pointer-events-none absolute inset-0 -z-10"
         style={{
           background:
-            "radial-gradient(60% 50% at 50% 0%, oklch(0.96 0.01 150 / 0.7) 0%, transparent 70%)",
+            "radial-gradient(60% 50% at 50% 0%, oklch(0.96 0 0 / 0.8) 0%, transparent 70%)",
         }}
       />
 
@@ -277,7 +293,7 @@ function Hero({
           </Badge>
 
           <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl md:text-6xl">
-            Consider it <span className="text-primary">Done.</span>
+            Consider it <span className="text-brand">Done.</span>
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground text-pretty md:text-xl">
@@ -373,7 +389,7 @@ function HowItWorks({ reduced }: { reduced: boolean | null }) {
       <div className="mx-auto max-w-4xl px-4 py-20 md:px-6 md:py-28">
         <div className="text-center">
           <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
-            Less doing. <span className="text-primary">More deciding.</span>
+            Less doing. <span className="text-brand">More deciding.</span>
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
             You don&apos;t need to understand AI. You just need to know what you want done.
@@ -390,7 +406,7 @@ function HowItWorks({ reduced }: { reduced: boolean | null }) {
               transition={{ delay: i * 0.1, duration: 0.4 }}
               className="text-left"
             >
-              <div className="text-sm font-mono text-primary">{s.n}</div>
+              <div className="text-sm font-mono text-brand">{s.n}</div>
               <h3 className="mt-2 text-lg font-semibold">{s.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
             </motion.div>
@@ -437,7 +453,7 @@ function UseCases({ reduced }: { reduced: boolean | null }) {
                 transition={{ delay: i * 0.06, duration: 0.35 }}
                 className="rounded-lg border border-border/60 bg-card p-5"
               >
-                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent text-foreground">
                   <Icon className="h-4 w-4" />
                 </div>
                 <h3 className="mt-3 text-sm font-semibold">{c.title}</h3>
@@ -494,7 +510,7 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
               )}
             >
               Yearly
-              <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
+              <span className="rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-semibold uppercase text-brand">
                 2 mo free
               </span>
             </button>
@@ -524,7 +540,7 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
                 className={cn(
                   "relative flex flex-col rounded-xl border bg-card p-6",
                   featured
-                    ? "border-primary/50 shadow-md lg:-translate-y-1"
+                    ? "border-foreground/20 shadow-md lg:-translate-y-1"
                     : "border-border hover:border-border/80",
                 )}
               >
@@ -568,7 +584,7 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
                 <ul className="mt-6 space-y-2.5">
                   {plan.features.map((f) => (
                     <li key={f} className="flex items-start gap-2 text-xs">
-                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent text-foreground">
                         <Check className="h-2.5 w-2.5" />
                       </span>
                       <span className="leading-relaxed text-foreground/80">{f}</span>
@@ -804,7 +820,7 @@ function DownloadDialog({
                 <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <code className="flex-1 truncate font-mono text-xs">{cmd}</code>
                 <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={copy}>
-                  {copied ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copied ? <Check className="h-3.5 w-3.5 text-brand" /> : <Copy className="h-3.5 w-3.5" />}
                 </Button>
               </div>
               <p className="mt-2 text-[11px] text-muted-foreground">

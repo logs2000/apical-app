@@ -27,6 +27,7 @@ import {
   DEV_USER_NAME,
   isDevBypass,
 } from './dev-bypass'
+import { sessionCookieName, useSecureSessionCookies } from '@/lib/desktop/session-cookie'
 
 export { DEV_USER_EMAIL, DEV_USER_NAME, isDevBypass }
 
@@ -110,11 +111,24 @@ export const authOptions: NextAuthOptions = {
   // JWT strategy — no database sessions.
   session: { strategy: 'jwt' },
 
+  // http://127.0.0.1 desktop must not use Secure cookies (production default breaks auth).
+  useSecureCookies: useSecureSessionCookies(),
+  cookies: {
+    sessionToken: {
+      name: sessionCookieName(),
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: useSecureSessionCookies(),
+      },
+    },
+  },
+
   providers: buildProviders(),
 
   pages: {
     signIn: '/login',
-    signUp: '/signup',
   },
 
   callbacks: {

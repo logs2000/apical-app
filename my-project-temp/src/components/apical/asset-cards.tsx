@@ -77,7 +77,7 @@ function AssetCard({
               <a
                 href={a.url}
                 download={a.name}
-                className="inline-flex items-center gap-0.5 text-primary hover:underline"
+                className="inline-flex items-center gap-0.5 text-foreground hover:underline"
               >
                 <Download className="h-3 w-3" /> Save
               </a>

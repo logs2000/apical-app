@@ -228,7 +228,7 @@ async fn spawn_mcp_stdio(
 
 /// Open a new Apical window. Each window loads the same frontend; the label is
 /// unique so multiple can coexist. `path` is an app-relative route (defaults to
-/// "/"); pop-outs pass e.g. "/#popout=<conversationId>". Must run on the main
+/// "/desktop"); pop-outs pass e.g. "/desktop#popout=<conversationId>". Must run on the main
 /// thread (window creation is not thread-safe on all platforms), so this is
 /// exposed as a *synchronous* command and is also called directly from
 /// main-thread menu handlers.
@@ -236,7 +236,7 @@ fn open_app_window(app: &tauri::AppHandle, path: Option<&str>) -> Result<(), Str
     // Only allow app-relative routes — never an absolute/external URL.
     let route = match path {
         Some(p) if p.starts_with('/') => p,
-        _ => "/",
+        _ => "/desktop",
     };
     let n = WINDOW_COUNTER.fetch_add(1, Ordering::SeqCst);
     let label = format!("apical-{}", n);
@@ -336,6 +336,16 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
         .item(&palette)
         .build()?;
 
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .item(&PredefinedMenuItem::undo(app, None)?)
+        .item(&PredefinedMenuItem::redo(app, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::cut(app, None)?)
+        .item(&PredefinedMenuItem::copy(app, None)?)
+        .item(&PredefinedMenuItem::paste(app, None)?)
+        .item(&PredefinedMenuItem::select_all(app, None)?)
+        .build()?;
+
     let window_menu = SubmenuBuilder::new(app, "Window")
         .item(&PredefinedMenuItem::minimize(app, Some("Minimize"))?)
         .item(&PredefinedMenuItem::maximize(app, Some("Zoom"))?)
@@ -349,7 +359,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
         .build()?;
 
     MenuBuilder::new(app)
-        .items(&[&app_menu, &file_menu, &view_menu, &window_menu, &help_menu])
+        .items(&[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu, &help_menu])
         .build()
 }
 

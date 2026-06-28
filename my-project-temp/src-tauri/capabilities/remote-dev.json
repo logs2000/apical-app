@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-dev",
+  "description": "Permissions for the Next.js dev/prod server loaded in the desktop webview.",
+  "windows": ["main", "apical-*"],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:3000/**",
+      "http://localhost:3000/**"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "shell:allow-execute",
+    "http:default",
+    "dialog:default",
+    "fs:default",
+    "os:default",
+    "process:default",
+    "notification:default",
+    "global-shortcut:default"
+  ]
+}

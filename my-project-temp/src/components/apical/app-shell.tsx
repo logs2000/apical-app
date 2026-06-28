@@ -44,6 +44,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+import { ApicalWordmark } from "@/components/apical/logo";
 import { useAuth } from "@/components/auth/AuthDialog";
 
 const openDocs = () => window.open("/docs", "_blank");
@@ -76,7 +77,6 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
     }
   }, [setActiveConversation, setPopoutConversation, setMode]);
 
-  // Settings/Billing/etc. are "menu views" — show a back button instead of tabs.
   const isMenuView = SECONDARY_NAV.some((m) => m.key === mode);
   const activeMenuView = SECONDARY_NAV.find((m) => m.key === mode);
 
@@ -175,6 +175,9 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
     <div className="flex h-full min-h-0 flex-col bg-background">
       {/* Top header bar — tabs at the top */}
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background/90 px-3 backdrop-blur-md md:px-4">
+        {!IS_TAURI && !isMenuView && (
+          <ApicalWordmark className="mr-1 hidden shrink-0 sm:flex" />
+        )}
         {isMenuView ? (
           <button
             onClick={() => setMode("agents")}
@@ -224,7 +227,7 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="flex items-center gap-1 rounded-md p-1.5 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                className="flex items-center gap-1 rounded-md p-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
                 title="Menu"
               >
                 <MoreHorizontal className="h-4 w-4" />
@@ -249,7 +252,7 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
                       </span>
                     )}
                     {mode === m.key && !m.shortcut && (
-                      <span className="ml-auto text-[10px] text-primary">●</span>
+                      <span className="ml-auto text-[10px] text-foreground">●</span>
                     )}
                   </DropdownMenuItem>
                 );
@@ -269,7 +272,7 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="gap-2 text-xs text-muted-foreground">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-semibold text-foreground">
                   {user?.name?.[0]?.toUpperCase() ?? "D"}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{user?.email ?? "dev@apical.local"}</span>
@@ -318,7 +321,7 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
       <footer className="shrink-0 border-t border-border bg-background/80 px-3 py-1 backdrop-blur-md md:px-4">
         <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Agent running
+            <span className="h-1.5 w-1.5 rounded-full bg-foreground" /> Agent running
           </span>
           <span className="hidden sm:inline">Apical — Consider it Done.</span>
           <span>Local runtime</span>

@@ -1,51 +1,71 @@
-// Apical — auth middleware.
+// Apical — auth + pre-launch middleware.
 //
-// Protects authenticated routes. The landing page (/) is always public.
-// Protected routes require auth unless dev bypass is active (default in development).
-//
-// Public routes:
-//   • / (landing page)
-//   • /login, /signup
-//   • /api/auth/* (NextAuth endpoints + register)
-//   • /api/connectors/* (public connector catalog)
-//   • /api/agents/register (agent registration)
-//   • /api/supabase/* (Supabase status)
-//   • Next.js static + image optimization
+// Responsibilities (in order):
+//   1. Desktop shell: never show the marketing home inside the Tauri shell.
+//   2. Dev bypass: short-circuit everything in local development.
+//   3. Pre-launch passcode gate: when PRELAUNCH_PASSCODE is set, require the
+//      `apical-prelaunch` cookie before serving anything but the gate itself.
+//   4. Supabase session refresh: keep the auth cookie fresh on every request.
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { isDevBypass } from '@/lib/dev-bypass'
+import {
+  DESKTOP_SHELL_COOKIE,
+  DESKTOP_SHELL_VALUE,
+} from '@/lib/desktop/shell-cookie'
+import { desktopAppUrl } from '@/lib/desktop/desktop-origin'
+import { updateSession } from '@/lib/supabase/middleware'
+import { PRELAUNCH_COOKIE } from '@/lib/prelaunch'
 
-// In dev bypass mode, just pass everything through without auth checks.
-// This avoids the middleware overhead and prevents auth-related issues.
-export function middleware(req: NextRequest) {
+/**
+ * Returns a redirect to /gate when the pre-launch passcode is enabled and the
+ * visitor hasn't entered it yet. Returns null when the gate should let the
+ * request through (gate disabled, allow-listed path, or cookie present).
+ */
+function gateRedirect(req: NextRequest): NextResponse | null {
+  const passcode = process.env.PRELAUNCH_PASSCODE
+  if (!passcode) return null // gate disabled (e.g. local dev)
+
+  const { pathname } = req.nextUrl
+  const allow =
+    pathname === '/gate' ||
+    pathname.startsWith('/api/gate') ||
+    pathname.startsWith('/auth/callback') ||
+    pathname.startsWith('/api/auth')
+  if (allow) return null
+
+  if (req.cookies.get(PRELAUNCH_COOKIE)?.value === '1') return null
+
+  const url = req.nextUrl.clone()
+  url.pathname = '/gate'
+  url.searchParams.set('next', pathname)
+  return NextResponse.redirect(url)
+}
+
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl
+  const isDesktopShell =
+    req.cookies.get(DESKTOP_SHELL_COOKIE)?.value === DESKTOP_SHELL_VALUE
+
+  // Never show the marketing home page inside the desktop shell.
+  if (isDesktopShell && pathname === '/') {
+    return NextResponse.redirect(desktopAppUrl('/api/auth/desktop-ui'))
+  }
+
+  // Local development: skip the gate and Supabase refresh entirely.
   if (isDevBypass()) {
     return NextResponse.next()
   }
 
-  // For production: use withAuth for protected routes
-  // The landing page and public API routes are always accessible
-  const publicPaths = ['/', '/login', '/signup']
-  const publicApiPrefixes = ['/api/auth', '/api/connectors/catalog', '/api/agents/register', '/api/supabase/status']
+  // Pre-launch passcode gate.
+  const gate = gateRedirect(req)
+  if (gate) return gate
 
-  const { pathname } = req.nextUrl
-
-  // Allow public paths
-  if (publicPaths.includes(pathname)) {
-    return NextResponse.next()
-  }
-
-  // Allow public API prefixes
-  if (publicApiPrefixes.some(prefix => pathname.startsWith(prefix))) {
-    return NextResponse.next()
-  }
-
-  // For all other routes, check auth via withAuth
-  // (This would be handled by the withAuth wrapper in production)
-  return NextResponse.next()
+  // Keep the Supabase auth session fresh (no-op without Supabase env vars).
+  return updateSession(req)
 }
 
-// Match everything EXCEPT Next.js internals
 export const config = {
   matcher: [
     '/((?!_next/static|_next/image|favicon.ico|logo.svg|robots.txt|sitemap.xml|download).*)',

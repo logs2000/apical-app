@@ -235,21 +235,27 @@ export async function onMenuAction(
   }
 }
 
-// ─── Multi-window ────────────────────────────────────────────────────────────
+/** Default route for new desktop windows (never the marketing home page). */
+export const DESKTOP_ENTRY = "/desktop";
+
+/** Hash route for a single-agent pop-out window. */
+export function desktopPopoutPath(conversationId: string): string {
+  return `${DESKTOP_ENTRY}#popout=${encodeURIComponent(conversationId)}`;
+}
 
 /**
  * Open a new Apical window (desktop only). No-op in hosted mode. Backed by the
  * Rust `open_app_window_cmd`, which creates a uniquely-labeled webview window.
  *
  * `path` is an app-relative route (must start with "/"). Pop-outs pass a hash
- * route like "/#popout=<conversationId>" so the new window opens focused on
- * that agent. Defaults to "/" (a fresh app window).
+ * route like "/desktop#popout=<conversationId>" so the new window opens focused on
+ * that agent. Defaults to "/desktop" (a fresh app window).
  */
 export async function openAppWindow(path?: string): Promise<void> {
   const invoke = await getInvoke()
   if (!invoke) return
   try {
-    await invoke('open_app_window_cmd', { path: path ?? '/' })
+    await invoke('open_app_window_cmd', { path: path ?? DESKTOP_ENTRY })
   } catch (err) {
     console.error('[tauri-bridge] open_app_window_cmd failed:', err)
   }

@@ -16,6 +16,8 @@ import { cn } from "@/lib/utils";
 import { IS_TAURI } from "@/lib/desktop/tauri-bridge";
 import { pickFiles, formatBytes } from "@/lib/apical/attachments";
 import type { ChatAttachment } from "@/lib/apical";
+import { SendFailureNotice } from "./send-failure-notice";
+import { isRetryableSendError } from "@/lib/apical/send-error";
 
 interface ChatComposerProps {
   value: string;
@@ -28,6 +30,10 @@ interface ChatComposerProps {
   working?: boolean;
   onStop?: () => void;
   placeholder?: string;
+  sendError?: string | null;
+  onDismissError?: () => void;
+  /** When set with sendError, shows a Retry button if the error is retryable. */
+  onRetrySend?: () => void;
 }
 
 function AttachMenu({
@@ -50,7 +56,6 @@ function AttachMenu({
     setPos({ top: r.top - 6, left: r.left });
   }, []);
 
-  // Position before paint so the menu never flashes at (0,0).
   React.useLayoutEffect(() => {
     if (open) updatePos();
   }, [open, updatePos]);
@@ -137,6 +142,9 @@ export function ChatComposer({
   working,
   onStop,
   placeholder,
+  sendError,
+  onDismissError,
+  onRetrySend,
 }: ChatComposerProps) {
   const [busy, setBusy] = React.useState(false);
 
@@ -161,8 +169,6 @@ export function ChatComposer({
     const text = value.trim();
     if (!text && attachments.length === 0) return;
     onSend({ text, attachments });
-    onChange("");
-    onAttachmentsChange([]);
   }
 
   return (
@@ -173,6 +179,16 @@ export function ChatComposer({
       }}
       className="shrink-0 border-t border-border bg-background p-3"
     >
+      {sendError && (
+        <SendFailureNotice
+          message={sendError}
+          retryable={isRetryableSendError(sendError)}
+          onRetry={onRetrySend}
+          onDismiss={onDismissError}
+          compact
+          className="mb-2"
+        />
+      )}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {attachments.map((a) => (
@@ -201,16 +217,15 @@ export function ChatComposer({
         </div>
       )}
 
-      <div className="flex items-end gap-1.5">
-        <AttachMenu
-          disabled={disabled || working}
-          onUpload={() => void attachFiles(false)}
-          onFolder={() => void attachFiles(true)}
-        />
+      <div className="overflow-hidden rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring/50">
         <Textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
+            const mod = e.metaKey || e.ctrlKey;
+            if (mod && (e.key === "c" || e.key === "x" || e.key === "v" || e.key === "a")) {
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey && !working) {
               e.preventDefault();
               submit();
@@ -219,30 +234,39 @@ export function ChatComposer({
           rows={2}
           placeholder={placeholder}
           disabled={disabled}
+          spellCheck
+          autoCorrect="on"
           className={cn(
-            "min-h-[44px] flex-1 resize-none border border-input bg-background text-sm",
-            "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40",
+            "min-h-[44px] resize-none border-0 bg-transparent text-sm shadow-none",
+            "placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
           )}
         />
-        {working ? (
-          <button
-            type="button"
-            onClick={onStop}
-            className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-destructive text-destructive-foreground transition hover:opacity-90"
-            aria-label="Stop"
-          >
-            <Square className="h-3.5 w-3.5 fill-current" />
-          </button>
-        ) : (
-          <button
-            type="submit"
-            disabled={disabled || busy || (!value.trim() && attachments.length === 0)}
-            className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition hover:opacity-90 disabled:opacity-30"
-            aria-label="Send"
-          >
-            <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-          </button>
-        )}
+        <div className="flex items-center justify-between gap-2 px-2 pb-2">
+          <AttachMenu
+            disabled={disabled || working}
+            onUpload={() => void attachFiles(false)}
+            onFolder={() => void attachFiles(true)}
+          />
+          {working ? (
+            <button
+              type="button"
+              onClick={onStop}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-destructive text-destructive-foreground transition hover:opacity-90"
+              aria-label="Stop"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={disabled || busy || (!value.trim() && attachments.length === 0)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition hover:opacity-90 disabled:opacity-30"
+              aria-label="Send"
+            >
+              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+            </button>
+          )}
+        </div>
       </div>
     </form>
   );

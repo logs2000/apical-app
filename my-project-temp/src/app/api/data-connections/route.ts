@@ -1,17 +1,15 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
-import { encrypt, decrypt } from '@/lib/platform/vault'
+import { encrypt } from '@/lib/platform/vault'
 import {
   DATA_PLUGINS,
   getPlugin,
-  maskConfig,
   type DataPluginKind,
 } from '@/lib/platform/data-plugins'
-import type { DataConnection } from '@prisma/client'
+import { mapConnection } from '@/lib/data-connections/connection-dto'
 
 // API routes for /api/data-connections.
-//
 //   GET   — list the user's DataConnections. Secrets are masked; non-secret
 //           fields (host, baseName, …) are returned in `config`.
 //   POST  — create a new connection. Validates config against the plugin's
@@ -20,63 +18,6 @@ import type { DataConnection } from '@prisma/client'
 // The plaintext config is NEVER returned by the API after creation — only
 // the masked view. The only way to recover the full config is to decrypt it
 // server-side (e.g. inside a workflow runner).
-
-export interface DataConnectionDto {
-  id: string
-  userId: string
-  kind: string
-  name: string
-  config: Record<string, unknown> // masked
-  meta: Record<string, unknown>
-  status: string
-  lastStatus: string | null
-  lastCheckedAt: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export function mapConnection(row: DataConnection): DataConnectionDto {
-  let config: Record<string, unknown> = {}
-  try {
-    const parsed = JSON.parse(
-      decryptSafe(row.encryptedConfig),
-    ) as Record<string, unknown>
-    if (parsed && typeof parsed === 'object') {
-      config = parsed
-    }
-  } catch {
-    /* leave empty */
-  }
-  let meta: Record<string, unknown> = {}
-  try {
-    const parsed = JSON.parse(row.metaJson) as Record<string, unknown>
-    if (parsed && typeof parsed === 'object') meta = parsed
-  } catch {
-    /* ignore */
-  }
-  return {
-    id: row.id,
-    userId: row.userId,
-    kind: row.kind,
-    name: row.name,
-    config: maskConfig(row.kind, config),
-    meta,
-    status: row.status,
-    lastStatus: row.lastStatus,
-    lastCheckedAt: row.lastCheckedAt ? row.lastCheckedAt.toISOString() : null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  }
-}
-
-/** Decrypt + return {} on failure (best-effort; never throws). */
-function decryptSafe(encrypted: string): string {
-  try {
-    return decrypt(encrypted)
-  } catch {
-    return '{}'
-  }
-}
 
 // GET /api/data-connections — list + the catalog of available plugins.
 export const GET = withUser(async (_req, { user }) => {

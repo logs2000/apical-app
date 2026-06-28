@@ -13,7 +13,7 @@
 //     enabled, routes through the desktop bridge so commands run on the user's
 //     machine, not the server.
 //   - data_table_*: CRUD on the user's built-in DataTables.
-//   - workflow_propose: lets the agent emit a workflow draft (not deploy).
+//   - workflow_freeze: lets the agent save a proven automation.
 //   - integration_list: lets the agent see what connections are available.
 
 import { db } from '@/lib/db'
@@ -24,8 +24,32 @@ import { ingestOpenApiSpec } from '@/lib/openapi-parser'
 import { searchWeb } from '@/lib/platform/web-search'
 import { saveAsset, assetDownloadUrl } from '@/lib/platform/assets'
 import { normalizeSteps } from '@/lib/deploy'
+import { buildStepsForFreeze } from '@/lib/platform/workflow-distill'
 import { computeNextRun, validateSchedule, parseFixedRate, type ScheduleKind } from '@/lib/platform/cron'
 import type { WorkflowJSON, McpServerConfig } from '@/lib/types'
+import {
+  WORKFLOW_META_TOOLS,
+  MIN_SUBSTANTIVE_FREEZE_STEPS,
+  normalizeTraceTool,
+  isSubstantiveTraceStep,
+  countSubstantiveTraceSteps,
+  workflowStepsFromExecutionTrace,
+  validateWorkflowFreezeTrace,
+  savedWorkflowHasExecutableSteps,
+  traceStepLabel,
+  sanitizeTraceInput,
+  type EngineTraceStep,
+} from '@/lib/platform/workflow-trace'
+
+export {
+  WORKFLOW_META_TOOLS,
+  MIN_SUBSTANTIVE_FREEZE_STEPS,
+  normalizeTraceTool,
+  isSubstantiveTraceStep,
+  countSubstantiveTraceSteps,
+  workflowStepsFromExecutionTrace,
+  validateWorkflowFreezeTrace,
+} from '@/lib/platform/workflow-trace'
 
 // ---------------- Types ----------------
 
@@ -69,6 +93,30 @@ export interface CredentialRequest {
   headerPrefix?: string
 }
 
+/** A single checklist item the agent declares + updates via update_plan. */
+export interface PlanItem {
+  id: string
+  label: string
+  status: 'pending' | 'in_progress' | 'done'
+}
+
+export interface ClarificationOption {
+  key: string
+  label: string
+  description?: string
+}
+
+/** A multiple-choice question the agent asks the user via ask_clarification,
+ *  OR an approval gate before a high-stakes action via request_review. */
+export interface ClarificationRequest {
+  id: string
+  question: string
+  options: ClarificationOption[]
+  multiple?: boolean
+  /** 'clarification' = disambiguate; 'review' = approval gate (default 'clarification'). */
+  kind?: 'clarification' | 'review'
+}
+
 export interface ToolContext {
   userId: string
   agentId?: string | null
@@ -81,13 +129,22 @@ export interface ToolContext {
   allowCli: boolean
   /** Max HTTP fetch size (bytes). */
   maxFetchBytes: number
-  /** The agent's accumulated workflow proposal (mutated by workflow_propose). */
+  /** Optional workflow draft from workflow_freeze during the run. */
   proposedWorkflow?: WorkflowJSON
   /** Set when a workflow was persisted onto an EXISTING agent (its own workflow)
    *  rather than proposed as a brand-new agent. */
   workflowSavedToAgentId?: string
+  /** Set when agent_create materializes a new agent (orchestrator only). */
+  createdAgentId?: string
+  createdAgentName?: string
+  /** The user's goal for this turn — used to seed the new agent's thread. */
+  userGoal?: string
   /** Set by credential_request — surfaced to the chat as an inline key-entry box. */
   credentialRequest?: CredentialRequest
+  /** Set by update_plan — the live checklist surfaced above the answer. */
+  plan?: PlanItem[]
+  /** Set by ask_clarification — a multiple-choice question that ends the turn. */
+  clarification?: ClarificationRequest
   /** A growing list of research findings (mutated by web_read/http_request). */
   findings?: Array<{ source: string; url: string; type: string; description: string }>
   /** The live execution trace — each tool/reason/gate step the agent takes. */
@@ -96,6 +153,8 @@ export interface ToolContext {
     kind: 'tool' | 'reason' | 'gate'
     label: string
     tool?: string
+    /** Tool arguments captured at call time (for workflow freeze). */
+    input?: Record<string, unknown>
     status: 'running' | 'done' | 'flagged' | 'gate' | 'error'
     durationMs?: number
     result?: string
@@ -112,6 +171,8 @@ export interface ToolContext {
     url: string
     sizeBytes?: number
   }>
+  /** Meta-tool failures (workflow_freeze, schedule_agent, etc.) — not in executionTrace. */
+  metaToolFailures?: Array<{ tool: string; error: string }>
 }
 
 export interface ToolDef {
@@ -140,9 +201,21 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max) + `\n…[truncated, ${s.length - max} more chars]`
 }
 
+const GENERIC_AGENT_NAME = /^(new agent|agent|untitled|my agent|assistant|workflow)(\s*\d*)?$/i
+
+function isGenericAgentName(name: string): boolean {
+  return GENERIC_AGENT_NAME.test(name.trim())
+}
+
+import {
+  invokeLocalDesktopTool,
+  isLocalDesktopRuntime,
+} from './local-desktop-tools'
+
 /**
  * Invoke a tool on the user's connected desktop via the desktop bridge.
  * Shared by cli_run + the fs_* tools. Requires an online DesktopSession.
+ * When DESKTOP_LOCAL=true (Tauri), runs directly on the host filesystem.
  * Returns a normalized ToolResult so callers don't repeat the plumbing.
  */
 async function invokeDesktopTool(
@@ -153,6 +226,19 @@ async function invokeDesktopTool(
 ): Promise<ToolResult> {
   const timeoutMs = Math.min(60_000, Math.max(1000, opts.timeoutMs ?? 15_000))
   try {
+    if (isLocalDesktopRuntime()) {
+      const data = await invokeLocalDesktopTool(tool, args, timeoutMs)
+      return {
+        ok: data.ok,
+        output: data.result ?? null,
+        error: data.error,
+        display: {
+          ...opts.display,
+          summary: data.ok ? opts.display.summary : data.error || 'failed',
+        },
+      }
+    }
+
     const sessions = await db.desktopSession.findMany({
       where: { userId: ctx.userId, status: 'online' },
       take: 1,
@@ -359,9 +445,14 @@ const httpRequest: ToolDef = {
         method,
         headers,
         body: ['GET', 'HEAD'].includes(method) ? undefined : body,
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(12_000),
       })
-      const text = await r.text()
+      const text = await Promise.race([
+        r.text(),
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error('Response body read timed out')), 12_000),
+        ),
+      ])
       const ct = r.headers.get('content-type') || ''
       // Try to parse JSON; else return text (truncated).
       let parsed: unknown = text
@@ -901,62 +992,7 @@ const dataTableQuery: ToolDef = {
   },
 }
 
-// 10. workflow_propose — emit/update the workflow draft.
-const workflowPropose: ToolDef = {
-  name: 'workflow_propose',
-  description:
-    'Create or update the proposed workflow for this task. Call this once you have enough information to design the automation. The user will review + approve it before it runs.',
-  inputSchema: {
-    name: { type: 'string', description: 'Agent name (e.g. "LeadFinder").', required: true },
-    description: { type: 'string', description: 'One-line description of what the agent does.', required: true },
-    steps: {
-      type: 'array',
-      description: 'Workflow steps. Each step has a kind: "tool" | "reason" | "gate".',
-      items: { type: 'object' },
-      required: true,
-    },
-    schedule: { type: 'string', description: 'How often it should run (e.g. "Daily at 9am", "Every 30 min", "Weekly").' },
-  },
-  async run(input, ctx) {
-    const name = asString(input.name, 200)
-    const description = asString(input.description, 1000)
-    const steps = Array.isArray(input.steps) ? input.steps : []
-    if (!name || !description || steps.length === 0)
-      return { ok: false, output: null, error: 'name, description, and steps are required' }
-    // Normalize steps into the WorkflowStep shape.
-    const normalized = steps.map((s, i) => {
-      const step = s as Record<string, unknown>
-      const kind = step.kind === 'reason' || step.kind === 'gate' ? step.kind : 'tool'
-      const id = typeof step.id === 'string' && step.id ? step.id : `s${i + 1}`
-      const label = typeof step.label === 'string' && step.label ? step.label : kind === 'reason' ? 'Reason' : kind === 'gate' ? 'Approve' : 'Tool'
-      const out: Record<string, unknown> = { id, kind, label }
-      if (kind === 'tool') {
-        if (typeof step.tool === 'string') out.tool = step.tool
-        if (step.inputs && typeof step.inputs === 'object') out.inputs = step.inputs
-      } else if (kind === 'reason') {
-        if (typeof step.prompt === 'string') out.prompt = step.prompt
-        if (Array.isArray(step.allowedTools)) out.allowedTools = step.allowedTools
-      } else if (kind === 'gate') {
-        if (typeof step.gateMessage === 'string') out.gateMessage = step.gateMessage
-      }
-      if (typeof step.note === 'string') out.note = step.note
-      return out
-    })
-    const wf: WorkflowJSON = { version: 1, steps: normalized as never }
-    ctx.proposedWorkflow = wf
-    return {
-      ok: true,
-      output: { name, description, stepCount: normalized.length, schedule: asString(input.schedule, 200) },
-      display: {
-        title: `Proposed agent: ${name}`,
-        summary: `${normalized.length} steps`,
-        kind: 'workflow',
-      },
-    }
-  },
-}
-
-// 11. credential_list — list the user's vault credentials (non-secret metadata).
+// 10. credential_list — list the user's vault credentials (non-secret metadata).
 //     The agent uses this to know what credentialIds it can pass to
 //     http_request / web_read. NEVER returns the secret itself.
 const credentialList: ToolDef = {
@@ -1101,32 +1137,45 @@ const toolConfigure: ToolDef = {
 const workflowFreeze: ToolDef = {
   name: 'workflow_freeze',
   description:
-    'Freeze your live execution trace into a reusable workflow. Call this AFTER you\'ve successfully accomplished the task by hand (via tool calls) — it converts what you learned into a deterministic automation that runs on a schedule. The frozen workflow references credentials by id only (secrets stay in the vault). Production runs execute the frozen artifact verbatim.',
+    'Phase 3 — DESIGN: Freeze an n8n-style production automation after you accomplished the task (Phase 1) and learned what is needed (Phase 2). Distills into 2–8 deterministic nodes (code, HTTP, MCP, integrations, gates) that run WITHOUT an agent. Optional "steps" array if you already designed the automation. Exploration tools are never saved.',
   inputSchema: {
     name: { type: 'string', description: 'A name for the agent (e.g. "Sorter", "InvoiceChaser").', required: true },
     description: { type: 'string', description: 'One-line description of what the agent does.', required: true },
     schedule: { type: 'string', description: 'How often it should run (e.g. "every 15 min", "daily 9am", "weekly Mon").' },
     credentialIds: { type: 'object', description: 'Array of credential ids the workflow uses (referenced by id; secrets stay in vault).' },
+    steps: { type: 'array', description: 'Optional: your own distilled workflow steps (3–8 max, human labels + full inputs). If omitted, the server distills from the trace automatically.', items: { type: 'object' } },
   },
   async run(input, ctx) {
     const name = asString(input.name, 200)
     const description = asString(input.description, 1000)
     if (!name || !description)
       return { ok: false, output: null, error: 'name and description are required' }
-    if (!ctx.executionTrace || ctx.executionTrace.length === 0)
-      return { ok: false, output: null, error: 'no execution trace — accomplish the task by hand first, then freeze' }
 
-    // Build a WorkflowJSON from the execution trace. Each trace step becomes
-    // a workflow step with the same kind + label + tool.
-    const steps = ctx.executionTrace.map((s, i) => ({
-      id: `s${i + 1}`,
-      kind: s.kind,
-      label: s.label,
-      ...(s.tool ? { tool: s.tool } : {}),
-      ...(s.kind === 'reason' ? { prompt: s.label } : {}),
-      note: s.status === 'flagged' ? 'Flagged during live run — review' : undefined,
-    }))
-    const wf: WorkflowJSON = { version: 1, steps: steps as never }
+    const validation = validateWorkflowFreezeTrace(ctx.executionTrace)
+    const agentSteps = Array.isArray(input.steps) ? input.steps : undefined
+    if (!validation.ok && !agentSteps?.length) {
+      return { ok: false, output: null, error: validation.error }
+    }
+
+    const rawSteps = workflowStepsFromExecutionTrace((ctx.executionTrace ?? []) as EngineTraceStep[])
+    const { steps, distilled } = await buildStepsForFreeze({
+      userId: ctx.userId,
+      trace: (ctx.executionTrace ?? []) as EngineTraceStep[],
+      jobDescription: description,
+      goal: ctx.userGoal,
+      agentProvidedSteps: agentSteps,
+      rawSteps,
+    })
+
+    if (steps.length < MIN_SUBSTANTIVE_FREEZE_STEPS) {
+      return {
+        ok: false,
+        output: null,
+        error: `Distilled workflow has only ${steps.length} step(s) — need at least ${MIN_SUBSTANTIVE_FREEZE_STEPS} executable steps with real parameters.`,
+      }
+    }
+
+    const wf: WorkflowJSON = { version: 1, steps }
 
     // Track the credential ids the workflow should reference.
     const credIds = Array.isArray(input.credentialIds)
@@ -1138,36 +1187,42 @@ const workflowFreeze: ToolDef = {
     // brand-new agent. New agents are only created via agent_create when there's
     // a clear reason for a separate, dedicated agent.
     if (ctx.agentId) {
-      try {
-        await db.workflow.update({
-          where: { id: ctx.agentId },
-          data: {
-            stepsJson: serializeWorkflowJSON(wf),
-            description,
-            ...(asString(input.schedule, 200)
-              ? { schedule: asString(input.schedule, 200) }
-              : {}),
-          },
-        })
-        ctx.currentWorkflow = wf
-        ctx.workflowSavedToAgentId = ctx.agentId
-        return {
-          ok: true,
-          output: {
-            agentId: ctx.agentId,
-            stepCount: steps.length,
-            credentialIds: credIds,
-            savedToAgent: true,
-            note: 'Saved as THIS agent\'s own workflow. It now owns + runs these steps. Use workflow_update later to evolve it as you learn.',
-          },
-          display: {
-            title: `Updated this agent's workflow`,
-            summary: `${steps.length} steps · ${credIds.length} credentials`,
-            kind: 'workflow',
-          },
-        }
-      } catch (e) {
-        return { ok: false, output: null, error: (e as Error).message }
+      const saved = await persistAgentWorkflowSteps(ctx, steps, {
+        description,
+        schedule: asString(input.schedule, 200) || undefined,
+      })
+      if (!saved.ok) {
+        return { ok: false, output: null, error: saved.error ?? 'failed to save workflow' }
+      }
+      ctx.currentWorkflow = wf
+      ctx.workflowSavedToAgentId = ctx.agentId
+      return {
+        ok: true,
+        output: {
+          agentId: ctx.agentId,
+          stepCount: saved.stepCount,
+          distilled,
+          credentialIds: credIds,
+          savedToAgent: true,
+          savedSteps: steps.map((s) => ({
+            id: s.id,
+            kind: s.kind,
+            label: s.label,
+            tool: s.tool,
+            inputs: s.inputs,
+            http: s.http,
+            hardened: s.hardened,
+          })),
+          note:
+            distilled
+              ? `Saved a distilled production workflow (${saved.stepCount} steps) — not a verbatim copy of exploration. Describe ONLY savedSteps in your final answer.`
+              : 'Saved as THIS agent\'s own workflow. Your final answer must describe ONLY the savedSteps above.',
+        },
+        display: {
+          title: `Updated this agent's workflow`,
+          summary: `${saved.stepCount} steps · ${credIds.length} credentials`,
+          kind: 'workflow',
+        },
       }
     }
 
@@ -1183,7 +1238,20 @@ const workflowFreeze: ToolDef = {
         stepCount: steps.length,
         credentialIds: credIds,
         frozen: true,
-        note: 'Workflow frozen from live execution trace. Offer to create a dedicated agent (agent_create) only if this is a recurring job that warrants its own agent.',
+        distilled,
+        savedSteps: steps.map((s) => ({
+          id: s.id,
+          kind: s.kind,
+          label: s.label,
+          tool: s.tool,
+          inputs: s.inputs,
+          http: s.http,
+          hardened: s.hardened,
+        })),
+        note:
+          distilled
+            ? `Distilled ${steps.length}-step production workflow (exploration steps collapsed). Describe ONLY savedSteps.`
+            : 'Workflow frozen. Your final answer must describe ONLY savedSteps — never fabricate steps.',
       },
       display: {
         title: `Froze workflow: ${name}`,
@@ -1201,7 +1269,7 @@ const workflowFreeze: ToolDef = {
 const workflowUpdate: ToolDef = {
   name: 'workflow_update',
   description:
-    "Update THIS agent's own saved workflow (the JSON list of steps it follows). Use this to evolve the process you own — add/replace/reorder steps after you learn a better way, fix a failing step, or add a gate. Pass the COMPLETE new steps array (kind: tool/reason/gate). Only valid when you ARE a specific agent (not the general orchestrator).",
+    "Phase 4 — OVERSEE: Update THIS agent's saved automation after a run failed or requirements changed. Pass the COMPLETE new steps array (n8n-style nodes: code, HTTP, MCP, integrations, gates). Use after workflow_monitor surfaces problems. Only valid when you ARE a specific agent.",
   inputSchema: {
     steps: { type: 'array', description: 'The complete new workflow steps array (replaces the current one).', items: { type: 'object' }, required: true },
     description: { type: 'string', description: 'Optional updated one-line description of what the workflow does.' },
@@ -1209,7 +1277,7 @@ const workflowUpdate: ToolDef = {
   },
   async run(input, ctx) {
     if (!ctx.agentId)
-      return { ok: false, output: null, error: 'workflow_update only works when acting as a specific agent. Use workflow_propose / agent_create instead.' }
+      return { ok: false, output: null, error: 'workflow_update only works when acting as a specific agent. Use workflow_freeze / agent_create instead.' }
     const rawSteps = Array.isArray(input.steps) ? input.steps : []
     if (rawSteps.length === 0)
       return { ok: false, output: null, error: 'a non-empty steps array is required' }
@@ -1241,6 +1309,158 @@ const workflowUpdate: ToolDef = {
       }
     } catch (e) {
       return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 13a. update_plan — declare + maintain a live checklist for a multi-step task.
+//      Renders a checklist card in the chat that updates as the agent works.
+const VALID_PLAN_STATUS = new Set(['pending', 'in_progress', 'done'])
+const updatePlanTool: ToolDef = {
+  name: 'update_plan',
+  description:
+    'Create or update your step-by-step checklist. Call this FIRST for any task with 2+ steps to lay out the plan, then call it again to mark items in_progress/done as you complete them. Renders a live checklist in the chat so the user can follow along. Always pass the FULL list each time (not a diff). Keep labels short + imperative.',
+  inputSchema: {
+    items: {
+      type: 'array',
+      description:
+        'The full checklist. Each item: { id (stable short slug), label (short imperative step), status: "pending" | "in_progress" | "done" }.',
+      required: true,
+      items: { type: 'object' },
+    },
+  },
+  async run(input, ctx) {
+    const rawItems = Array.isArray(input.items) ? input.items : []
+    const items: PlanItem[] = rawItems
+      .map((it, i) => {
+        const o = (it ?? {}) as Record<string, unknown>
+        const id = asString(o.id, 60) || `step-${i + 1}`
+        const label = asString(o.label, 200)
+        const statusRaw = asString(o.status, 20)
+        const status = (VALID_PLAN_STATUS.has(statusRaw) ? statusRaw : 'pending') as PlanItem['status']
+        return { id, label, status }
+      })
+      .filter((it) => it.label)
+    if (items.length === 0)
+      return { ok: false, output: null, error: 'items must be a non-empty array of { id, label, status }' }
+    ctx.plan = items
+    const done = items.filter((i) => i.status === 'done').length
+    return {
+      ok: true,
+      output: { items, done, total: items.length },
+      display: { title: 'Checklist updated', summary: `${done}/${items.length} done`, kind: 'info' },
+    }
+  },
+}
+
+// 13b. ask_clarification — ask the user a multiple-choice question when the
+//      request is genuinely ambiguous. Renders clickable option buttons and
+//      ENDS the turn; the user's choice arrives as the next message.
+const askClarificationTool: ToolDef = {
+  name: 'ask_clarification',
+  description:
+    'Ask the user a MULTIPLE-CHOICE clarifying question when the request is genuinely ambiguous and you cannot safely proceed (unclear scope, target, source, format, destination, etc.). Renders clickable option buttons in the chat — the user\'s selection is sent back to you as the next message, so this ENDS your current turn. Provide 2–5 concrete options. Do NOT use this for things you can reasonably infer or look up yourself; prefer doing the work over over-asking.',
+  inputSchema: {
+    question: { type: 'string', description: 'The clarifying question to ask.', required: true },
+    options: {
+      type: 'array',
+      description:
+        '2–5 options the user can click. Each: { key (short slug), label (button text), description? (one-line detail) }.',
+      required: true,
+      items: { type: 'object' },
+    },
+    multiple: { type: 'boolean', description: 'Allow selecting more than one option (default false).' },
+  },
+  async run(input, ctx) {
+    const question = asString(input.question, 500)
+    if (!question) return { ok: false, output: null, error: 'question is required' }
+    const rawOptions = Array.isArray(input.options) ? input.options : []
+    const options: ClarificationOption[] = rawOptions
+      .map((it, i) => {
+        const o = (it ?? {}) as Record<string, unknown>
+        return {
+          key: asString(o.key, 60) || `opt-${i + 1}`,
+          label: asString(o.label, 200),
+          description: asString(o.description, 400) || undefined,
+        }
+      })
+      .filter((o) => o.label)
+    if (options.length < 2)
+      return { ok: false, output: null, error: 'provide at least 2 options the user can choose from' }
+    ctx.clarification = {
+      id: `clarify-${Date.now()}`,
+      question,
+      options,
+      multiple: Boolean(input.multiple),
+      kind: 'clarification',
+    }
+    return {
+      ok: true,
+      output: {
+        asked: true,
+        note: 'A multiple-choice question is now shown to the user. STOP — wait for their selection, which arrives as your next message. Do not continue or assume an answer.',
+      },
+      display: { title: 'Asked for clarification', summary: question.slice(0, 80), kind: 'info' },
+    }
+  },
+}
+
+// 13b2. request_review — an APPROVAL GATE before a genuinely high-stakes or
+//       irreversible action (delete data, send money, mass email, public post,
+//       overwrite files, anything hard to undo). Renders the same clickable
+//       card with approve/cancel-style options and ENDS the turn. AVOID this
+//       whenever a safe, reversible, or autonomous path exists.
+const requestReviewTool: ToolDef = {
+  name: 'request_review',
+  description:
+    'Pause for HUMAN APPROVAL before a genuinely high-stakes, destructive, or irreversible action (deleting data, spending money, sending mass/external emails, posting publicly, overwriting or removing files, anything hard to undo). Renders clickable approve/cancel options and ENDS your turn; the choice comes back as your next message. Use this SPARINGLY — only when there is no safe, reversible, or autonomous alternative. Prefer doing reversible work autonomously over asking. Never use it for routine, low-risk, or easily-undone steps.',
+  inputSchema: {
+    summary: {
+      type: 'string',
+      description: 'Plainly state exactly WHAT you are about to do, WHY it is high-stakes, and that it needs approval (e.g. "Send this email to 240 customers?").',
+      required: true,
+    },
+    options: {
+      type: 'array',
+      description:
+        'The choices, default approve + cancel. Each: { key, label, description? }. e.g. [{key:"approve",label:"Approve & continue"},{key:"cancel",label:"Cancel"}].',
+      items: { type: 'object' },
+    },
+  },
+  async run(input, ctx) {
+    const summary = asString(input.summary, 600)
+    if (!summary) return { ok: false, output: null, error: 'summary is required' }
+    const rawOptions = Array.isArray(input.options) ? input.options : []
+    let options: ClarificationOption[] = rawOptions
+      .map((it, i) => {
+        const o = (it ?? {}) as Record<string, unknown>
+        return {
+          key: asString(o.key, 60) || `opt-${i + 1}`,
+          label: asString(o.label, 200),
+          description: asString(o.description, 400) || undefined,
+        }
+      })
+      .filter((o) => o.label)
+    if (options.length < 2) {
+      options = [
+        { key: 'approve', label: 'Approve & continue' },
+        { key: 'cancel', label: 'Cancel' },
+      ]
+    }
+    ctx.clarification = {
+      id: `review-${Date.now()}`,
+      question: summary,
+      options,
+      multiple: false,
+      kind: 'review',
+    }
+    return {
+      ok: true,
+      output: {
+        asked: true,
+        note: 'An approval gate is now shown to the user. STOP — wait for their decision, which arrives as your next message. Do not proceed with the action until they approve.',
+      },
+      display: { title: 'Awaiting approval', summary: summary.slice(0, 80), kind: 'info' },
     }
   },
 }
@@ -1304,15 +1524,15 @@ const credentialRequestTool: ToolDef = {
 const workflowMonitor: ToolDef = {
   name: 'workflow_monitor',
   description:
-    'Review recent runs + failures of a frozen workflow. Returns the last N runs with status, items processed, errors, and any tool failures. Use this to spot problems + decide whether to call workflow_improve.',
+    'Phase 4 — OVERSEE: Review recent automated runs and failures for YOUR workflow. Returns run status, errors, and failure patterns. Call this when the user asks how automation is going, or before workflow_update / workflow_improve to fix broken nodes. When you are a specific agent, workflowId defaults to your own workflow.',
   inputSchema: {
-    workflowId: { type: 'string', description: 'The workflow id to monitor.', required: true },
+    workflowId: { type: 'string', description: 'The workflow id to monitor. Defaults to YOUR OWN workflow when you are a specific agent.' },
     limit: { type: 'number', description: 'Max runs to return (default 10).' },
   },
-  async run(input, _ctx) {
-    const workflowId = asString(input.workflowId, 100)
+  async run(input, ctx) {
+    const workflowId = asString(input.workflowId, 100) || ctx.agentId || ''
     if (!workflowId)
-      return { ok: false, output: null, error: 'workflowId is required' }
+      return { ok: false, output: null, error: 'workflowId is required (or act as a specific agent)' }
     const limit = Math.min(50, Math.max(1, asNumber(input.limit, 10)))
     try {
       const runs = await db.run.findMany({
@@ -1379,17 +1599,17 @@ const workflowMonitor: ToolDef = {
 const workflowImprove: ToolDef = {
   name: 'workflow_improve',
   description:
-    'Improve a frozen workflow based on observed failures. Call workflow_monitor first to see what\'s broken, then call this with the workflow id + a description of the improvement (e.g. "add a retry to step s3", "change s2 tool to http_request with credentialId", "add a gate before s4"). The improvement is applied to the frozen artifact so the next run uses it.',
+    'Phase 4 — OVERSEE: Fix YOUR automation after workflow_monitor shows failures. Pass improvement description and optionally the complete newSteps array (n8n-style nodes). The runtime will use the updated automation on the next run — you do not re-execute the job manually.',
   inputSchema: {
-    workflowId: { type: 'string', description: 'The workflow id to improve.', required: true },
+    workflowId: { type: 'string', description: 'The workflow id to improve. Defaults to YOUR OWN workflow when you are a specific agent.' },
     improvement: { type: 'string', description: 'A plain-English description of the improvement (e.g. "add retry to s3", "replace s2 tool").', required: true },
     newSteps: { type: 'object', description: 'Optional: the complete new steps array to replace the frozen artifact with. If omitted, the improvement is recorded as a note for human review.' },
   },
-  async run(input, _ctx) {
-    const workflowId = asString(input.workflowId, 100)
+  async run(input, ctx) {
+    const workflowId = asString(input.workflowId, 100) || ctx.agentId || ''
     const improvement = asString(input.improvement, 2000)
     if (!workflowId || !improvement)
-      return { ok: false, output: null, error: 'workflowId and improvement are required' }
+      return { ok: false, output: null, error: 'workflowId and improvement are required (or act as a specific agent)' }
     try {
       const wf = await db.workflow.findUnique({
         where: { id: workflowId },
@@ -1404,6 +1624,10 @@ const workflowImprove: ToolDef = {
           where: { id: workflowId },
           data: { stepsJson: newStepsJson },
         })
+        if (ctx.agentId === workflowId) {
+          ctx.currentWorkflow = { version: 1, steps: input.newSteps as never }
+          ctx.workflowSavedToAgentId = workflowId
+        }
         return {
           ok: true,
           output: {
@@ -1496,13 +1720,14 @@ const agentList: ToolDef = {
 const agentCreate: ToolDef = {
   name: 'agent_create',
   description:
-    "Create a new, persisted agent that owns a job going forward. Call this AFTER you understand the process (ideally after doing it once / freezing a trace). The new agent gets its own chat thread + dashboard. Pass the workflow steps (tool/reason/gate, same shape as workflow_propose). Returns the new agentId — tell the user it's been created and that they can open it. To make it run on a schedule, call schedule_agent next.",
+    "Phase 3 — DESIGN (orchestrator only): Create a dedicated agent that owns a recurring job AFTER Phases 1–2 (accomplish + learn). Pass n8n-style workflow steps (code, HTTP, MCP, integrations, gates). Include contextForAgent with everything learned. The app opens the new agent's chat automatically. Call schedule_agent next for recurring jobs. Do NOT create before proving the approach works.",
   inputSchema: {
-    name: { type: 'string', description: 'Agent name (e.g. "Sorter", "LeadFinder").', required: true },
+    name: { type: 'string', description: 'Specific, descriptive agent name (e.g. "Lead Scout", "HubSpot Pipeline Builder"). NOT generic placeholders.', required: true },
     description: { type: 'string', description: 'One-line description of what the agent does.', required: true },
     steps: { type: 'array', description: 'Workflow steps (each has kind: "tool" | "reason" | "gate").', items: { type: 'object' }, required: true },
     title: { type: 'string', description: 'A plain role title (e.g. "Filing Agent").' },
     schedule: { type: 'string', description: 'Optional human-readable schedule label (e.g. "Daily at 9am"). For an actual recurring trigger, call schedule_agent after.' },
+    contextForAgent: { type: 'string', description: 'Onboarding notes for the new agent: user goals, setup decisions, missing credentials, outreach copy, prospect sources, etc.' },
   },
   async run(input, ctx) {
     const name = asString(input.name, 200)
@@ -1510,10 +1735,17 @@ const agentCreate: ToolDef = {
     const rawSteps = Array.isArray(input.steps) ? input.steps : []
     if (!name || !description || rawSteps.length === 0)
       return { ok: false, output: null, error: 'name, description, and a non-empty steps array are required' }
+    if (isGenericAgentName(name))
+      return {
+        ok: false,
+        output: null,
+        error: 'Pick a specific, descriptive agent name (e.g. "Lead Scout", "HubSpot Pipeline Builder") — not a generic placeholder like "Agent" or "New agent".',
+      }
     try {
       const steps = normalizeSteps(rawSteps)
       const title = asString(input.title, 100) || null
       const scheduleLabel = asString(input.schedule, 200) || null
+      const contextForAgent = asString(input.contextForAgent, 8000)
       const created = await db.workflow.create({
         data: {
           userId: ctx.userId,
@@ -1528,6 +1760,35 @@ const agentCreate: ToolDef = {
           title,
         },
       })
+      ctx.createdAgentId = created.id
+      ctx.createdAgentName = created.name
+
+      const onboardingParts = [
+        `You were just created to own this job going forward.`,
+        `**What you do:** ${description}`,
+        ctx.userGoal ? `**Original user request:** ${ctx.userGoal}` : '',
+        contextForAgent ? `**Setup context:**\n${contextForAgent}` : '',
+        scheduleLabel ? `**Schedule:** ${scheduleLabel}` : '',
+        `**Workflow:** ${steps.length} step${steps.length === 1 ? '' : 's'} configured — see the Config tab for the full process.`,
+        `Your lifecycle: Phase 1 accomplish tasks when asked → Phase 2 learn what's needed → Phase 3 design automation (workflow_freeze) → Phase 4 oversee runs (workflow_monitor + workflow_update). The runtime executes your saved automation — you manage it, not re-run it every cycle.`,
+      ].filter(Boolean)
+      await db.agentMessage.create({
+        data: {
+          agentId: created.id,
+          role: 'agent',
+          content: onboardingParts.join('\n\n'),
+        },
+      })
+      if (ctx.userGoal?.trim()) {
+        await db.agentMessage.create({
+          data: {
+            agentId: created.id,
+            role: 'user',
+            content: ctx.userGoal.trim(),
+          },
+        })
+      }
+
       return {
         ok: true,
         output: {
@@ -1535,7 +1796,7 @@ const agentCreate: ToolDef = {
           name: created.name,
           stepCount: steps.length,
           schedule: scheduleLabel,
-          note: 'Agent created. It now has its own chat thread + dashboard. Call schedule_agent to make it run automatically.',
+          note: 'Agent created and opened for the user. Call schedule_agent to make it run automatically.',
         },
         display: { title: `Created agent: ${name}`, summary: `${steps.length} steps`, kind: 'workflow' },
       }
@@ -1551,7 +1812,7 @@ const agentCreate: ToolDef = {
 const scheduleAgent: ToolDef = {
   name: 'schedule_agent',
   description:
-    'Make an agent run automatically on a recurring schedule. Pass the agentId (from agent_create or agent_list) and a schedule. Use cron ("0 9 * * *" = daily 9am UTC; "*/15 * * * *" = every 15 min) or a fixed rate ("fixed_rate:3600" = every hour). Returns the next run time.',
+    'Phase 3 — DESIGN: Schedule the automation to run without an agent. Requires workflow_freeze first (production nodes saved). Pass agentId and cron ("0 9 * * *") or fixed_rate ("fixed_rate:3600"). Returns next run time.',
   inputSchema: {
     agentId: { type: 'string', description: 'The agent (workflow) id to schedule.', required: true },
     schedule: { type: 'string', description: 'A 5-field cron expression, or "fixed_rate:<seconds>".', required: true },
@@ -1573,9 +1834,17 @@ const scheduleAgent: ToolDef = {
     try {
       const wf = await db.workflow.findFirst({
         where: { id: agentId, OR: [{ userId: ctx.userId }, { userId: null }] },
-        select: { id: true, name: true },
+        select: { id: true, name: true, stepsJson: true },
       })
       if (!wf) return { ok: false, output: null, error: 'agent not found (or not owned by this user)' }
+      if (!savedWorkflowHasExecutableSteps(wf.stepsJson)) {
+        return {
+          ok: false,
+          output: null,
+          error:
+            'Cannot schedule — this agent has no production automation yet. Call workflow_freeze first to save deterministic nodes (code, HTTP, MCP, integrations).',
+        }
+      }
       const nextRunAt = computeNextRun(schedule, kind, 'UTC')
       const job = await db.scheduledJob.create({
         data: {
@@ -1613,6 +1882,199 @@ const scheduleAgent: ToolDef = {
   },
 }
 
+// ---------------- Workflow persistence helpers ----------------
+
+/** Persist workflow steps onto an agent's owned workflow row. */
+export async function persistAgentWorkflowSteps(
+  ctx: ToolContext,
+  steps: WorkflowJSON['steps'],
+  opts: { description?: string; schedule?: string } = {},
+): Promise<{ ok: boolean; stepCount: number; error?: string }> {
+  if (!ctx.agentId) return { ok: false, stepCount: 0, error: 'no agentId' }
+  if (steps.length < MIN_SUBSTANTIVE_FREEZE_STEPS) {
+    return { ok: false, stepCount: 0, error: `need at least ${MIN_SUBSTANTIVE_FREEZE_STEPS} steps` }
+  }
+  const wf: WorkflowJSON = { version: 1, steps }
+  const description = opts.description?.trim() || ctx.agentName || 'Agent workflow'
+  try {
+    await db.workflow.update({
+      where: { id: ctx.agentId },
+      data: {
+        stepsJson: serializeWorkflowJSON(wf),
+        description,
+        ...(opts.schedule ? { schedule: opts.schedule } : {}),
+      },
+    })
+    ctx.currentWorkflow = wf
+    ctx.workflowSavedToAgentId = ctx.agentId
+    return { ok: true, stepCount: steps.length }
+  } catch (e) {
+    return { ok: false, stepCount: 0, error: (e as Error).message }
+  }
+}
+
+/** Persist the current execution trace onto an agent's owned workflow row. */
+export async function persistAgentWorkflowFromTrace(
+  ctx: ToolContext,
+  opts: {
+    description?: string
+    schedule?: string
+    steps?: WorkflowJSON['steps']
+    goal?: string
+    agentProvidedSteps?: unknown[]
+  } = {},
+): Promise<{ ok: boolean; stepCount: number; error?: string; distilled?: boolean }> {
+  if (!ctx.agentId) return { ok: false, stepCount: 0, error: 'no agentId' }
+  const trace = (ctx.executionTrace ?? []) as EngineTraceStep[]
+  if (trace.length === 0 && !opts.steps?.length) {
+    return { ok: false, stepCount: 0, error: 'empty trace' }
+  }
+  const validation = validateWorkflowFreezeTrace(trace)
+  if (!validation.ok && !opts.steps?.length) {
+    return { ok: false, stepCount: 0, error: validation.error }
+  }
+
+  let steps = opts.steps
+  let distilled = false
+  if (!steps?.length) {
+    const rawSteps = workflowStepsFromExecutionTrace(trace)
+    const built = await buildStepsForFreeze({
+      userId: ctx.userId,
+      trace,
+      jobDescription: opts.description ?? ctx.agentName ?? 'Agent workflow',
+      goal: opts.goal ?? ctx.userGoal,
+      agentProvidedSteps: opts.agentProvidedSteps,
+      rawSteps,
+    })
+    steps = built.steps
+    distilled = built.distilled
+  }
+
+  const saved = await persistAgentWorkflowSteps(ctx, steps, opts)
+  return { ...saved, distilled }
+}
+
+/** Load substantive tool steps from recent agent chat turns (for cross-turn freeze). */
+export async function loadPriorEngineTrace(
+  agentId: string,
+): Promise<NonNullable<ToolContext['executionTrace']>> {
+  const rows = await db.agentMessage.findMany({
+    where: { agentId, role: 'agent' },
+    orderBy: { createdAt: 'desc' },
+    take: 6,
+    select: { eventsJson: true },
+  })
+  const out: NonNullable<ToolContext['executionTrace']> = []
+  for (const row of rows.reverse()) {
+    if (!row.eventsJson) continue
+    try {
+      const events = JSON.parse(row.eventsJson) as Array<{
+        type?: string
+        tool?: string
+        input?: unknown
+        inputParams?: Record<string, unknown>
+        status?: string
+        result?: string
+      }>
+      if (!Array.isArray(events)) continue
+      for (const e of events) {
+        if (e.type !== 'tool_call') continue
+        const tool = String(e.tool ?? '')
+        if (!tool || WORKFLOW_META_TOOLS.has(tool)) continue
+        if (e.status === 'error' || e.status === 'calling') continue
+        const inputParams =
+          e.inputParams && typeof e.inputParams === 'object' && !Array.isArray(e.inputParams)
+            ? sanitizeTraceInput(e.inputParams as Record<string, unknown>)
+            : parseLegacyToolInput(e.input, tool)
+        out.push({
+          stepId: `prior_${out.length + 1}`,
+          kind: tool === 'code_eval' ? 'reason' : 'tool',
+          label: traceStepLabel(tool, inputParams),
+          tool: normalizeTraceTool(tool),
+          input: inputParams,
+          status: 'done',
+          result: e.result?.slice(0, 200),
+        })
+      }
+    } catch {
+      // skip malformed rows
+    }
+  }
+  return out.slice(-40)
+}
+
+/** Best-effort parse when only a legacy action string was persisted. */
+function parseLegacyToolInput(input: unknown, tool: string): Record<string, unknown> {
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    return sanitizeTraceInput(input as Record<string, unknown>)
+  }
+  const s = String(input ?? '')
+  if (!s) return {}
+  // Legacy traces stored "fs_list(path)" — no values; cannot replay.
+  if (/^\w+\([^)]*\)$/.test(s) && !s.includes('=') && !s.includes('/')) {
+    return {}
+  }
+  try {
+    const parsed = JSON.parse(s) as Record<string, unknown>
+    if (parsed && typeof parsed === 'object') return sanitizeTraceInput(parsed)
+  } catch {
+    // not JSON
+  }
+  if (tool === 'fs_list' || tool === 'fs_read' || tool === 'fs_write') {
+    return { path: s }
+  }
+  return {}
+}
+
+/** Safety-net persist from a chat UI trace (post-run analyze path). */
+export async function persistAgentWorkflowFromChatTrace(
+  agentId: string,
+  userId: string,
+  trace: Array<{ tool?: string; action: string; status: string; toolInput?: Record<string, unknown> }>,
+  description: string,
+): Promise<{ ok: boolean; stepCount: number }> {
+  const engineTrace: EngineTraceStep[] = trace
+    .filter(
+      (s) =>
+        s.status === 'done' &&
+        s.tool &&
+        s.tool !== 'reason' &&
+        !WORKFLOW_META_TOOLS.has(s.tool),
+    )
+    .map((s, i) => ({
+      stepId: `chat_${i + 1}`,
+      kind: 'tool' as const,
+      label: s.action,
+      tool: normalizeTraceTool(s.tool!),
+      input: s.toolInput ?? parseLegacyToolInput(s.action, s.tool!),
+      status: 'done' as const,
+    }))
+
+  const validation = validateWorkflowFreezeTrace(engineTrace)
+  if (!validation.ok) return { ok: false, stepCount: 0 }
+
+  const rawSteps = workflowStepsFromExecutionTrace(engineTrace)
+  const { steps } = await buildStepsForFreeze({
+    userId,
+    trace: engineTrace,
+    jobDescription: description,
+    rawSteps,
+  })
+  if (steps.length < MIN_SUBSTANTIVE_FREEZE_STEPS) return { ok: false, stepCount: 0 }
+  try {
+    await db.workflow.update({
+      where: { id: agentId, userId },
+      data: {
+        stepsJson: serializeWorkflowJSON({ version: 1, steps }),
+        description: description || 'Saved from successful run',
+      },
+    })
+    return { ok: true, stepCount: steps.length }
+  } catch {
+    return { ok: false, stepCount: 0 }
+  }
+}
+
 // ---------------- Registry ----------------
 
 export const AGENT_TOOLS: ToolDef[] = [
@@ -1638,11 +2100,13 @@ export const AGENT_TOOLS: ToolDef[] = [
   agentList,
   agentCreate,
   scheduleAgent,
-  workflowPropose,
   workflowFreeze,
   workflowUpdate,
   workflowMonitor,
   workflowImprove,
+  updatePlanTool,
+  askClarificationTool,
+  requestReviewTool,
   credentialRequestTool,
 ]
 

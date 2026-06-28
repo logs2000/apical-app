@@ -74,7 +74,12 @@ export async function POST(req: Request, { params }: RouteCtx) {
     broadcastRun(run.id, 'run:started', { runId: run.id, workflowId: id })
 
     // Fire and forget — the runtime streams progress over the relay.
-    void executeRun(run.id, workflow, steps, trigger).catch((err) => {
+    void executeRun(
+      run.id,
+      { ...workflow, userId: workflow.userId ?? user.id },
+      steps,
+      trigger,
+    ).catch((err) => {
       console.error('[api/workflows/[id]/run] executeRun crashed:', err)
     })
 

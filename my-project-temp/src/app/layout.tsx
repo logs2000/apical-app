@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Providers } from "@/components/providers";
-import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeProviderRoot } from "@/components/theme-provider-root";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -45,27 +45,33 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Tag the document for Tauri (desktop) before hydration. Inline head
+            script executes synchronously, so it cannot trip React 19's
+            "script inside a component won't execute" client-render warning. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{if(window.__TAURI_INTERNALS__||window.__TAURI__){document.documentElement.setAttribute('data-tauri','');}}catch(e){}})();",
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
+        <ThemeProviderRoot>
           <Providers>
             {children}
             <Toaster />
           </Providers>
-        </ThemeProvider>
+        </ThemeProviderRoot>
       </body>
     </html>
   );

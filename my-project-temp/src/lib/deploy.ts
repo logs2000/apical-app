@@ -152,6 +152,34 @@ export function normalizeSteps(raw: unknown[]): WorkflowStep[] {
         if (typeof s.gateMessage === 'string') out.gateMessage = s.gateMessage
       }
       if (typeof s.note === 'string') out.note = s.note
+      if (typeof s.hardened === 'boolean') out.hardened = s.hardened
+      if (typeof s.rule === 'string') out.rule = s.rule
+      if (typeof s.integrationId === 'string') out.integrationId = s.integrationId
+      if (s.mcp && typeof s.mcp === 'object' && !Array.isArray(s.mcp)) {
+        const m = s.mcp as Record<string, unknown>
+        if (typeof m.integrationId === 'string' && typeof m.tool === 'string') {
+          out.mcp = {
+            integrationId: m.integrationId,
+            tool: m.tool,
+            ...(m.args && typeof m.args === 'object' ? { args: m.args as Record<string, unknown> } : {}),
+          }
+        }
+      }
+      if (s.code && typeof s.code === 'object' && !Array.isArray(s.code)) {
+        const c = s.code as Record<string, unknown>
+        const lang = c.language
+        if (
+          (lang === 'javascript' || lang === 'python' || lang === 'shell') &&
+          typeof c.source === 'string' &&
+          c.source
+        ) {
+          out.code = {
+            language: lang,
+            source: c.source,
+            ...('data' in c ? { data: c.data } : {}),
+          }
+        }
+      }
       return out
     })
 }
@@ -341,7 +369,7 @@ export class DeployError extends Error {
 /** Parse the request body, accepting either { json: "<raw>" } or the parsed object. */
 export async function parseAutomationFileBody(req: Request): Promise<Partial<AutomationFile>> {
   const body = (await req.json()) as { json?: string } | Partial<AutomationFile>
-  if (typeof body === 'object' && body !== null && typeof body.json === 'string') {
+  if (typeof body === 'object' && body !== null && 'json' in body && typeof body.json === 'string') {
     try {
       return JSON.parse(body.json) as Partial<AutomationFile>
     } catch {

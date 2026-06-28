@@ -17,7 +17,8 @@ export interface LiveStepState {
 }
 
 export interface LiveRunState {
-  status: 'idle' | 'running' | 'completed' | 'failed'
+  status: 'idle' | 'running' | 'reviewing' | 'completed' | 'failed' | 'cancelled'
+  reviewing?: boolean
   steps: Record<string, LiveStepState>
   report?: RunReport
   stats?: {
@@ -36,15 +37,11 @@ export interface LiveRunState {
  */
 export function useRunSocket(runId: string | null) {
   const [state, setState] = useState<LiveRunState>({ status: 'idle', steps: {} })
-  const [prevRunId, setPrevRunId] = useState<string | null>(runId)
   const socketRef = useRef<Socket | null>(null)
 
-  // Adjust state when runId changes — the React-endorsed "adjusting state during
-  // render" pattern (avoids synchronous setState inside an effect).
-  if (runId !== prevRunId) {
-    setPrevRunId(runId)
+  useEffect(() => {
     setState({ status: runId ? 'running' : 'idle', steps: {} })
-  }
+  }, [runId])
 
   useEffect(() => {
     if (!runId) {
@@ -63,6 +60,11 @@ export function useRunSocket(runId: string | null) {
 
     socket.on('connect', () => {
       socket.emit('run:subscribe', { runId })
+    })
+
+    socket.on('run:reviewing', (p: { runId: string }) => {
+      if (p.runId !== runId) return
+      setState((s) => ({ ...s, status: 'reviewing', reviewing: true }))
     })
 
     socket.on('run:started', (p: { runId: string }) => {
@@ -107,12 +109,12 @@ export function useRunSocket(runId: string | null) {
 
     socket.on('run:report', (p: { runId: string; report: RunReport; stats: LiveRunState['stats'] }) => {
       if (p.runId !== runId) return
-      setState((s) => ({ ...s, report: p.report, stats: p.stats }))
+      setState((s) => ({ ...s, report: p.report, stats: p.stats, reviewing: false }))
     })
 
-    socket.on('run:completed', (p: { runId: string; status: 'completed' | 'failed' }) => {
+    socket.on('run:completed', (p: { runId: string; status: 'completed' | 'failed' | 'cancelled' }) => {
       if (p.runId !== runId) return
-      setState((s) => ({ ...s, status: p.status }))
+      setState((s) => ({ ...s, status: p.status === 'cancelled' ? 'cancelled' : p.status }))
     })
 
     return () => {

@@ -32,7 +32,7 @@ export function BillingTab() {
             <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Current plan</div>
             <div className="mt-0.5 flex items-center gap-2">
               <span className="text-lg font-semibold capitalize">{currentPlan}</span>
-              <Badge variant="outline" className="border-primary/30 bg-primary/5 text-primary">Free forever</Badge>
+              <Badge variant="outline" className="border-border bg-muted text-foreground">Free forever</Badge>
             </div>
           </div>
           <Button size="sm" variant="outline" className="gap-1.5">
@@ -60,7 +60,7 @@ export function BillingTab() {
             className={cn("inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 font-medium transition-colors", interval === "yearly" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground")}
           >
             Yearly
-            <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">2 mo free</span>
+            <span className="rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-semibold uppercase text-foreground">2 mo free</span>
           </button>
         </div>
       </div>
@@ -75,7 +75,7 @@ export function BillingTab() {
               key={p.id}
               className={cn(
                 "relative flex flex-col rounded-xl border bg-card p-4",
-                p.featured ? "border-primary/50 shadow-md" : "border-border",
+                p.featured ? "border-foreground/20 shadow-md" : "border-border",
               )}
             >
               {p.featured && (
@@ -103,7 +103,7 @@ export function BillingTab() {
               <ul className="mt-4 space-y-1.5">
                 {p.features.map((f) => (
                   <li key={f} className="flex items-start gap-1.5 text-[11px]">
-                    <span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-accent text-foreground">
                       <Check className="h-2 w-2" />
                     </span>
                     <span className="text-foreground/80">{f}</span>

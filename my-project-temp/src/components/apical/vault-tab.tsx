@@ -44,7 +44,7 @@ export function VaultTab() {
             onClick={() => setSection(s.key)}
             className={cn(
               "flex flex-col items-start gap-0.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors",
-              section === s.key ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              section === s.key ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
             )}
           >
             <span className="flex items-center gap-2 font-medium">
@@ -64,7 +64,7 @@ export function VaultTab() {
                 onClick={() => setSection(s.key)}
                 className={cn(
                   "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium",
-                  section === s.key ? "bg-primary/10 text-foreground" : "text-muted-foreground",
+                  section === s.key ? "bg-accent text-foreground" : "text-muted-foreground",
                 )}
               >
                 <s.icon className="h-3 w-3" /> {s.label}
@@ -187,7 +187,7 @@ function ConnectionsSection() {
             );
             return (
               <div key={p.id} className="flex items-center gap-3 rounded-lg border border-border bg-card p-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-base">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent text-base">
                   {p.icon || p.name[0]}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -468,7 +468,7 @@ function IntegrationRow({ integration, onChanged }: { integration: ParsedIntegra
   const kindColor =
     integration.kind === "mcp"
       ? "bg-tool/15 text-tool-foreground"
-      : "bg-primary/10 text-primary";
+      : "bg-accent text-foreground";
 
   async function remove() {
     if (!confirm(`Remove ${integration.name}? This cannot be undone.`)) return;
@@ -637,8 +637,8 @@ function TokensSection() {
         </div>
       )}
       {newKey && (
-        <div className="mb-3 rounded-md border border-primary/30 bg-primary/5 p-3">
-          <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-primary">
+        <div className="mb-3 rounded-md border border-border bg-muted p-3">
+          <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-foreground">
             <ShieldCheck className="h-3.5 w-3.5" /> Token created — copy now, it won't be shown again.
           </div>
           <code className="block break-all rounded bg-background p-2 font-mono text-[11px]">{newKey}</code>
@@ -723,8 +723,8 @@ function DesktopSection() {
         sub="Connect the Apical desktop app so agents can read your files and run commands on this machine."
         action={null}
       />
-      <div className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-5 text-center">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+      <div className="rounded-lg border border-dashed border-border bg-muted p-5 text-center">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-accent text-foreground">
           <Monitor className="h-6 w-6" />
         </div>
         <h3 className="text-sm font-semibold">Desktop app not connected</h3>
@@ -742,13 +742,13 @@ function DesktopSection() {
       </div>
       <div className="mt-4 rounded-lg border border-border bg-card p-4">
         <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold">
-          <ShieldCheck className="h-3.5 w-3.5 text-primary" /> What agents can do with desktop access
+          <ShieldCheck className="h-3.5 w-3.5 text-brand" /> What agents can do with desktop access
         </div>
         <ul className="space-y-1.5 text-[11px] text-muted-foreground">
-          <li className="flex gap-2"><Check className="h-3 w-3 shrink-0 text-primary" /> Read + write files in folders you approve</li>
-          <li className="flex gap-2"><Check className="h-3 w-3 shrink-0 text-primary" /> Run shell commands (gated — you approve each one)</li>
-          <li className="flex gap-2"><Check className="h-3 w-3 shrink-0 text-primary" /> Spawn local MCP servers (filesystem, GitHub, etc.)</li>
-          <li className="flex gap-2"><Check className="h-3 w-3 shrink-0 text-primary" /> Access local network resources (databases, internal APIs)</li>
+          <li className="flex gap-2"><Check className="h-3 w-3 shrink-0 text-foreground" /> Read + write files in folders you approve</li>
+          <li className="flex gap-2"><Check className="h-3 w-3 shrink-0 text-foreground" /> Run shell commands (gated — you approve each one)</li>
+          <li className="flex gap-2"><Check className="h-3 w-3 shrink-0 text-foreground" /> Spawn local MCP servers (filesystem, GitHub, etc.)</li>
+          <li className="flex gap-2"><Check className="h-3 w-3 shrink-0 text-foreground" /> Access local network resources (databases, internal APIs)</li>
         </ul>
       </div>
     </div>

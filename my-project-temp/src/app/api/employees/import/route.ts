@@ -83,7 +83,7 @@ export async function POST(req: Request) {
 
     // Accept either { json: "..." } or the parsed object directly.
     let file: Partial<AutomationFile>
-    if (typeof body === 'object' && body !== null && typeof body.json === 'string') {
+    if (typeof body === 'object' && body !== null && 'json' in body && typeof body.json === 'string') {
       try {
         file = JSON.parse(body.json) as Partial<AutomationFile>
       } catch {

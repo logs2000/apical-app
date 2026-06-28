@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { signIn, useSession } from "next-auth/react";
+import { useSession } from "@/lib/supabase/session-context";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,8 +26,10 @@ type AuthDialogState = {
   close: () => void;
   /** Launch the web app — opens auth if not signed in, otherwise opens the app */
   launch: () => void;
-  /** The signed-in demo user (null until they "sign in") */
+  /** The signed-in user (null until they sign in or dev-skip on desktop) */
   user: { email: string; name: string } | null;
+  /** Desktop dev skip / immediate entry before session cookie syncs */
+  completeDesktopAuth: (user: { email: string; name: string }) => void;
   signOut: () => void;
   /** When true, the demo app should render fullscreen (over the landing) */
   appOpen: boolean;
@@ -41,11 +44,27 @@ export function useAuth() {
   return c;
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({
+  children,
+  variant = "landing",
+}: {
+  children: React.ReactNode;
+  /**
+   * landing = marketing site at "/" (auth dialog + routes into the app);
+   * web = the standalone web app at "/app" (already authenticated);
+   * desktop = native app entry (no home page)
+   */
+  variant?: "landing" | "desktop" | "web";
+}) {
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<Mode>("signin");
   const [user, setUser] = React.useState<{ email: string; name: string } | null>(null);
-  const [appOpen, setAppOpen] = React.useState(false);
+  const [bypassUser, setBypassUser] = React.useState<{ email: string; name: string } | null>(null);
+  const [appOpen, setAppOpen] = React.useState(variant === "web");
+  const isDesktop = variant === "desktop";
+  const isWeb = variant === "web";
+  const isLanding = variant === "landing";
+  const effectiveUser = user ?? bypassUser;
 
   // Sync with the NextAuth session. This fixes the "sometimes logging in
   // doesn't actually take me in" bug: after a successful signIn(), the
@@ -59,11 +78,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const email = session.user.email ?? "";
       const name = session.user.name ?? email.split("@")[0];
       setUser({ email, name });
-      // Auto-open the app if the session is authenticated + the user hasn't
-      // explicitly closed it. This makes "launch" work even after a reload
-      // (the user clicks Open App → we set appOpen true → if they reload,
-      // the session is still valid so we re-open).
-      setAppOpen((prev) => prev || true);
     } else if (status === "unauthenticated") {
       setUser(null);
     }
@@ -78,42 +92,83 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const launch = React.useCallback(() => {
     if (user || status === "authenticated") {
-      setAppOpen(true);
+      // Landing: navigate to the standalone app route so refreshes don't
+      // reload the marketing page. A real navigation is used (instead of the
+      // client router) so it works even if the marketing page hasn't fully
+      // hydrated. Other variants just toggle the overlay.
+      if (isLanding) window.location.assign("/app");
+      else setAppOpen(true);
     } else {
       setMode("signin");
       setOpen(true);
     }
-  }, [user, status]);
+  }, [user, status, isLanding]);
 
   const signOut = React.useCallback(() => {
     setUser(null);
+    setBypassUser(null);
     setAppOpen(false);
-    // Also sign out of NextAuth so the session cookie is cleared (otherwise
-    // the useEffect above would re-set the user on the next render).
-    void import("next-auth/react").then((m) => m.signOut({ redirect: false }));
-  }, []);
+    // Clear the Supabase session cookie so the useEffect above doesn't re-set
+    // the user on the next render.
+    const supabase = createClient();
+    if (supabase) void supabase.auth.signOut();
+    // From the standalone app route, return to the marketing site.
+    if (isWeb) window.location.assign("/");
+  }, [isWeb]);
 
-  const closeApp = React.useCallback(() => setAppOpen(false), []);
+  const closeApp = React.useCallback(() => {
+    // On the standalone app route there's no overlay to close — go home.
+    if (isWeb) window.location.assign("/");
+    else setAppOpen(false);
+  }, [isWeb]);
+
+  const completeDesktopAuth = React.useCallback(
+    (u: { email: string; name: string }) => {
+      setBypassUser(u);
+      setOpen(false);
+    },
+    [],
+  );
+
+  const completeAuth = React.useCallback(
+    (u: { email: string; name: string }) => {
+      setUser(u);
+      setOpen(false);
+      // After signing in from the marketing site, go straight to the app route.
+      if (isLanding) window.location.assign("/app");
+      else if (!isDesktop) setAppOpen(true);
+    },
+    [isLanding, isDesktop],
+  );
 
   const value = React.useMemo<AuthDialogState>(
-    () => ({ open, mode, openAuth, close, launch, user, signOut, appOpen, closeApp }),
-    [open, mode, openAuth, close, launch, user, signOut, appOpen, closeApp],
+    () => ({
+      open,
+      mode,
+      openAuth,
+      close,
+      launch,
+      user: effectiveUser,
+      completeDesktopAuth,
+      signOut,
+      appOpen,
+      closeApp,
+    }),
+    [open, mode, openAuth, close, launch, effectiveUser, completeDesktopAuth, signOut, appOpen, closeApp],
   );
 
   return (
     <Ctx.Provider value={value}>
       {children}
-      <AuthDialog
-        open={open}
-        mode={mode}
-        onOpenChange={setOpen}
-        onSwitchMode={setMode}
-        onSuccess={(u) => {
-          setUser(u);
-          setOpen(false);
-          setAppOpen(true);
-        }}
-      />
+      {isLanding && (
+        <AuthDialog
+          open={open}
+          mode={mode}
+          onOpenChange={setOpen}
+          onSwitchMode={setMode}
+          onSuccess={completeAuth}
+        />
+      )}
     </Ctx.Provider>
   );
 }
@@ -146,27 +201,38 @@ function AuthDialog({
     if (!email || !password) return;
     setLoading(true);
     try {
+      const supabase = createClient();
+      if (!supabase) throw new Error("Auth is not configured.");
+
       if (isSignup) {
-        // Register the account first, then sign in.
-        const regRes = await fetch("/api/auth/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password, name: name || undefined }),
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { name: name || undefined },
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=/app`,
+          },
         });
-        if (!regRes.ok) {
-          const err = await regRes.json().catch(() => ({}));
-          throw new Error(err.error || "Registration failed");
+        if (error) throw new Error(error.message || "Registration failed");
+        // Email confirmation enabled → no session yet.
+        if (!data.session) {
+          toast({
+            title: "Check your email",
+            description: "Confirm your address to finish signing up.",
+          });
+          setEmail("");
+          setPassword("");
+          setName("");
+          return;
         }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw new Error(error.message || "Invalid credentials");
       }
-      // Sign in via NextAuth credentials provider.
-      const res = await signIn("credentials", {
-        redirect: false,
-        email,
-        password,
-      });
-      if (!res || res.error) {
-        throw new Error(res?.error || "Invalid credentials");
-      }
+
       const derivedName = isSignup ? name || email.split("@")[0] : email.split("@")[0];
       toast({
         title: isSignup ? "Account created" : "Welcome back",
@@ -187,13 +253,16 @@ function AuthDialog({
   const continueWithGoogle = async () => {
     setLoading(true);
     try {
-      // Real Google OAuth via NextAuth (redirects back after consent).
-      await signIn("google", { callbackUrl: "/" });
-    } catch {
-      // Fallback: demo mode if Google OAuth isn't configured.
-      await new Promise((r) => setTimeout(r, 700));
-      onSuccess({ email: "jordan@example.com", name: "Jordan Doe" });
-    } finally {
+      const supabase = createClient();
+      if (!supabase) throw new Error("Auth is not configured.");
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: `${window.location.origin}/auth/callback?next=/app` },
+      });
+      if (error) throw new Error(error.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Google sign in failed";
+      toast({ title: "Google sign in failed", description: msg, variant: "destructive" });
       setLoading(false);
     }
   };
@@ -299,7 +368,7 @@ function AuthDialog({
           {isSignup ? "Already have an account?" : "New to Apical?"}
           <button
             type="button"
-            className="font-medium text-primary hover:underline"
+            className="font-medium text-foreground hover:underline"
             onClick={() => onSwitchMode(isSignup ? "signin" : "signup")}
           >
             {isSignup ? "Sign in" : "Create one"}

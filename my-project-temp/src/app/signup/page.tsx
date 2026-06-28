@@ -2,8 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { signIn } from 'next-auth/react'
+import { createClient } from '@/lib/supabase/client'
 import { ArrowRight, Loader2, Mail, CheckCircle2 } from 'lucide-react'
 
 import { ApicalMark } from '@/components/apical/logo'
@@ -20,7 +19,6 @@ const BENEFITS = [
 ]
 
 export default function SignupPage() {
-  const router = useRouter()
   const { toast } = useToast()
 
   const [name, setName] = React.useState('')
@@ -44,37 +42,37 @@ export default function SignupPage() {
     }
     setLoading(true)
     try {
-      // 1. Create the account via the public registration route.
-      const regRes = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name }),
-      })
-      if (!regRes.ok) {
-        const err = await regRes.json().catch(() => ({}))
-        throw new Error(err.error || 'Registration failed')
-      }
-
-      // 2. Sign in via NextAuth credentials provider.
-      const res = await signIn('credentials', {
-        redirect: false,
+      const supabase = createClient()
+      if (!supabase) throw new Error('Auth is not configured.')
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: { name },
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/app`,
+        },
       })
-      if (!res || res.error) {
-        throw new Error(res?.error || 'Account created, but sign in failed. Try logging in.')
+      if (error) throw new Error(error.message || 'Registration failed')
+
+      // If email confirmation is disabled, a session is returned immediately.
+      if (data.session) {
+        toast({
+          title: 'Account created',
+          description: `Welcome to Apical, ${name.split(' ')[0]}!`,
+        })
+        window.location.assign('/app')
+        return
       }
 
+      // Otherwise the user must confirm via email first.
       toast({
-        title: 'Account created',
-        description: `Welcome to Apical, ${name.split(' ')[0]}!`,
+        title: 'Check your email',
+        description: 'Confirm your address to finish creating your account.',
       })
-      router.push('/')
-      router.refresh()
+      setLoading(false)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sign up failed'
       toast({ title: 'Sign up failed', description: msg, variant: 'destructive' })
-    } finally {
       setLoading(false)
     }
   }
@@ -82,7 +80,13 @@ export default function SignupPage() {
   const continueWithGoogle = async () => {
     setGoogleLoading(true)
     try {
-      await signIn('google', { callbackUrl: '/' })
+      const supabase = createClient()
+      if (!supabase) throw new Error('Auth is not configured.')
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/auth/callback?next=/app` },
+      })
+      if (error) throw new Error(error.message)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Google sign in failed'
       toast({ title: 'Google sign in failed', description: msg, variant: 'destructive' })
@@ -91,10 +95,10 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-b from-primary/5 via-background to-background px-4 py-12">
+    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-b from-brand/5 via-background to-background px-4 py-12">
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-32 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-primary/15 blur-3xl"
+        className="pointer-events-none absolute -top-32 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-accent blur-3xl"
       />
       <div className="relative grid w-full max-w-4xl gap-8 md:grid-cols-2 md:items-center">
         {/* Marketing column (hidden on mobile) */}
@@ -102,11 +106,11 @@ export default function SignupPage() {
           <div className="mb-6 flex items-center gap-2">
             <ApicalMark className="h-7 w-7" withGlow />
             <Link href="/" className="text-lg font-semibold tracking-tight">
-              Apical<span className="text-primary">.</span>
+              Apical<span className="text-brand">.</span>
             </Link>
           </div>
           <h1 className="text-3xl font-semibold leading-tight tracking-tight">
-            Tell Apical what needs doing. <span className="text-primary">Consider it done.</span>
+            Tell Apical what needs doing. <span className="text-brand">Consider it done.</span>
           </h1>
           <p className="mt-3 text-sm text-muted-foreground">
             Apical agents plan, execute, and report back. You decide. It does.
@@ -114,7 +118,7 @@ export default function SignupPage() {
           <ul className="mt-6 space-y-2.5">
             {BENEFITS.map((b) => (
               <li key={b} className="flex items-start gap-2 text-sm">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
                 <span>{b}</span>
               </li>
             ))}
@@ -125,7 +129,7 @@ export default function SignupPage() {
         <div className="md:hidden mb-6 flex items-center justify-center gap-2">
           <ApicalMark className="h-7 w-7" withGlow />
           <Link href="/" className="text-lg font-semibold tracking-tight">
-            Apical<span className="text-primary">.</span>
+            Apical<span className="text-brand">.</span>
           </Link>
         </div>
 
@@ -230,7 +234,7 @@ export default function SignupPage() {
               Already have an account?
               <Link
                 href="/login"
-                className="font-medium text-primary hover:underline"
+                className="font-medium text-brand hover:underline"
               >
                 Sign in
               </Link>

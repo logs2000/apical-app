@@ -26,7 +26,11 @@ import {
   AlertCircle,
   KeyRound,
   Lock,
+  ScrollText,
+  Monitor,
 } from "lucide-react";
+import { RunLog } from "./workflow-runs-console";
+import { IS_TAURI } from "@/lib/desktop/tauri-bridge";
 
 interface ModelEntry {
   id: string;
@@ -97,7 +101,18 @@ export function SettingsView() {
 
         {/* Models (NEW — moved here from the Vault tab) */}
         <Section icon={Cpu} title="Models">
+          <CloudApicalLink />
           <ModelsManager />
+        </Section>
+
+        <DesktopAccessSection />
+
+        {/* Workflow run log */}
+        <Section icon={ScrollText} title="Run log">
+          <p className="mb-3 text-[11px] text-muted-foreground">
+            Same auditable run log as Activity — all agents, filterable and expandable.
+          </p>
+          <RunLog limit={50} />
         </Section>
 
         {/* Company */}
@@ -139,12 +154,12 @@ export function SettingsView() {
                 onClick={() => setNameStyle(s)}
                 className={cn(
                   "rounded-lg border p-3 text-left transition",
-                  nameStyle === s ? "border-primary/50 bg-primary/5" : "border-border hover:border-border/80",
+                  nameStyle === s ? "border-foreground/20 bg-muted" : "border-border hover:border-border/80",
                 )}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold capitalize">{s}</span>
-                  {nameStyle === s && <Badge variant="outline" className="border-primary/30 text-primary">Selected</Badge>}
+                  {nameStyle === s && <Badge variant="outline" className="border-border text-foreground">Selected</Badge>}
                 </div>
                 <div className="mt-1 text-[10px] text-muted-foreground">
                   {s === "evocative" ? "Short, friendly names like Compass, Atlas, Sentinel" : "Job-derived names like SortAgent, InvoiceAgent"}
@@ -192,6 +207,171 @@ export function SettingsView() {
           </Button>
           <Button size="sm">Save changes</Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Desktop filesystem access ───────────────────────────────────────────────
+
+function DesktopAccessSection() {
+  if (!IS_TAURI) {
+    return (
+      <Section icon={Monitor} title="Desktop">
+        <p className="text-[11px] text-muted-foreground">
+          Install the Apical desktop app to let agents read and write files on your computer.
+        </p>
+      </Section>
+    );
+  }
+
+  return (
+    <Section icon={Monitor} title="Desktop">
+      <div className="rounded-lg border border-border bg-muted p-4">
+        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <Check className="h-4 w-4 shrink-0 text-foreground" />
+          Desktop access enabled
+        </div>
+        <p className="mt-1.5 text-[11px] text-muted-foreground">
+          Agents can list, read, write, and move files on this Mac, and run shell commands when you ask them to.
+        </p>
+      </div>
+    </Section>
+  );
+}
+
+// ─── Apical cloud link (desktop / local without provider keys) ───────────────
+
+function CloudApicalLink() {
+  const [status, setStatus] = React.useState<{
+    configured: boolean;
+    prefix: string | null;
+    source: "env" | "stored" | null;
+    cloudUrl: string;
+  } | null>(null);
+  const [pat, setPat] = React.useState("");
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [expanded, setExpanded] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/cloud-pat");
+      if (res.ok) setStatus(await res.json());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/cloud-pat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pat: pat.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      setStatus(data);
+      setPat("");
+      setExpanded(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function disconnect() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/cloud-pat", { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to remove");
+      setStatus(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!IS_TAURI && !loading && !status?.configured) return null;
+
+  return (
+    <div className="mb-4 rounded-lg border border-border bg-muted/20 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-xs font-semibold">Apical cloud models</h4>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {IS_TAURI
+              ? "Use hosted models from your apic.al account without putting provider keys on this machine."
+              : "Link your apic.al API token to call hosted models when no local provider keys are set."}
+          </p>
+        </div>
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : status?.configured ? (
+          <Badge variant="secondary" className="shrink-0 gap-1 text-[10px]">
+            <Check className="h-3 w-3" /> Connected
+          </Badge>
+        ) : null}
+      </div>
+
+      {status?.configured && (
+        <p className="mt-2 font-mono text-[10px] text-muted-foreground">
+          {status.prefix}
+          {status.source === "env" ? " (from APICAL_PAT env)" : ""}
+          {" · "}
+          {status.cloudUrl}
+        </p>
+      )}
+
+      {error && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-destructive">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {!status?.configured || expanded ? (
+          <>
+            <Input
+              type="password"
+              value={pat}
+              onChange={(e) => setPat(e.target.value)}
+              placeholder="ap_pat_… from apic.al → Settings → API tokens"
+              className="h-8 flex-1 min-w-[200px] font-mono text-xs"
+              autoComplete="off"
+            />
+            <Button size="sm" disabled={saving || !pat.trim()} onClick={() => void save()}>
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Connect"}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button size="sm" variant="outline" onClick={() => setExpanded(true)}>
+              Replace token
+            </Button>
+            {status.source !== "env" && (
+              <Button size="sm" variant="ghost" disabled={saving} onClick={() => void disconnect()}>
+                Disconnect
+              </Button>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -281,7 +461,7 @@ function ModelsManager() {
   return (
     <div>
       <p className="mb-3 text-[11px] text-muted-foreground">
-        AI models your agents can use. Hosted models are billed to your account per token; only providers we have configured are shown. You can also add a custom model with your own key. Toggle models on/off to control which appear in the agent picker.
+        AI models your agents can use. Hosted models are billed per token — either via your linked Apical account (desktop) or local provider keys. Toggle models on/off to control which appear in the agent picker.
       </p>
       {error && (
         <div className="mb-3 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-xs text-destructive">
@@ -354,21 +534,21 @@ function ModelRow({
     model.tier === "hosted" ? "Hosted" : model.tier === "byok" ? "BYOK" : model.tier === "local" ? "Local" : model.tier;
   const tierColor =
     model.tier === "hosted"
-      ? "border-primary/30 text-primary"
+      ? "border-border text-foreground"
       : model.tier === "byok"
         ? "border-amber-500/30 text-amber-600"
-        : "border-emerald-500/30 text-emerald-600";
+        : "border-border text-foreground";
 
   return (
     <div className="group flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2 hover:border-border/80">
-      <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-md", enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
+      <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-md", enabled ? "bg-accent text-foreground" : "bg-muted text-muted-foreground")}>
         <Cpu className="h-3.5 w-3.5" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-xs font-medium">{model.name}</span>
           {model.isDefault && (
-            <Badge variant="outline" className="border-primary/30 text-[9px] text-primary">
+            <Badge variant="outline" className="border-border text-[9px] text-foreground">
               <Check className="mr-0.5 h-2 w-2" /> Default
             </Badge>
           )}

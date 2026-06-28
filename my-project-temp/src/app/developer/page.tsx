@@ -110,7 +110,7 @@ export default function DeveloperPage() {
           <Link href="/" className="flex items-center gap-2">
             <ApicalMark className="h-6 w-6" />
             <span className="text-sm font-semibold tracking-tight">
-              Apical<span className="text-primary">.</span>
+              Apical<span className="text-brand">.</span>
             </span>
             <span className="ml-2 text-xs text-muted-foreground">Developer</span>
           </Link>
@@ -301,7 +301,7 @@ function AuthGate({ onAuthenticated }: { onAuthenticated: () => Promise<boolean>
 
       <p className="mt-6 text-center text-[11px] text-muted-foreground">
         The developer console uses a separate API-key-based identity from your Apical
-        account. <Link href="/docs#authentication" className="text-primary hover:underline">Learn more →</Link>
+        account. <Link href="/docs#authentication" className="text-brand hover:underline">Learn more →</Link>
       </p>
     </div>
   )
@@ -321,7 +321,7 @@ function Console({
       {/* Hero */}
       <div className="flex flex-col gap-4 rounded-xl border border-border/60 bg-gradient-to-br from-primary/10 via-background to-background p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-foreground">
             <User className="h-6 w-6" />
           </div>
           <div>
@@ -438,10 +438,10 @@ function KeysPanel() {
   return (
     <>
       {newlyCreatedKey && (
-        <Card className="border-primary/30 bg-primary/5">
+        <Card className="border-border bg-muted">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <KeyRound className="h-4 w-4 text-primary" />
+              <KeyRound className="h-4 w-4 text-brand" />
               Your new API key
             </CardTitle>
             <CardDescription>
@@ -841,7 +841,7 @@ function RunPanel() {
       </Card>
 
       {lastRunId && (
-        <Card className="border-primary/30 bg-primary/5">
+        <Card className="border-border bg-muted">
           <CardHeader>
             <CardTitle className="text-base">Run started</CardTitle>
             <CardDescription>

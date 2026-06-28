@@ -185,6 +185,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
-// Export encrypt/decrypt helpers for use in the [id] route
-export { encryptData, decryptData };

@@ -49,9 +49,9 @@ function FileDownloadCard({ item }: { item: SandboxItem }) {
       target="_blank"
       rel="noopener noreferrer"
       download={item.assetName ?? item.title}
-      className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary/40 hover:bg-accent/30"
+      className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:border-foreground/25 hover:bg-accent/30"
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent text-foreground">
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
@@ -90,7 +90,7 @@ function PreviewDeliverableView({ item }: { item: SandboxItem }) {
               href={item.assetUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+              className="inline-flex items-center gap-1 text-[10px] text-foreground hover:underline"
             >
               Open full size <ExternalLink className="h-3 w-3" />
             </a>
@@ -208,7 +208,7 @@ function ProgressStepView({ item }: { item: SandboxItem }) {
         <div
           className={cn(
             "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
-            item.ok ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive",
+            item.ok ? "bg-accent text-foreground" : "bg-destructive/10 text-destructive",
           )}
         >
           {item.ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
@@ -318,7 +318,7 @@ export function SandboxPanel({
   return (
     <aside className={cn("flex h-full w-full min-w-0 flex-col overflow-hidden bg-muted/30", className)}>
       <div className="flex shrink-0 items-center gap-2 border-b border-border bg-background/50 px-3 py-2">
-        <Heading className="h-3.5 w-3.5 text-primary" />
+        <Heading className="h-3.5 w-3.5 text-foreground" />
         <span className="text-xs font-semibold">{label}</span>
         {!isPreview && (
           <span className="text-[10px] text-muted-foreground">

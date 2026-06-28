@@ -29,11 +29,13 @@ import {
   type ModelDefinition,
   type ProviderId,
 } from '@/lib/platform/models'
+import { cloudChat, cloudChatStream, cloudListModels } from '@/lib/platform/cloud-llm'
+import { isCloudRelayAvailable } from '@/lib/platform/cloud-pat'
 import { getPlan, isOverAllowance } from '@/lib/platform/pricing'
 import { decrypt, looksLikeKey } from '@/lib/platform/vault'
 
 export const NO_LLM_PROVIDER_ERROR =
-  'No LLM provider configured. Set OPENAI_API_KEY (or ANTHROPIC_API_KEY / GOOGLE_API_KEY / XAI_API_KEY).'
+  'No AI model available. Connect your Apical token in Settings → Models (ap_pat_…), or set OPENAI_API_KEY locally.'
 
 // ---------------- Public types ----------------
 
@@ -51,6 +53,9 @@ export interface ChatRequest {
   userId: string
   source?: 'chat' | 'agent' | 'workflow' | 'reason' | 'research'
   refId?: string
+  /** Anthropic extended thinking. Defaults on for Anthropic streams; set false
+   *  for structured/JSON loops that parse the response directly. */
+  thinking?: boolean
 }
 
 export interface ChatUsage {
@@ -97,7 +102,7 @@ export interface RecordUsageParams {
 
 interface ResolvedModel {
   model: ModelDefinition
-  adapter: 'openai' | 'anthropic' | 'google' | 'ollama' | 'llamacpp'
+  adapter: 'openai' | 'anthropic' | 'google' | 'ollama' | 'llamacpp' | 'cloud-relay'
   apiKey?: string
   baseUrl?: string
   isCustom?: boolean
@@ -199,10 +204,15 @@ export async function resolveModel(
       // type === 'hosted'
       tier = 'hosted'
       const env = pickHostedEnv(custom.provider as ProviderId)
-      if (!env) return null
-      apiKey = env.apiKey
-      baseUrl = env.baseUrl
-      adapter = env.adapter
+      if (env) {
+        apiKey = env.apiKey
+        baseUrl = env.baseUrl
+        adapter = env.adapter
+      } else if (await isCloudRelayAvailable(userId)) {
+        adapter = 'cloud-relay'
+      } else {
+        return null
+      }
     }
 
     if (!adapter) return null
@@ -230,8 +240,13 @@ export async function resolveModel(
 
   if (model.tier === 'hosted') {
     const env = pickHostedEnv(model.provider)
-    if (!env) return null
-    return { model, adapter: env.adapter, apiKey: env.apiKey, baseUrl: env.baseUrl }
+    if (env) {
+      return { model, adapter: env.adapter, apiKey: env.apiKey, baseUrl: env.baseUrl }
+    }
+    if (await isCloudRelayAvailable(userId)) {
+      return { model, adapter: 'cloud-relay' }
+    }
+    return null
   }
 
   // Local.
@@ -341,6 +356,14 @@ export function configuredHostedProviders(): ProviderId[] {
   return HOSTED_PROVIDERS.filter((p) => pickHostedEnv(p) !== null)
 }
 
+/** Local env keys, or all hosted providers when cloud relay is linked. */
+export async function hostedProvidersForUser(userId: string): Promise<ProviderId[]> {
+  const local = configuredHostedProviders()
+  if (local.length > 0) return local
+  if (await isCloudRelayAvailable(userId)) return [...HOSTED_PROVIDERS]
+  return []
+}
+
 /**
  * The default hosted model id for the current environment: the first model in
  * the registry whose provider key is configured. Returns null if no hosted
@@ -420,6 +443,18 @@ async function callOpenAI(
   return { content, usage }
 }
 
+const TRANSIENT_HTTP = new Set([502, 503, 504])
+
+/** Retry once on transient upstream failures (common with Anthropic 503). */
+async function fetchWithTransientRetry(url: string, init: RequestInit): Promise<Response> {
+  let res = await fetch(url, init)
+  if (TRANSIENT_HTTP.has(res.status)) {
+    await new Promise((r) => setTimeout(r, 1500))
+    res = await fetch(url, init)
+  }
+  return res
+}
+
 /** Anthropic Messages API. */
 async function callAnthropic(
   apiKey: string,
@@ -442,7 +477,7 @@ async function callAnthropic(
   }
   if (typeof opts.temperature === 'number') body.temperature = opts.temperature
 
-  const res = await fetch(url, {
+  const res = await fetchWithTransientRetry(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -673,15 +708,21 @@ async function* streamAnthropic(
     max_tokens: Math.max(maxTokens, thinkingBudget + 1_024),
     stream: true,
   }
-  if (opts.thinking !== false) {
+  const thinkingEnabled = opts.thinking !== false
+  if (thinkingEnabled) {
     body.thinking = { type: 'enabled', budget_tokens: thinkingBudget }
   }
   if (systemMsgs.length) {
     body.system = systemMsgs.map((m) => m.content).join('\n\n')
   }
-  if (typeof opts.temperature === 'number') body.temperature = opts.temperature
+  // Anthropic rejects any temperature other than 1 while extended thinking is
+  // enabled. Only forward a custom temperature when thinking is OFF; otherwise
+  // omit it and let the API default to 1.
+  if (typeof opts.temperature === 'number' && !thinkingEnabled) {
+    body.temperature = opts.temperature
+  }
 
-  const res = await fetch(url, {
+  const res = await fetchWithTransientRetry(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -825,7 +866,19 @@ async function callAdapter(
   resolved: ResolvedModel,
   messages: ChatMessage[],
   opts: ChatOpts,
+  userId?: string,
 ): Promise<AdapterResult> {
+  if (resolved.adapter === 'cloud-relay') {
+    if (!userId) throw new Error('Cloud relay requires userId')
+    const res = await cloudChat(userId, {
+      modelId: resolved.model.id,
+      messages,
+      maxTokens: opts.maxTokens,
+      temperature: opts.temperature,
+    })
+    return { content: res.content, usage: res.usage }
+  }
+
   switch (resolved.adapter) {
     case 'openai':
       if (!resolved.apiKey) throw new Error('OpenAI API key not configured')
@@ -879,7 +932,29 @@ async function* streamAdapter(
   resolved: ResolvedModel,
   messages: ChatMessage[],
   opts: ChatOpts,
+  userId?: string,
 ): AsyncGenerator<AdapterStreamChunk> {
+  if (resolved.adapter === 'cloud-relay') {
+    if (!userId) throw new Error('Cloud relay requires userId')
+    let usage: ChatUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    let content = ''
+    for await (const ev of cloudChatStream(userId, {
+      modelId: resolved.model.id,
+      messages,
+      maxTokens: opts.maxTokens,
+      temperature: opts.temperature,
+    })) {
+      if (ev.type === 'delta' && ev.content) {
+        content += ev.content
+        yield { delta: ev.content }
+      } else if (ev.type === 'done' && ev.usage) {
+        usage = ev.usage
+      }
+    }
+    yield { done: { content, usage } }
+    return
+  }
+
   switch (resolved.adapter) {
     case 'openai':
       if (!resolved.apiKey) throw new Error('OpenAI API key not configured')
@@ -1010,10 +1085,26 @@ export async function chat(req: ChatRequest): Promise<ChatResponse> {
     )
   }
 
-  const result = await callAdapter(resolved, req.messages, {
-    maxTokens: req.maxTokens,
-    temperature: req.temperature,
-  })
+  if (resolved.adapter === 'cloud-relay') {
+    return cloudChat(req.userId, {
+      modelId: req.modelId,
+      messages: req.messages,
+      maxTokens: req.maxTokens,
+      temperature: req.temperature,
+      source: req.source,
+      refId: req.refId,
+    })
+  }
+
+  const result = await callAdapter(
+    resolved,
+    req.messages,
+    {
+      maxTokens: req.maxTokens,
+      temperature: req.temperature,
+    },
+    req.userId,
+  )
 
   const costCents = computeCost(resolved.model, result.usage)
 
@@ -1047,7 +1138,19 @@ export async function* chatStream(
     )
   }
 
-  const opts = { maxTokens: req.maxTokens, temperature: req.temperature }
+  if (resolved.adapter === 'cloud-relay') {
+    yield* cloudChatStream(req.userId, {
+      modelId: req.modelId,
+      messages: req.messages,
+      maxTokens: req.maxTokens,
+      temperature: req.temperature,
+      source: req.source,
+      refId: req.refId,
+    })
+    return
+  }
+
+  const opts = { maxTokens: req.maxTokens, temperature: req.temperature, thinking: req.thinking }
   let content = ''
   let usage: ChatUsage = {
     promptTokens: 0,
@@ -1055,7 +1158,7 @@ export async function* chatStream(
     totalTokens: 0,
   }
 
-  for await (const chunk of streamAdapter(resolved, req.messages, opts)) {
+  for await (const chunk of streamAdapter(resolved, req.messages, opts, req.userId)) {
     if (chunk.delta) {
       content += chunk.delta
       yield { type: 'delta', content: chunk.delta }
@@ -1103,9 +1206,8 @@ export async function listAvailableModels(userId: string): Promise<{
     select: { id: true, provider: true },
   })
 
-  // Hosted providers we hold an env key for. A hosted model is only listed when
-  // its provider key is configured on our side.
-  const hostedProviders = configuredHostedProviders()
+  // Hosted providers we hold an env key for, or all hosted via cloud relay.
+  const hostedProviders = await hostedProvidersForUser(userId)
 
   // Filter the registry: hosted only if we have the provider key; local if the
   // plan allows.
@@ -1113,6 +1215,19 @@ export async function listAvailableModels(userId: string): Promise<{
 
   const models: Array<ModelDefinition & { configured: boolean; custom?: boolean }> =
     registry.map((m) => ({ ...m, configured: true }))
+
+  // When relaying through cloud, merge the cloud catalog (may include models
+  // not in our local registry snapshot).
+  if (hostedProviders.length > 0 && configuredHostedProviders().length === 0) {
+    const cloudModels = await cloudListModels(userId)
+    for (const cm of cloudModels) {
+      if (cm.tier !== 'hosted' || models.some((m) => m.id === cm.id)) continue
+      const reg = getModel(cm.id)
+      if (reg) {
+        models.push({ ...reg, configured: cm.configured !== false, custom: cm.custom })
+      }
+    }
+  }
 
   // Append user's CustomModels.
   const customs = await db.customModel.findMany({
@@ -1264,13 +1379,11 @@ export function resolveModelPreference(pref?: string | null): string | null {
     return preferred?.id ?? available[0]?.id ?? null
   }
 
-  // Already a concrete registry id?
   const direct = getModel(pref)
   if (direct && direct.tier === 'hosted' && configured.includes(direct.provider)) {
     return direct.id
   }
 
-  // Legacy apical hints.
   if (pref === 'fast') {
     return available.find((m) => m.badge === 'fast')?.id ?? available[0]?.id ?? null
   }
@@ -1281,19 +1394,69 @@ export function resolveModelPreference(pref?: string | null): string | null {
   return available[0]?.id ?? null
 }
 
-function buildDefaultResolved(modelHint?: string): ResolvedModel | null {
-  const resolvedId = resolveModelPreference(modelHint)
+/** Like resolveModelPreference but includes cloud-relay when linked. */
+export async function resolveModelPreferenceForUser(
+  userId: string,
+  pref?: string | null,
+): Promise<string | null> {
+  const configured = await hostedProvidersForUser(userId)
+  const available = MODEL_REGISTRY.filter(
+    (m) => m.tier === 'hosted' && configured.includes(m.provider),
+  )
+
+  if (!pref || pref === 'default') {
+    const preferredProvider =
+      (process.env.LLM_DEFAULT_PROVIDER as ProviderId | undefined)
+      ?? (configured.includes('anthropic') ? 'anthropic' : configured[0])
+    const preferred = available.find((m) => m.provider === preferredProvider)
+    return preferred?.id ?? available[0]?.id ?? null
+  }
+
+  const direct = getModel(pref)
+  if (direct && direct.tier === 'hosted' && configured.includes(direct.provider)) {
+    return direct.id
+  }
+
+  if (pref === 'fast') {
+    return available.find((m) => m.badge === 'fast')?.id ?? available[0]?.id ?? null
+  }
+  if (pref === 'thinking') {
+    return available.find((m) => m.badge === 'powerful')?.id ?? available[0]?.id ?? null
+  }
+
+  // Concrete registry id when cloud relay makes all hosted providers available.
+  if (direct && direct.tier === 'hosted' && configured.length > 0) {
+    return direct.id
+  }
+
+  return available[0]?.id ?? null
+}
+
+async function buildDefaultResolvedForUser(
+  userId: string,
+  modelHint?: string,
+): Promise<ResolvedModel | null> {
+  const resolvedId = await resolveModelPreferenceForUser(userId, modelHint)
   if (!resolvedId) return null
-  const model = getModel(resolvedId)
-  if (!model) return null
-  const env = pickHostedEnv(model.provider)
-  if (!env) return null
-  return { model, adapter: env.adapter, apiKey: env.apiKey, baseUrl: env.baseUrl }
+  return resolveModel(userId, resolvedId)
 }
 
 /** True when a hosted provider key is configured (OpenAI, Anthropic, etc.). */
 export function hasHostedLlmProvider(modelHint?: string): boolean {
-  return buildDefaultResolved(modelHint) !== null
+  const resolvedId = resolveModelPreference(modelHint)
+  if (!resolvedId) return false
+  const model = getModel(resolvedId)
+  if (!model) return false
+  return pickHostedEnv(model.provider) !== null
+}
+
+/** True when local keys or cloud relay can serve hosted models. */
+export async function hasHostedLlmProviderForUser(
+  userId: string,
+  modelHint?: string,
+): Promise<boolean> {
+  const resolved = await buildDefaultResolvedForUser(userId, modelHint)
+  return resolved !== null
 }
 
 /** Non-streaming completion using the first configured hosted provider. */
@@ -1303,14 +1466,41 @@ export async function simpleComplete(opts: {
   maxTokens?: number
   model?: string
   json?: boolean
+  userId?: string
 }): Promise<string> {
-  const resolved = buildDefaultResolved(opts.model)
-  if (!resolved) throw new Error(NO_LLM_PROVIDER_ERROR)
-  const result = await callAdapter(resolved, opts.messages, {
-    temperature: opts.temperature,
-    maxTokens: opts.maxTokens,
-    json: opts.json,
-  })
+  const resolved = opts.userId
+    ? await buildDefaultResolvedForUser(opts.userId, opts.model)
+    : null
+  if (!resolved) {
+    const fallback = resolveModelPreference(opts.model)
+    if (!fallback) throw new Error(NO_LLM_PROVIDER_ERROR)
+    const model = getModel(fallback)
+    if (!model) throw new Error(NO_LLM_PROVIDER_ERROR)
+    const env = pickHostedEnv(model.provider)
+    if (!env) throw new Error(NO_LLM_PROVIDER_ERROR)
+    const localResolved: ResolvedModel = {
+      model,
+      adapter: env.adapter,
+      apiKey: env.apiKey,
+      baseUrl: env.baseUrl,
+    }
+    const result = await callAdapter(localResolved, opts.messages, {
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+      json: opts.json,
+    })
+    return result.content
+  }
+  const result = await callAdapter(
+    resolved,
+    opts.messages,
+    {
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+      json: opts.json,
+    },
+    opts.userId,
+  )
   return result.content
 }
 
@@ -1340,16 +1530,43 @@ export async function* simpleStreamEvents(opts: {
   model?: string
   thinking?: boolean
   thinkingBudgetTokens?: number
+  userId?: string
 }): AsyncGenerator<LlmStreamEvent> {
-  const resolved = buildDefaultResolved(opts.model)
-  if (!resolved) throw new Error(NO_LLM_PROVIDER_ERROR)
+  const resolved = opts.userId
+    ? await buildDefaultResolvedForUser(opts.userId, opts.model)
+    : null
+  if (!resolved) {
+    const fallback = resolveModelPreference(opts.model)
+    if (!fallback) throw new Error(NO_LLM_PROVIDER_ERROR)
+    const model = getModel(fallback)
+    if (!model) throw new Error(NO_LLM_PROVIDER_ERROR)
+    const env = pickHostedEnv(model.provider)
+    if (!env) throw new Error(NO_LLM_PROVIDER_ERROR)
+    const localResolved: ResolvedModel = {
+      model,
+      adapter: env.adapter,
+      apiKey: env.apiKey,
+      baseUrl: env.baseUrl,
+    }
+    const useThinking = opts.thinking !== false && localResolved.adapter === 'anthropic'
+    for await (const chunk of streamAdapter(localResolved, opts.messages, {
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+      thinking: useThinking,
+      thinkingBudgetTokens: opts.thinkingBudgetTokens,
+    })) {
+      if (chunk.thinkingDelta) yield { type: 'thinking', delta: chunk.thinkingDelta }
+      if (chunk.delta) yield { type: 'text', delta: chunk.delta }
+    }
+    return
+  }
   const useThinking = opts.thinking !== false && resolved.adapter === 'anthropic'
   for await (const chunk of streamAdapter(resolved, opts.messages, {
     temperature: opts.temperature,
     maxTokens: opts.maxTokens,
     thinking: useThinking,
     thinkingBudgetTokens: opts.thinkingBudgetTokens,
-  })) {
+  }, opts.userId)) {
     if (chunk.thinkingDelta) yield { type: 'thinking', delta: chunk.thinkingDelta }
     if (chunk.delta) yield { type: 'text', delta: chunk.delta }
   }

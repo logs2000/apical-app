@@ -271,7 +271,7 @@ export function DataTab() {
           <Section label="Files">
             {liveAssets.length > 0 && (
               <div className="mb-2 space-y-0.5">
-                <div className="px-2 text-[9px] font-semibold uppercase tracking-wide text-primary">Your assets</div>
+                <div className="px-2 text-[9px] font-semibold uppercase tracking-wide text-foreground">Your assets</div>
                 {liveAssets.map((a) => {
                   const FileIcon =
                     a.kind === "image" ? FileText : a.mimeType.includes("json") ? FileJson : a.mimeType.includes("csv") ? FileSpreadsheet : FileText;
@@ -408,7 +408,7 @@ function TableView({
                   <span className="flex items-center gap-1">
                     {col.label}
                     {sortKey === col.key ? (
-                      sortDir === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
+                      sortDir === "asc" ? <ArrowUp className="h-3 w-3 text-foreground" /> : <ArrowDown className="h-3 w-3 text-foreground" />
                     ) : (
                       <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />
                     )}
@@ -647,15 +647,15 @@ function CatalogRow({
       onClick={onClick}
       className={cn(
         "group mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors",
-        active ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+        active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
       )}
     >
-      <Icon className={cn("h-3.5 w-3.5 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
+      <Icon className={cn("h-3.5 w-3.5 shrink-0", active ? "text-foreground" : "text-muted-foreground")} />
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{name}</div>
         <div className="truncate text-[9px] text-muted-foreground">{sub}</div>
       </div>
-      <ChevronRight className={cn("h-3 w-3 shrink-0 transition", active ? "text-primary" : "text-muted-foreground/40")} />
+      <ChevronRight className={cn("h-3 w-3 shrink-0 transition", active ? "text-foreground" : "text-muted-foreground/40")} />
     </button>
   );
 }

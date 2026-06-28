@@ -10,7 +10,7 @@ import { getCurrentUser } from '@/lib/auth-helpers'
 
 export async function DELETE(
   req: Request,
-  routeCtx: { params?: Promise<{ id: string }> },
+  routeCtx: { params: Promise<{ id: string }> },
 ) {
   try {
     const user = await getCurrentUser(req)
@@ -18,8 +18,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const params = routeCtx.params ? await routeCtx.params : { id: '' }
-    const id = params.id
+    const { id } = await routeCtx.params
     if (!id) {
       return NextResponse.json({ error: 'Token id is required.' }, { status: 400 })
     }

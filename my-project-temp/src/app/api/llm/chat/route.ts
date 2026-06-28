@@ -26,6 +26,7 @@ import {
   chat,
   chatStream,
   checkAllowance,
+  resolveModel,
   type ChatMessage,
 } from '@/lib/platform/llm-gateway'
 
@@ -82,19 +83,29 @@ export const POST = withUser(async (req, { user }) => {
     return NextResponse.json({ error: 'temperature must be between 0 and 2' }, { status: 400 })
   }
 
-  // Allowance gate.
-  const allowance = await checkAllowance(user.id)
-  if (!allowance.allowed) {
+  // Allowance gate — cloud relay bills the linked Apical account remotely.
+  const resolved = await resolveModel(user.id, modelId)
+  if (!resolved) {
     return NextResponse.json(
-      {
-        error: 'over_allowance',
-        overrunAvailable: false,
-        used: allowance.used,
-        allowance: allowance.allowance,
-        periodEnd: allowance.periodEnd,
-      },
-      { status: 429 },
+      { error: `Model "${modelId}" not found or not configured` },
+      { status: 404 },
     )
+  }
+
+  if (resolved.adapter !== 'cloud-relay') {
+    const allowance = await checkAllowance(user.id)
+    if (!allowance.allowed) {
+      return NextResponse.json(
+        {
+          error: 'over_allowance',
+          overrunAvailable: false,
+          used: allowance.used,
+          allowance: allowance.allowance,
+          periodEnd: allowance.periodEnd,
+        },
+        { status: 429 },
+      )
+    }
   }
 
   const chatReq = {

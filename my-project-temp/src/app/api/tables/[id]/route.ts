@@ -7,7 +7,7 @@ import {
   normalizeColumn,
   type ColumnDef,
   type ColumnType,
-} from '../route'
+} from '@/lib/tables/table-dto'
 
 // API routes for /api/tables/[id].
 //
@@ -169,7 +169,7 @@ export const PATCH = withUser(async (req, { user, params }) => {
 
   // Reference COLUMN_TYPES so unused-import lint doesn't fire — also makes
   // the supported set discoverable to anyone reading this file.
-  void COLUMN_TYPES as readonly ColumnType[]
+  void (COLUMN_TYPES as unknown as readonly ColumnType[])
 
   const updated = await db.dataTable.update({ where: { id }, data })
   return NextResponse.json(mapTable(updated))

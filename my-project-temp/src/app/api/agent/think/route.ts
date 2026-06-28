@@ -52,6 +52,7 @@ export const POST = withUser(async (req, { user }) => {
       const send = (event: AgentEvent) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
       }
+      send({ type: 'status', status: 'started' })
       try {
         await runAgent(
           {

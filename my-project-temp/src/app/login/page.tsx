@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { signIn } from 'next-auth/react'
+import { createClient } from '@/lib/supabase/client'
 import { ArrowRight, Loader2, Mail } from 'lucide-react'
 
 import { ApicalMark } from '@/components/apical/logo'
@@ -38,24 +38,19 @@ export default function LoginPage() {
     if (!email || !password) return
     setLoading(true)
     try {
-      const res = await signIn('credentials', {
-        redirect: false,
-        email,
-        password,
-      })
-      if (!res || res.error) {
-        throw new Error(res?.error || 'Invalid email or password')
-      }
+      const supabase = createClient()
+      if (!supabase) throw new Error('Auth is not configured.')
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) throw new Error(error.message || 'Invalid email or password')
       toast({
         title: 'Welcome back',
         description: `Signed in as ${email}`,
       })
-      router.push('/')
-      router.refresh()
+      // Full navigation so the server picks up the new session cookie.
+      window.location.assign('/app')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sign in failed'
       toast({ title: 'Sign in failed', description: msg, variant: 'destructive' })
-    } finally {
       setLoading(false)
     }
   }
@@ -63,9 +58,13 @@ export default function LoginPage() {
   const continueWithGoogle = async () => {
     setGoogleLoading(true)
     try {
-      // NextAuth handles the OAuth redirect + callback. callbackUrl=/ sends
-      // the user home after a successful Google sign-in.
-      await signIn('google', { callbackUrl: '/' })
+      const supabase = createClient()
+      if (!supabase) throw new Error('Auth is not configured.')
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/auth/callback?next=/app` },
+      })
+      if (error) throw new Error(error.message)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Google sign in failed'
       toast({ title: 'Google sign in failed', description: msg, variant: 'destructive' })
@@ -74,17 +73,17 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-b from-primary/5 via-background to-background px-4 py-12">
+    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-b from-brand/5 via-background to-background px-4 py-12">
       {/* Subtle forest-green ambient glow */}
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-32 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-primary/15 blur-3xl"
+        className="pointer-events-none absolute -top-32 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-accent blur-3xl"
       />
       <div className="relative w-full max-w-md">
         <div className="mb-6 flex items-center justify-center gap-2">
           <ApicalMark className="h-7 w-7" withGlow />
           <Link href="/" className="text-lg font-semibold tracking-tight">
-            Apical<span className="text-primary">.</span>
+            Apical<span className="text-brand">.</span>
           </Link>
         </div>
 
@@ -144,7 +143,7 @@ export default function LoginPage() {
                   </Label>
                   <Link
                     href="/forgot-password"
-                    className="text-xs text-muted-foreground hover:text-primary hover:underline"
+                    className="text-xs text-muted-foreground hover:text-brand hover:underline"
                   >
                     Forgot password?
                   </Link>
@@ -179,7 +178,7 @@ export default function LoginPage() {
               New to Apical?
               <Link
                 href="/signup"
-                className="font-medium text-primary hover:underline"
+                className="font-medium text-brand hover:underline"
               >
                 Create an account
               </Link>
