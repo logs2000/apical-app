@@ -61,3 +61,8 @@ server.log
 # tauri build output
 /src-tauri/target/
 /src-tauri/gen/
+
+# desktop installers (published via GitHub Releases, not git)
+/public/downloads/*.tar.gz
+/public/downloads/*.exe
+/public/downloads/*.AppImage

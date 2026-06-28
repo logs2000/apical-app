@@ -32,7 +32,8 @@ function gateRedirect(req: NextRequest): NextResponse | null {
     pathname === '/gate' ||
     pathname.startsWith('/api/gate') ||
     pathname.startsWith('/auth/callback') ||
-    pathname.startsWith('/api/auth')
+    pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/downloads')
   if (allow) return null
 
   if (req.cookies.get(PRELAUNCH_COOKIE)?.value === '1') return null

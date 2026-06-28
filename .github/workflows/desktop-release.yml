@@ -1,0 +1,136 @@
+name: Desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. desktop-v0.1.0)'
+        required: true
+        default: 'desktop-v0.1.0'
+  push:
+    tags:
+      - 'desktop-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        working-directory: my-project-temp
+        run: bun install
+
+      - name: Build desktop (macOS)
+        working-directory: my-project-temp
+        env:
+          CI: 'true'
+        run: bun run tauri:build
+
+      - name: Package macOS download
+        working-directory: my-project-temp
+        run: bash scripts/package-desktop.sh mac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apical-mac
+          path: my-project-temp/public/downloads/apical-mac.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        working-directory: my-project-temp
+        run: bun install
+
+      - name: Build desktop (Windows)
+        working-directory: my-project-temp
+        env:
+          CI: 'true'
+        run: bun run tauri:build
+
+      - name: Package Windows download
+        working-directory: my-project-temp
+        run: bash scripts/package-desktop.sh windows
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apical-windows
+          path: my-project-temp/public/downloads/apical-windows.exe
+          if-no-files-found: error
+
+  publish:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          cp artifacts/apical-mac/apical-mac.tar.gz release-assets/
+          cp artifacts/apical-windows/apical-windows.exe release-assets/
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Apical Desktop ${{ steps.tag.outputs.name }}
+          draft: false
+          prerelease: true
+          files: release-assets/*
+          generate_release_notes: true
+
+      - name: Write download manifest
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          cat > my-project-temp/download/manifest.json <<EOF
+          {
+            "version": "${TAG}",
+            "releasedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "files": {
+              "apical-mac.tar.gz": "https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-mac.tar.gz",
+              "apical-windows.exe": "https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-windows.exe"
+            }
+          }
+          EOF
+          cat my-project-temp/download/manifest.json
+
+      - name: Commit manifest for Vercel redirects
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add my-project-temp/download/manifest.json
+          git diff --staged --quiet || git commit -m "Update desktop download manifest for ${{ steps.tag.outputs.name }}"
+          git push
