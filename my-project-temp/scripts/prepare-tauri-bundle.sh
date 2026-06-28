@@ -25,12 +25,8 @@ if [[ -f prisma/schema.prisma ]]; then
   cp prisma/schema.prisma "$STAGE/prisma/"
 fi
 
-# Initialize local SQLite for the bundled desktop app.
-(
-  cd "$STAGE"
-  export DATABASE_URL="file:./prisma/dev.db"
-  bunx prisma db push --skip-generate 2>/dev/null || npx prisma db push --skip-generate
-)
+# Desktop uses a runtime DATABASE_URL (see lib.rs). Skip prisma db push here —
+# the bundled schema targets Postgres and CI has no local DB for initialization.
 
 cat > "$APP_DIST/index.html" <<'EOF'
 <!DOCTYPE html>
