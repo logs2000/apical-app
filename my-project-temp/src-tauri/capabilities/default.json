@@ -6,7 +6,16 @@
   "permissions": [
     "core:default",
     "shell:allow-open",
-    "shell:allow-execute",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "node",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    },
     "http:default",
     "dialog:default",
     "fs:default",

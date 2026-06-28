@@ -61,6 +61,9 @@ server.log
 # tauri build output
 /src-tauri/target/
 /src-tauri/gen/
+/src-tauri/app-dist/
+/src-tauri/bundle-resources/
+/src-tauri/binaries/node-*
 
 # desktop installers (published via GitHub Releases, not git)
 /public/downloads/*.tar.gz

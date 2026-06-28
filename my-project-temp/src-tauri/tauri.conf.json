@@ -6,8 +6,8 @@
   "build": {
     "beforeDevCommand": "bash scripts/ensure-prod-server.sh",
     "devUrl": "http://127.0.0.1:3000/api/auth/desktop-ui",
-    "beforeBuildCommand": "bun run build",
-    "frontendDist": "../.next/standalone"
+    "beforeBuildCommand": "bash scripts/fetch-node-sidecar.sh && bash scripts/prepare-tauri-bundle.sh",
+    "frontendDist": "../src-tauri/app-dist"
   },
   "app": {
     "windows": [
@@ -41,8 +41,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [],
-    "externalBin": [],
+    "resources": ["bundle-resources/standalone"],
+    "externalBin": ["binaries/node"],
     "copyright": "",
     "category": "DeveloperTool",
     "shortDescription": "Apical — AI runtime for arbitrary APIs/MCP servers.",
@@ -76,7 +76,15 @@
   },
   "plugins": {
     "shell": {
-      "open": true
+      "open": true,
+      "sidecar": true,
+      "scope": [
+        {
+          "name": "binaries/node",
+          "sidecar": true,
+          "args": true
+        }
+      ]
     }
   }
 }

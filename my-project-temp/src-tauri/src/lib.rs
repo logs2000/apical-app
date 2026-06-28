@@ -24,6 +24,7 @@ use keyring::Entry;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
@@ -222,6 +223,69 @@ async fn spawn_mcp_stdio(
     drop(child);
     let _ = app; // silence unused warning
     Ok(pid)
+}
+
+// ─── Bundled Next.js standalone server (production desktop) ─────────────────
+
+/// Keeps the bundled Node server process alive for the app lifetime.
+struct BundledServer(Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
+
+/// Spawn the bundled Node sidecar + standalone server and wait until it listens.
+#[cfg(not(debug_assertions))]
+fn start_bundled_server(app: &tauri::AppHandle) -> Result<(), String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("resource_dir: {}", e))?;
+    let standalone_dir = resource_dir.join("standalone");
+    if !standalone_dir.join("server.js").exists() {
+        return Err(format!(
+            "missing bundled server at {}",
+            standalone_dir.join("server.js").display()
+        ));
+    }
+
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {}", e))?;
+    std::fs::create_dir_all(&data_dir)
+        .map_err(|e| format!("create app_data_dir: {}", e))?;
+    let db_path = data_dir.join("custom.db");
+
+    let sidecar = app
+        .shell()
+        .sidecar("node")
+        .map_err(|e| format!("sidecar node: {}", e))?;
+
+    let (_rx, child) = sidecar
+        .args(["server.js"])
+        .current_dir(&standalone_dir)
+        .env("DESKTOP_LOCAL", "true")
+        .env("AUTH_BYPASS_DEV", "true")
+        .env("NODE_ENV", "production")
+        .env("PORT", "3000")
+        .env("HOSTNAME", "127.0.0.1")
+        .env(
+            "DATABASE_URL",
+            format!("file:{}", db_path.to_string_lossy()),
+        )
+        .env("NEXTAUTH_SECRET", "desktop-local-secret")
+        .env("NEXTAUTH_URL", "http://127.0.0.1:3000")
+        .spawn()
+        .map_err(|e| format!("spawn node sidecar: {}", e))?;
+
+    app.manage(BundledServer(Mutex::new(Some(child))));
+
+    for attempt in 0..90 {
+        if std::net::TcpStream::connect("127.0.0.1:3000").is_ok() {
+            log::info!("bundled Next.js server ready (attempt {})", attempt + 1);
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    Err("timed out waiting for bundled Next.js server on :3000".into())
 }
 
 // ─── Multi-window ───────────────────────────────────────────────────────────
@@ -428,6 +492,11 @@ pub fn run() {
         .on_menu_event(|app, event| handle_menu_action(app, event.id.as_ref()))
         .setup(|app| {
             let handle = app.handle().clone();
+
+            #[cfg(not(debug_assertions))]
+            if let Err(e) = start_bundled_server(&handle) {
+                log::error!("bundled server failed: {}", e);
+            }
 
             // Native application menu bar.
             let menu = build_app_menu(&handle)?;
