@@ -44,11 +44,6 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  experimental: {
-    outputFileTracingExcludes: {
-      "*": ["**/WindowsApps/**", "**/AppData/Local/Microsoft/**"],
-    },
-  },
   async headers() {
     return [
       {
