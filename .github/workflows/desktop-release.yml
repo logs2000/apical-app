@@ -80,7 +80,8 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [build-macos, build-windows]
+    needs: [build-macos]
+    if: always() && needs.build-macos.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -93,7 +94,10 @@ jobs:
         run: |
           mkdir -p release-assets
           cp artifacts/apical-mac/apical-mac.tar.gz release-assets/
-          cp artifacts/apical-windows/apical-windows.exe release-assets/
+          if [[ -f artifacts/apical-windows/apical-windows.exe ]]; then
+            cp artifacts/apical-windows/apical-windows.exe release-assets/
+          fi
+          ls -la release-assets/
 
       - name: Resolve tag
         id: tag
@@ -117,13 +121,20 @@ jobs:
       - name: Write download manifest
         run: |
           TAG="${{ steps.tag.outputs.name }}"
+          MAC_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-mac.tar.gz"
+          WIN_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-windows.exe"
+          if [[ -f release-assets/apical-windows.exe ]]; then
+            WIN_LINE="\"apical-windows.exe\": \"${WIN_URL}\""
+          else
+            WIN_LINE=""
+          fi
           cat > my-project-temp/download/manifest.json <<EOF
           {
             "version": "${TAG}",
             "releasedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "files": {
-              "apical-mac.tar.gz": "https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-mac.tar.gz",
-              "apical-windows.exe": "https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-windows.exe"
+              "apical-mac.tar.gz": "${MAC_URL}"${WIN_LINE:+,
+              ${WIN_LINE}}
             }
           }
           EOF

@@ -32,6 +32,23 @@ const nextConfig: NextConfig = {
     "localhost",
     "127.0.0.1",
   ],
+  webpack: (config) => {
+    // Windows CI runners hit EACCES when webpack globs symlinked WindowsApps.
+    config.watchOptions = {
+      ...config.watchOptions,
+      ignored: [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/WindowsApps/**",
+      ],
+    };
+    return config;
+  },
+  experimental: {
+    outputFileTracingExcludes: {
+      "*": ["**/WindowsApps/**", "**/AppData/Local/Microsoft/**"],
+    },
+  },
   async headers() {
     return [
       {
