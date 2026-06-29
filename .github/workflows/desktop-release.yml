@@ -60,13 +60,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       # Next.js/webpack on Windows runners can EACCES-scan the WindowsApps symlink.
-      - name: Disable WindowsApps symlink before build
+      - name: Replace WindowsApps with empty junction
         shell: pwsh
         run: |
           $wa = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
-          if (Test-Path $wa) {
-            Rename-Item -Path $wa -NewName 'WindowsApps.bak' -ErrorAction SilentlyContinue
-          }
+          $empty = Join-Path $env:RUNNER_TEMP 'empty-windows-apps'
+          New-Item -ItemType Directory -Force -Path $empty | Out-Null
+          if (Test-Path $wa) { Remove-Item -LiteralPath $wa -Recurse -Force -ErrorAction SilentlyContinue }
+          New-Item -ItemType Junction -Path $wa -Target $empty | Out-Null
 
       - name: Install dependencies
         working-directory: my-project-temp

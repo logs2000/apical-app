@@ -41,6 +41,9 @@ const nextConfig: NextConfig = {
     // Windows CI runners hit EACCES when webpack follows symlinked WindowsApps.
     config.resolve = config.resolve ?? {};
     config.resolve.symlinks = false;
+    if (process.env.CI && process.platform === "win32") {
+      config.cache = false;
+    }
     config.watchOptions = {
       ...config.watchOptions,
       ignored: [
