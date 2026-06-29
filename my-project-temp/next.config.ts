@@ -4,13 +4,18 @@ import path from "path";
 
 // Load repo-root .env (Apical/.env) then local overrides. Many devs keep
 // provider keys in the monorepo root while Next.js runs from my-project-temp/.
-loadEnv({ path: path.resolve(__dirname, "../.env") });
+// Skip repo-root .env on CI — Windows runners can hit EACCES scanning outside the project.
+if (!process.env.CI) {
+  loadEnv({ path: path.resolve(__dirname, "../.env") });
+}
 loadEnv({ path: path.resolve(__dirname, ".env.local") });
 
 const nextConfig: NextConfig = {
   // Standalone output is for the Tauri desktop bundle (a long-running Node
   // server). On Vercel we use the default serverless output instead.
   output: process.env.VERCEL ? undefined : "standalone",
+  // Keep file tracing inside the app dir (avoids Windows runner permission errors).
+  outputFileTracingRoot: path.join(__dirname),
   // Tauri on macOS 12 uses Safari 15 WebKit — Turbopack emits syntax it can't
   // parse (named RegExp groups). Production builds must use webpack + browserslist.
   transpilePackages: [
@@ -33,7 +38,9 @@ const nextConfig: NextConfig = {
     "127.0.0.1",
   ],
   webpack: (config) => {
-    // Windows CI runners hit EACCES when webpack globs symlinked WindowsApps.
+    // Windows CI runners hit EACCES when webpack follows symlinked WindowsApps.
+    config.resolve = config.resolve ?? {};
+    config.resolve.symlinks = false;
     config.watchOptions = {
       ...config.watchOptions,
       ignored: [
