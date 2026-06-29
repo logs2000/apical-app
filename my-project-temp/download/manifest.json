@@ -1,7 +1,8 @@
 {
   "version": "desktop-v0.1.1",
-  "releasedAt": "2026-06-29T06:07:29Z",
+  "releasedAt": "2026-06-29T06:25:00Z",
   "files": {
-    "apical-mac.tar.gz": "https://github.com/logs2000/apical-app/releases/download/desktop-v0.1.1/apical-mac.tar.gz"
+    "apical-mac.tar.gz": "https://github.com/logs2000/apical-app/releases/download/desktop-v0.1.1/apical-mac.tar.gz",
+    "apical-windows.exe": "https://github.com/logs2000/apical-app/releases/download/desktop-v0.1.1/apical-windows.exe"
   }
 }
