@@ -24,14 +24,36 @@ interface DownloadManifest {
   files: Record<string, string>
 }
 
+const ENV_DOWNLOADS: Record<string, string | undefined> = {
+  'apical-mac.tar.gz': process.env.DESKTOP_MAC_URL,
+  'apical-windows.exe': process.env.DESKTOP_WINDOWS_URL,
+  'apical-linux.AppImage': process.env.DESKTOP_LINUX_URL,
+}
+
+function manifestCandidates(): string[] {
+  const cwd = process.cwd()
+  return [
+    path.join(cwd, 'download', 'manifest.json'),
+    path.join(cwd, 'my-project-temp', 'download', 'manifest.json'),
+  ]
+}
+
 async function readManifest(): Promise<DownloadManifest | null> {
-  const p = path.join(process.cwd(), 'download', 'manifest.json')
-  if (!existsSync(p)) return null
-  try {
-    return JSON.parse(await readFile(p, 'utf8')) as DownloadManifest
-  } catch {
-    return null
+  for (const p of manifestCandidates()) {
+    if (!existsSync(p)) continue
+    try {
+      return JSON.parse(await readFile(p, 'utf8')) as DownloadManifest
+    } catch {
+      return null
+    }
   }
+  return null
+}
+
+function resolveDownloadUrl(filename: string, manifest: DownloadManifest | null): string | null {
+  const fromEnv = ENV_DOWNLOADS[filename]
+  if (fromEnv) return fromEnv
+  return manifest?.files?.[filename] ?? null
 }
 
 // GET /downloads/:filename — serve local public file, redirect to release URL, or 404.
@@ -59,7 +81,7 @@ export async function GET(
   }
 
   const manifest = await readManifest()
-  const remote = manifest?.files?.[filename]
+  const remote = resolveDownloadUrl(filename, manifest)
   if (remote) {
     return NextResponse.redirect(remote, 302)
   }
