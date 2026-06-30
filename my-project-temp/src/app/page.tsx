@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import { DesktopStage, DraggableWindow } from "@/components/landing/DesktopStage";
 import { DemoAppShell } from "@/components/landing/DemoAppShell";
-import { ApicalMark } from "@/components/apical/logo";
+import { ApicalMark, ApicalMarkAnimated } from "@/components/apical/logo";
 import { AuthProvider, useAuth } from "@/components/auth/AuthDialog";
 import { IS_TAURI } from "@/lib/desktop/tauri-bridge";
 
@@ -290,6 +290,8 @@ function Hero({
       />
 
       <div className="mx-auto max-w-4xl px-4 py-20 text-center md:py-24 md:px-6">
+        <ApicalMarkAnimated className="mx-auto mb-8 aspect-[465/375] h-14 text-brand md:h-16" />
+
         <motion.div
           initial={reduced ? undefined : { opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}

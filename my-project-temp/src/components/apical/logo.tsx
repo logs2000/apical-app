@@ -3,28 +3,33 @@
 import { cn } from "@/lib/utils";
 import { agentAvatarStyle, agentInitials } from "@/lib/apical";
 
-const OUTER =
-  "M512 292 L746 633 L654 633 L512 428 L372 633 L281 633 Z";
-const INNER = "M512 541 L574 633 L450 633 Z";
+/** Tight bounds around the mark (465×341), origin at top-left of artwork. */
+const OUTER = "M231 0 L465 341 L373 341 L231 136 L91 341 L0 341 Z";
+const INNER = "M231 249 L293 341 L169 341 Z";
+const VIEWBOX_STATIC = "0 0 465 341";
+/** Extra bottom room for entrance animation translateY. */
+const VIEWBOX_ANIMATED = "0 0 465 375";
 
 /**
  * Apical mark — nested triangles (apex / growth tip). Uses `currentColor` on
- * light backgrounds; white on dark auth/hero surfaces via animated variant.
+ * light backgrounds; animated variant for hero/auth surfaces.
  */
 export function ApicalMark({
   className,
   withGlow = false,
+  animated = false,
 }: {
   className?: string;
   withGlow?: boolean;
+  animated?: boolean;
 }) {
-  if (withGlow) {
+  if (withGlow || animated) {
     return <ApicalMarkAnimated className={className} />;
   }
 
   return (
     <svg
-      viewBox="0 0 1024 1024"
+      viewBox={VIEWBOX_STATIC}
       fill="none"
       className={cn("h-7 w-7 text-foreground", className)}
       aria-hidden="true"
@@ -35,13 +40,13 @@ export function ApicalMark({
   );
 }
 
-/** Animated mark for auth pages and landing hero (CSS keyframes in SVG). */
+/** Animated mark — plays once on mount (hero, auth pages). */
 export function ApicalMarkAnimated({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 1024 1024"
+      viewBox={VIEWBOX_ANIMATED}
       fill="none"
-      className={cn("h-7 w-7", className)}
+      className={cn("h-7 w-7 text-foreground", className)}
       aria-hidden="true"
     >
       <style>{`
@@ -64,12 +69,12 @@ export function ApicalMarkAnimated({ className }: { className?: string }) {
           <path d={INNER} />
         </clipPath>
       </defs>
-      <g className="apical-logo" fill="#fff">
-        <path className="apical-outer" d={OUTER} />
-        <path className="apical-inner" d={INNER} />
+      <g className="apical-logo">
+        <path className="apical-outer" fill="currentColor" d={OUTER} />
+        <path className="apical-inner" fill="currentColor" d={INNER} />
       </g>
       <g clipPath="url(#apicalMarkClip)">
-        <rect className="apical-shine" x="380" y="250" width="72" height="440" fill="#fff" />
+        <rect className="apical-shine" x="99" y="-42" width="72" height="440" fill="currentColor" opacity="0.35" />
       </g>
     </svg>
   );

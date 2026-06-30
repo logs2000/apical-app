@@ -2,7 +2,7 @@
 /**
  * Generate favicons, PWA icons, and Tauri icon set from apical_clean.svg.
  */
-import { readFile, writeFile, copyFile, mkdir } from "node:fs/promises";
+import { readFile, copyFile } from "node:fs/promises";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,14 +18,26 @@ const TAURI_ICONS = path.join(ROOT, "src-tauri", "icons");
 
 const ICON_BG = "#0d0d0d";
 
-async function renderIconPng(size, outPath, { transparent = false } = {}) {
+function parseViewBox(svg) {
+  const m = svg.match(/viewBox="([^"]+)"/);
+  const parts = (m?.[1] ?? "0 0 465 341").split(/\s+/).map(Number);
+  return { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+}
+
+async function renderIconPng(size, outPath) {
   const svg = await readFile(CLEAN_SVG, "utf8");
-  const inner = svg.replace(/fill="#ffffff"/g, 'fill="#ffffff"');
-  const composed = transparent
-    ? inner
-    : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" fill="${ICON_BG}"/>
-  ${inner.match(/<path[^>]+>/g)?.join("\n  ") ?? ""}
+  const { w, h } = parseViewBox(svg);
+  const paths = svg.match(/<path[^>]+\/>/g)?.join("\n    ") ?? "";
+  const pad = Math.max(w, h) * 0.08;
+  const square = Math.max(w, h) + pad * 2;
+  const offsetX = (square - w) / 2;
+  const offsetY = (square - h) / 2;
+
+  const composed = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${square} ${square}">
+  <rect width="${square}" height="${square}" fill="${ICON_BG}"/>
+  <g transform="translate(${offsetX}, ${offsetY})">
+    ${paths}
+  </g>
 </svg>`;
 
   await sharp(Buffer.from(composed))
