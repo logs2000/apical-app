@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Animated Apical triangle logo">
+  <style>
+    :root { color-scheme: dark; }
+    .logo {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: settle 900ms cubic-bezier(.16,1,.3,1) both;
+    }
+    .outer {
+      opacity: 0;
+      transform-box: fill-box;
+      transform-origin: 50% 100%;
+      animation: outerIn 900ms cubic-bezier(.16,1,.3,1) 80ms forwards;
+    }
+    .inner {
+      opacity: 0;
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: innerIn 650ms cubic-bezier(.16,1,.3,1) 520ms forwards;
+    }
+    .shine {
+      opacity: 0;
+      transform: translateX(-320px) skewX(-24deg);
+      animation: sweep 900ms ease 1050ms forwards;
+    }
+    @keyframes outerIn {
+      0% { opacity: 0; transform: translateY(34px) scale(.94); }
+      55% { opacity: 1; }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes innerIn {
+      0% { opacity: 0; transform: translateY(22px) scale(.76); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes settle {
+      0% { transform: scale(.985); }
+      100% { transform: scale(1); }
+    }
+    @keyframes sweep {
+      0% { opacity: 0; transform: translateX(-320px) skewX(-24deg); }
+      18% { opacity: .22; }
+      65% { opacity: .14; }
+      100% { opacity: 0; transform: translateX(430px) skewX(-24deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .logo, .outer, .inner, .shine { animation: none; opacity: 1; transform: none; }
+      .shine { opacity: 0; }
+    }
+  </style>
+
+  <defs>
+    <clipPath id="logoClip">
+      <path d="M512 292 L746 633 L654 633 L512 428 L372 633 L281 633 Z"/>
+      <path d="M512 541 L574 633 L450 633 Z"/>
+    </clipPath>
+  </defs>
+
+  <g class="logo" fill="#fff">
+    <path class="outer" d="M512 292 L746 633 L654 633 L512 428 L372 633 L281 633 Z"/>
+    <path class="inner" d="M512 541 L574 633 L450 633 Z"/>
+  </g>
+
+  <g clip-path="url(#logoClip)">
+    <rect class="shine" x="380" y="250" width="72" height="440" fill="#fff"/>
+  </g>
+</svg>

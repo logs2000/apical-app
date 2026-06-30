@@ -1,15 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
-<svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" xml:space="preserve">
-  <!--
-    Apical mark — a large triangle with a smaller triangle nested inside,
-    evoking the "apex" / growth-tip concept. Derived from the official logo PNG.
-    Uses currentColor so it inherits the text color (theme-aware: black on
-    light backgrounds, white on dark backgrounds).
-  -->
-  <!-- Outer triangle (large) -->
-  <polygon points="90,20 160,150 20,150" fill="currentColor" />
-  <!-- Inner triangle (nested, creates the layered apex effect) -->
-  <polygon points="90,70 125,140 55,140" fill="oklch(0.99 0 0)" />
-  <!-- Innermost triangle (the apex tip) -->
-  <polygon points="90,95 105,135 75,135" fill="currentColor" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Cleaned Apical triangle logo">
+  <path fill="#ffffff" d="M512 292 L746 633 L654 633 L512 428 L372 633 L281 633 Z"/>
+  <path fill="#ffffff" d="M512 541 L574 633 L450 633 Z"/>
 </svg>

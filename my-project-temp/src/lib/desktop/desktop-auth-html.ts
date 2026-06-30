@@ -16,10 +16,9 @@ function esc(s: string) {
     .replace(/"/g, "&quot;");
 }
 
-const MARK_SVG = `<svg viewBox="0 0 180 180" fill="none" width="44" height="44" aria-hidden="true">
-  <polygon points="90,20 160,150 20,150" fill="#2d6a4f"/>
-  <polygon points="90,70 125,140 55,140" fill="#fafafa"/>
-  <polygon points="90,95 105,135 75,135" fill="#2d6a4f"/>
+const MARK_SVG = `<svg viewBox="0 0 1024 1024" fill="none" width="44" height="44" aria-hidden="true">
+  <path fill="#171717" d="M512 292 L746 633 L654 633 L512 428 L372 633 L281 633 Z"/>
+  <path fill="#171717" d="M512 541 L574 633 L450 633 Z"/>
 </svg>`;
 
 export function buildDesktopAuthHtml(opts: {

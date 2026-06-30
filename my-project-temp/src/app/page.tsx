@@ -3,6 +3,12 @@
 import * as React from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -18,6 +24,7 @@ import { cn } from "@/lib/utils";
 import {
   ArrowRight,
   Check,
+  ChevronDown,
   Copy,
   Download,
   FileText,
@@ -730,7 +737,7 @@ function Footer() {
 // ─── Download button + dialog ───────────────────────────────────────────────
 
 function DownloadButton({
-  os,
+  os: detectedOs,
   variant = "default",
   size = "default",
   className,
@@ -740,34 +747,82 @@ function DownloadButton({
   size?: "default" | "sm" | "lg";
   className?: string;
 }) {
+  const initialOs: DetectedOS = detectedOs === "other" ? "mac" : detectedOs;
+  const [selectedOs, setSelectedOs] = React.useState<DetectedOS>(initialOs);
   const [open, setOpen] = React.useState(false);
   const { toast } = useToast();
 
-  const handleClick = async () => {
-    if (os === "other") {
-      setOpen(true);
-      return;
-    }
-    // Try the real download URL. If 404, open the dialog with CLI fallback.
+  React.useEffect(() => {
+    if (detectedOs !== "other") setSelectedOs(detectedOs);
+  }, [detectedOs]);
+
+  const handleDownload = async (target: DetectedOS) => {
     try {
-      const res = await fetch(downloadUrl(os), { method: "HEAD" });
+      const res = await fetch(downloadUrl(target), { method: "HEAD" });
       if (res.ok) {
-        window.location.href = downloadUrl(os);
+        window.location.href = downloadUrl(target);
         return;
       }
+      setSelectedOs(target);
       setOpen(true);
     } catch {
+      setSelectedOs(target);
       setOpen(true);
     }
   };
 
+  const handleClick = () => {
+    void handleDownload(selectedOs);
+  };
+
+  const platforms: DetectedOS[] = ["mac", "windows", "linux"];
+
   return (
     <>
-      <Button variant={variant} size={size} onClick={handleClick} className={className}>
-        <Download className="mr-1.5 h-4 w-4" />
-        {downloadButtonLabel(os)}
-      </Button>
-      <DownloadDialog open={open} onOpenChange={setOpen} os={os} onCopied={() => toast({ title: "Copied" })} />
+      <div className={cn("inline-flex", className?.includes("w-full") && "w-full")}>
+        <Button
+          variant={variant}
+          size={size}
+          onClick={handleClick}
+          className={cn(className, "rounded-r-none")}
+        >
+          <Download className="mr-1.5 h-4 w-4" />
+          {downloadButtonLabel(selectedOs)}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant={variant}
+              size={size}
+              className="rounded-l-none border-l border-primary-foreground/20 px-2"
+              aria-label="Choose download platform"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {platforms.map((p) => (
+              <DropdownMenuItem
+                key={p}
+                className="gap-2"
+                onClick={() => {
+                  setSelectedOs(p);
+                  void handleDownload(p);
+                }}
+              >
+                <Check className={cn("h-3.5 w-3.5", selectedOs !== p && "invisible")} />
+                {osLabel(p)}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <DownloadDialog
+        open={open}
+        onOpenChange={setOpen}
+        os={selectedOs}
+        onCopied={() => toast({ title: "Copied" })}
+      />
     </>
   );
 }
