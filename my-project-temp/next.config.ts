@@ -14,8 +14,8 @@ const nextConfig: NextConfig = {
   // Standalone output is for the Tauri desktop bundle (a long-running Node
   // server). On Vercel we use the default serverless output instead.
   output: process.env.VERCEL ? undefined : "standalone",
-  // Keep file tracing inside the app dir (avoids Windows runner permission errors).
-  outputFileTracingRoot: path.join(__dirname),
+  // Desktop/Tauri builds only — on Vercel this breaks monorepo file tracing.
+  ...(process.env.VERCEL ? {} : { outputFileTracingRoot: path.join(__dirname) }),
   // Tauri on macOS 12 uses Safari 15 WebKit — Turbopack emits syntax it can't
   // parse (named RegExp groups). Production builds must use webpack + browserslist.
   transpilePackages: [
