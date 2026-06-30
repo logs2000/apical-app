@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2, Lock } from 'lucide-react'
 
-import { ApicalMark } from '@/components/apical/logo'
+import { ApicalMark, ApicalName } from '@/components/apical/logo'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -53,9 +53,7 @@ function GateForm() {
       <CardHeader className="text-center">
         <div className="mb-2 flex items-center justify-center gap-2">
           <ApicalMark className="h-7 w-7" withGlow />
-          <span className="text-lg font-semibold tracking-tight">
-            Apical<span className="text-brand">.</span>
-          </span>
+          <ApicalName className="text-lg" withDot />
         </div>
         <CardTitle className="flex items-center justify-center gap-2 text-lg">
           <Lock className="h-4 w-4" /> Private preview

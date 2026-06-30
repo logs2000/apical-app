@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Providers } from "@/components/providers";
 import { ThemeProviderRoot } from "@/components/theme-provider-root";
+import { circularStd } from "@/lib/fonts/circular";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -64,7 +65,7 @@ export default async function RootLayout({
         />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} ${circularStd.variable} antialiased bg-background text-foreground`}
       >
         <ThemeProviderRoot>
           <Providers>

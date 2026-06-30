@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import { DesktopStage, DraggableWindow } from "@/components/landing/DesktopStage";
 import { DemoAppShell } from "@/components/landing/DemoAppShell";
-import { ApicalMark, ApicalMarkAnimated } from "@/components/apical/logo";
+import { ApicalMark, ApicalMarkAnimated, ApicalName } from "@/components/apical/logo";
 import { AuthProvider, useAuth } from "@/components/auth/AuthDialog";
 import { IS_TAURI } from "@/lib/desktop/tauri-bridge";
 
@@ -197,7 +197,7 @@ function Nav({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-lg">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4 md:px-6">
         <ApicalMark className="h-6 w-6" />
-        <span className="text-sm font-semibold tracking-tight">Apical</span>
+        <ApicalName className="text-sm" />
 
         <nav className="ml-6 hidden items-center gap-6 text-sm text-muted-foreground md:flex">
           <a href="#how" className="transition-colors hover:text-foreground">How it works</a>
@@ -239,7 +239,7 @@ function Nav({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
               </Button>
             </>
           )}
-          <DownloadButton os={os} variant="default" size="sm" />
+          <DownloadButton os={os} variant="default" size="sm" withPlatformPicker />
           <div className="md:hidden">
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger asChild>
@@ -297,9 +297,7 @@ function Hero({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: "easeOut" }}
         >
-          <Badge variant="outline" className="mb-6 gap-1.5 border-border/80 px-3 py-1 text-xs text-muted-foreground">
-            <Sparkles className="h-3 w-3" /> AI agents that actually do the work
-          </Badge>
+         
 
           <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl md:text-6xl">
             Consider it <span className="text-brand">Done.</span>
@@ -694,7 +692,7 @@ function Footer() {
         <div className="flex flex-col items-start justify-between gap-8 md:flex-row">
           <div className="flex items-center gap-2">
             <ApicalMark className="h-5 w-5" />
-            <span className="text-sm font-semibold">Apical</span>
+            <ApicalName className="text-sm" />
           </div>
           <div className="grid grid-cols-2 gap-8 text-xs sm:grid-cols-4">
             <div>
@@ -743,11 +741,13 @@ function DownloadButton({
   variant = "default",
   size = "default",
   className,
+  withPlatformPicker = false,
 }: {
   os: DetectedOS;
   variant?: "default" | "outline" | "ghost";
   size?: "default" | "sm" | "lg";
   className?: string;
+  withPlatformPicker?: boolean;
 }) {
   const initialOs: DetectedOS = detectedOs === "other" ? "mac" : detectedOs;
   const [selectedOs, setSelectedOs] = React.useState<DetectedOS>(initialOs);
@@ -773,11 +773,38 @@ function DownloadButton({
     }
   };
 
-  const handleClick = () => {
-    void handleDownload(selectedOs);
+  const activeOs = withPlatformPicker ? selectedOs : detectedOs;
+
+  const handleClick = async () => {
+    if (!withPlatformPicker && activeOs === "other") {
+      setOpen(true);
+      return;
+    }
+    await handleDownload(withPlatformPicker ? selectedOs : activeOs);
   };
 
   const platforms: DetectedOS[] = ["mac", "windows", "linux"];
+
+  const dialog = (
+    <DownloadDialog
+      open={open}
+      onOpenChange={setOpen}
+      os={withPlatformPicker ? selectedOs : activeOs}
+      onCopied={() => toast({ title: "Copied" })}
+    />
+  );
+
+  if (!withPlatformPicker) {
+    return (
+      <>
+        <Button variant={variant} size={size} onClick={() => void handleClick()} className={className}>
+          <Download className="mr-1.5 h-4 w-4" />
+          {downloadButtonLabel(activeOs)}
+        </Button>
+        {dialog}
+      </>
+    );
+  }
 
   return (
     <>
@@ -785,7 +812,7 @@ function DownloadButton({
         <Button
           variant={variant}
           size={size}
-          onClick={handleClick}
+          onClick={() => void handleClick()}
           className={cn(className, "rounded-r-none")}
         >
           <Download className="mr-1.5 h-4 w-4" />
@@ -819,12 +846,7 @@ function DownloadButton({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <DownloadDialog
-        open={open}
-        onOpenChange={setOpen}
-        os={selectedOs}
-        onCopied={() => toast({ title: "Copied" })}
-      />
+      {dialog}
     </>
   );
 }

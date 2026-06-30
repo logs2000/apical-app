@@ -58,6 +58,18 @@ export function buildDesktopAuthHtml(opts: {
     }
     .card { width: 100%; max-width: 360px; }
     .brand { text-align: center; margin-bottom: 32px; }
+    @font-face {
+      font-family: "Circular Std";
+      src: url("/fonts/CircularStd-Medium.woff2") format("woff2");
+      font-weight: 500;
+      font-style: normal;
+      font-display: swap;
+    }
+    .brand-name {
+      font-family: "Circular Std", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+    }
     .brand h1 {
       margin: 16px 0 4px;
       font-size: 22px;

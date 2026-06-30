@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ApicalMark } from "@/components/apical/logo";
+import { ApicalMark, ApicalName } from "@/components/apical/logo";
 import { ArrowRight, Loader2, Mail } from "lucide-react";
 
 type Mode = "signin" | "signup";
@@ -273,7 +273,7 @@ function AuthDialog({
         <DialogHeader>
           <div className="mb-2 flex items-center gap-2">
             <ApicalMark className="h-6 w-6" />
-            <span className="text-sm font-semibold tracking-tight">Apical</span>
+            <ApicalName className="text-sm" />
           </div>
           <DialogTitle>{isSignup ? "Create your account" : "Sign in to Apical"}</DialogTitle>
           <DialogDescription>

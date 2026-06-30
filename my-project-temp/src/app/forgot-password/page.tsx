@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, Mail } from 'lucide-react'
 
-import { ApicalMark } from '@/components/apical/logo'
+import { ApicalMark, ApicalName } from '@/components/apical/logo'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -57,8 +57,8 @@ export default function ForgotPasswordPage() {
       <div className="relative w-full max-w-md">
         <div className="mb-6 flex items-center justify-center gap-2">
           <ApicalMark className="h-7 w-7" withGlow />
-          <Link href="/" className="text-lg font-semibold tracking-tight">
-            Apical<span className="text-brand">.</span>
+          <Link href="/">
+            <ApicalName className="text-lg" withDot />
           </Link>
         </div>
 

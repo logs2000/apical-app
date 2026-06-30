@@ -15,7 +15,7 @@ import {
   User,
 } from 'lucide-react'
 
-import { ApicalMark } from '@/components/apical/logo'
+import { ApicalMark, ApicalName } from '@/components/apical/logo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -109,9 +109,7 @@ export default function DeveloperPage() {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2">
             <ApicalMark className="h-6 w-6" />
-            <span className="text-sm font-semibold tracking-tight">
-              Apical<span className="text-brand">.</span>
-            </span>
+            <ApicalName className="text-sm" withDot />
             <span className="ml-2 text-xs text-muted-foreground">Developer</span>
           </Link>
           <nav className="flex items-center gap-4 text-xs text-muted-foreground">

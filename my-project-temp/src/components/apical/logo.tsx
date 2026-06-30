@@ -80,15 +80,27 @@ export function ApicalMarkAnimated({ className }: { className?: string }) {
   );
 }
 
+/** Brand wordmark text — Circular Std. */
+export function ApicalName({
+  className,
+  withDot = false,
+}: {
+  className?: string;
+  withDot?: boolean;
+}) {
+  return (
+    <span className={cn("font-circular font-medium tracking-tight", className)}>
+      Apical
+      {withDot && <span className="text-brand">.</span>}
+    </span>
+  );
+}
+
 export function ApicalWordmark({ className, compact = false }: { className?: string; compact?: boolean }) {
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <ApicalMark className="h-6 w-6" />
-      {!compact && (
-        <span className="font-semibold tracking-tight text-[14px] lowercase">
-          apical
-        </span>
-      )}
+      {!compact && <ApicalName className="text-[14px]" />}
     </div>
   );
 }
