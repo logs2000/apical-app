@@ -67,7 +67,7 @@ function downloadButtonLabel(os: DetectedOS): string {
 }
 function downloadUrl(os: DetectedOS): string {
   const base = "/downloads";
-  if (os === "mac") return `${base}/apical-mac.tar.gz`;
+  if (os === "mac") return `${base}/apical-mac.dmg`;
   if (os === "windows") return `${base}/apical-windows.exe`;
   if (os === "linux") return `${base}/apical-linux.AppImage`;
   return `${base}/`;
@@ -197,7 +197,7 @@ function Nav({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-lg">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4 md:px-6">
         <ApicalMark className="h-6 w-6" />
-        <ApicalName className="text-sm" />
+        <ApicalName />
 
         <nav className="ml-6 hidden items-center gap-6 text-sm text-muted-foreground md:flex">
           <a href="#how" className="transition-colors hover:text-foreground">How it works</a>
@@ -692,7 +692,7 @@ function Footer() {
         <div className="flex flex-col items-start justify-between gap-8 md:flex-row">
           <div className="flex items-center gap-2">
             <ApicalMark className="h-5 w-5" />
-            <ApicalName className="text-sm" />
+            <ApicalName />
           </div>
           <div className="grid grid-cols-2 gap-8 text-xs sm:grid-cols-4">
             <div>

@@ -228,7 +228,7 @@ export default function DocsPage() {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2">
             <ApicalMark className="h-6 w-6" />
-            <ApicalName className="text-sm" withDot />
+            <ApicalName withDot />
             <span className="ml-2 text-xs text-muted-foreground">Docs</span>
           </Link>
           <nav className="flex items-center gap-4 text-xs text-muted-foreground">

@@ -7,12 +7,14 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const ALLOWED = new Set([
+  'apical-mac.dmg',
   'apical-mac.tar.gz',
   'apical-windows.exe',
   'apical-linux.AppImage',
 ])
 
 const CONTENT_TYPE: Record<string, string> = {
+  'apical-mac.dmg': 'application/x-apple-diskimage',
   'apical-mac.tar.gz': 'application/gzip',
   'apical-windows.exe': 'application/vnd.microsoft.portable-executable',
   'apical-linux.AppImage': 'application/vnd.appimage',
@@ -25,6 +27,7 @@ interface DownloadManifest {
 }
 
 const ENV_DOWNLOADS: Record<string, string | undefined> = {
+  'apical-mac.dmg': process.env.DESKTOP_MAC_URL,
   'apical-mac.tar.gz': process.env.DESKTOP_MAC_URL,
   'apical-windows.exe': process.env.DESKTOP_WINDOWS_URL,
   'apical-linux.AppImage': process.env.DESKTOP_LINUX_URL,
@@ -53,7 +56,16 @@ async function readManifest(): Promise<DownloadManifest | null> {
 function resolveDownloadUrl(filename: string, manifest: DownloadManifest | null): string | null {
   const fromEnv = ENV_DOWNLOADS[filename]
   if (fromEnv) return fromEnv
-  return manifest?.files?.[filename] ?? null
+
+  const fromManifest = manifest?.files?.[filename]
+  if (fromManifest) return fromManifest
+
+  // Legacy tar.gz links fall through to the current DMG release.
+  if (filename === 'apical-mac.tar.gz' && manifest?.files?.['apical-mac.dmg']) {
+    return manifest.files['apical-mac.dmg']
+  }
+
+  return null
 }
 
 // GET /downloads/:filename — serve local public file, redirect to release URL, or 404.

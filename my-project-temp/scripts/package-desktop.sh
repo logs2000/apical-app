@@ -4,30 +4,54 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/public/downloads"
-BUNDLE="$ROOT/src-tauri/target/release/bundle"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 mkdir -p "$OUT"
 
+find_bundle_dir() {
+  local marker="$1"
+  local candidates=(
+    "$ROOT/src-tauri/target/universal-apple-darwin/release/bundle"
+    "$ROOT/src-tauri/target/release/bundle"
+    "$ROOT/src-tauri/target/aarch64-apple-darwin/release/bundle"
+    "$ROOT/src-tauri/target/x86_64-apple-darwin/release/bundle"
+  )
+  local c
+  for c in "${candidates[@]}"; do
+    if [[ -d "$c/$marker" ]]; then
+      echo "$c"
+      return 0
+    fi
+    if [[ "$marker" == "windows" && ( -d "$c/nsis" || -d "$c/msi" ) ]]; then
+      echo "$c"
+      return 0
+    fi
+  done
+  return 1
+}
+
 pack_mac() {
-  local app
-  app="$(find "$BUNDLE/macos" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null || true)"
+  local bundle app
+  bundle="$(find_bundle_dir macos)"
+  app="$(find "$bundle/macos" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null || true)"
   if [[ -z "$app" ]]; then
-    echo "No macOS .app found under $BUNDLE/macos" >&2
+    echo "No macOS .app found under $bundle/macos" >&2
     exit 1
   fi
-  rm -f "$OUT/apical-mac.tar.gz"
-  tar -czf "$OUT/apical-mac.tar.gz" -C "$(dirname "$app")" "$(basename "$app")"
-  echo "Wrote $OUT/apical-mac.tar.gz ($(du -h "$OUT/apical-mac.tar.gz" | cut -f1))"
+  rm -f "$OUT/apical-mac.dmg"
+  bash "$SCRIPT_DIR/create-mac-dmg.sh" "$app" "$OUT/apical-mac.dmg"
+  echo "Wrote $OUT/apical-mac.dmg ($(du -h "$OUT/apical-mac.dmg" | cut -f1))"
 }
 
 pack_windows() {
-  local exe
-  exe="$(find "$BUNDLE/nsis" -name '*-setup.exe' -print -quit 2>/dev/null || true)"
+  local bundle exe
+  bundle="$(find_bundle_dir windows)"
+  exe="$(find "$bundle/nsis" -name '*-setup.exe' -print -quit 2>/dev/null || true)"
   if [[ -z "$exe" ]]; then
-    exe="$(find "$BUNDLE/msi" -name '*.msi' -print -quit 2>/dev/null || true)"
+    exe="$(find "$bundle/msi" -name '*.msi' -print -quit 2>/dev/null || true)"
   fi
   if [[ -z "$exe" ]]; then
-    echo "No Windows installer found under $BUNDLE" >&2
+    echo "No Windows installer found under $bundle" >&2
     exit 1
   fi
   cp "$exe" "$OUT/apical-windows.exe"
@@ -35,10 +59,11 @@ pack_windows() {
 }
 
 pack_linux() {
-  local appimage
-  appimage="$(find "$BUNDLE/appimage" -name '*.AppImage' -print -quit 2>/dev/null || true)"
+  local bundle appimage
+  bundle="$(find_bundle_dir appimage)"
+  appimage="$(find "$bundle/appimage" -name '*.AppImage' -print -quit 2>/dev/null || true)"
   if [[ -z "$appimage" ]]; then
-    echo "No AppImage found under $BUNDLE/appimage" >&2
+    echo "No AppImage found under $bundle/appimage" >&2
     exit 1
   fi
   cp "$appimage" "$OUT/apical-linux.AppImage"
@@ -51,9 +76,9 @@ case "${1:-all}" in
   windows) pack_windows ;;
   linux) pack_linux ;;
   all)
-    [[ -d "$BUNDLE/macos" ]] && pack_mac || true
-    [[ -d "$BUNDLE/nsis" || -d "$BUNDLE/msi" ]] && pack_windows || true
-    [[ -d "$BUNDLE/appimage" ]] && pack_linux || true
+    find_bundle_dir macos >/dev/null 2>&1 && pack_mac || true
+    find_bundle_dir windows >/dev/null 2>&1 && pack_windows || true
+    find_bundle_dir appimage >/dev/null 2>&1 && pack_linux || true
     ;;
   *) echo "Usage: $0 [mac|windows|linux|all]" >&2; exit 1 ;;
 esac

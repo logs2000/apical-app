@@ -53,7 +53,7 @@ function GateForm() {
       <CardHeader className="text-center">
         <div className="mb-2 flex items-center justify-center gap-2">
           <ApicalMark className="h-7 w-7" withGlow />
-          <ApicalName className="text-lg" withDot />
+          <ApicalName withDot />
         </div>
         <CardTitle className="flex items-center justify-center gap-2 text-lg">
           <Lock className="h-4 w-4" /> Private preview

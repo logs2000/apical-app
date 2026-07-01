@@ -83,7 +83,7 @@ export default function LoginPage() {
         <div className="mb-6 flex items-center justify-center gap-2">
           <ApicalMark className="h-7 w-7" withGlow />
           <Link href="/">
-            <ApicalName className="text-lg" withDot />
+            <ApicalName withDot />
           </Link>
         </div>
 

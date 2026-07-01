@@ -89,7 +89,7 @@ export function ApicalName({
   withDot?: boolean;
 }) {
   return (
-    <span className={cn("font-circular font-medium tracking-tight", className)}>
+    <span className={cn("font-circular text-lg font-medium tracking-tight md:text-xl", className)}>
       Apical
       {withDot && <span className="text-brand">.</span>}
     </span>
@@ -100,7 +100,7 @@ export function ApicalWordmark({ className, compact = false }: { className?: str
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <ApicalMark className="h-6 w-6" />
-      {!compact && <ApicalName className="text-[14px]" />}
+      {!compact && <ApicalName />}
     </div>
   );
 }

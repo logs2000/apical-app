@@ -67,5 +67,6 @@ server.log
 
 # desktop installers (published via GitHub Releases, not git)
 /public/downloads/*.tar.gz
+/public/downloads/*.dmg
 /public/downloads/*.exe
 /public/downloads/*.AppImage

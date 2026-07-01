@@ -106,7 +106,7 @@ export default function SignupPage() {
           <div className="mb-6 flex items-center gap-2">
             <ApicalMark className="h-7 w-7" withGlow />
             <Link href="/">
-              <ApicalName className="text-lg" withDot />
+            <ApicalName withDot />
             </Link>
           </div>
           <h1 className="text-3xl font-semibold leading-tight tracking-tight">
@@ -129,7 +129,7 @@ export default function SignupPage() {
         <div className="md:hidden mb-6 flex items-center justify-center gap-2">
           <ApicalMark className="h-7 w-7" withGlow />
           <Link href="/">
-            <ApicalName className="text-lg" withDot />
+            <ApicalName withDot />
           </Link>
         </div>
 
