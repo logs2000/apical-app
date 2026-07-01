@@ -15,7 +15,6 @@ import {
   DESKTOP_SHELL_VALUE,
 } from '@/lib/desktop/shell-cookie'
 import { desktopAppUrl } from '@/lib/desktop/desktop-origin'
-import { updateSession } from '@/lib/supabase/middleware'
 import { PRELAUNCH_COOKIE } from '@/lib/prelaunch'
 
 /**
@@ -63,8 +62,16 @@ export async function middleware(req: NextRequest) {
   const gate = gateRedirect(req)
   if (gate) return gate
 
-  // Keep the Supabase auth session fresh (no-op without Supabase env vars).
-  return updateSession(req)
+  // Keep the Supabase auth session fresh. Dynamic import keeps @supabase/supabase-js
+  // out of the edge bundle when Supabase env vars are unset (desktop CI builds).
+  if (
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  ) {
+    const { updateSession } = await import('@/lib/supabase/middleware')
+    return updateSession(req)
+  }
+  return NextResponse.next()
 }
 
 export const config = {

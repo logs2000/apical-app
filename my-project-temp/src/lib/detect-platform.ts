@@ -20,6 +20,12 @@ export function detectMacArchSync(): MacArch {
   return "unknown";
 }
 
+/** Chromium User-Agent Client Hints (not in default TS lib yet). */
+type NavigatorUAData = {
+  platform?: string;
+  getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>;
+};
+
 /**
  * Best-effort Mac CPU detection.
  * Uses User-Agent Client Hints when available (Chrome/Edge), then UA string fallbacks.
@@ -27,8 +33,8 @@ export function detectMacArchSync(): MacArch {
 export async function detectMacArch(): Promise<MacArch> {
   if (typeof navigator === "undefined") return "unknown";
 
-  const uaData = navigator.userAgentData;
-  if (uaData?.platform === "macOS") {
+  const uaData = (navigator as Navigator & { userAgentData?: NavigatorUAData }).userAgentData;
+  if (uaData?.platform === "macOS" && uaData.getHighEntropyValues) {
     try {
       const { architecture } = await uaData.getHighEntropyValues(["architecture"]);
       if (architecture === "arm") return "apple-silicon";

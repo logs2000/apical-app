@@ -15,6 +15,7 @@
 import { createHash, randomBytes } from 'crypto'
 import { db } from './db'
 import { getOrCreateDevUser, isDevBypass } from './auth'
+import { DEV_USER_EMAIL, DEV_USER_NAME } from './dev-bypass'
 import { createSupabaseServerClient } from './supabase/server'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import type { PersonalAccessToken, User } from '@prisma/client'
