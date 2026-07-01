@@ -87,3 +87,18 @@ for triple in "${TRIPLES[@]}"; do
   [[ -z "$triple" ]] && continue
   fetch_triple "$triple"
 done
+
+# Universal macOS bundles expect a fat binary named for the universal triple.
+if [[ "${APICAL_UNIVERSAL_MAC:-0}" == "1" ]]; then
+  ARM="$BIN_DIR/node-aarch64-apple-darwin"
+  X64="$BIN_DIR/node-x86_64-apple-darwin"
+  UNI="$BIN_DIR/node-universal-apple-darwin"
+  if [[ -f "$ARM" && -f "$X64" ]]; then
+    lipo -create -output "$UNI" "$ARM" "$X64"
+    chmod +x "$UNI"
+    echo "[fetch-node-sidecar] Created universal binary: $UNI"
+  else
+    echo "[fetch-node-sidecar] Missing arch binaries for universal lipo (need $ARM and $X64)" >&2
+    exit 1
+  fi
+fi
