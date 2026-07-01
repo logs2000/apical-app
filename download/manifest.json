@@ -1,8 +1,9 @@
 {
-  "version": "desktop-v0.1.3",
-  "releasedAt": "2026-07-01T03:47:00Z",
+  "version": "desktop-v0.1.4",
+  "releasedAt": "2026-07-01T04:37:02Z",
   "files": {
-    "apical-mac.dmg": "https://github.com/logs2000/apical-app/releases/download/desktop-v0.1.3/apical-mac.dmg",
-    "apical-windows.exe": "https://github.com/logs2000/apical-app/releases/download/desktop-v0.1.3/apical-windows.exe"
+    "apical-mac.dmg": "https://github.com/logs2000/apical-app/releases/download/desktop-v0.1.4/apical-mac.dmg",
+    "apical-mac-intel.dmg": "https://github.com/logs2000/apical-app/releases/download/desktop-v0.1.4/apical-mac-intel.dmg",
+    "apical-windows.exe": "https://github.com/logs2000/apical-app/releases/download/desktop-v0.1.4/apical-windows.exe"
   }
 }
