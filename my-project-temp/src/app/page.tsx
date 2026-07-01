@@ -47,37 +47,17 @@ import { ApicalMark, ApicalMarkAnimated, ApicalName } from "@/components/apical/
 import { AuthProvider, useAuth } from "@/components/auth/AuthDialog";
 import { IS_TAURI } from "@/lib/desktop/tauri-bridge";
 
-// ─── OS detection (inlined so the page is self-contained) ──────────────────
-
-type DetectedOS = "mac" | "windows" | "linux" | "other";
-
-function detectOS(): DetectedOS {
-  if (typeof navigator === "undefined") return "other";
-  const ua = navigator.userAgent.toLowerCase();
-  if (ua.includes("mac os x") || ua.includes("darwin")) return "mac";
-  if (ua.includes("windows")) return "windows";
-  if (ua.includes("linux")) return "linux";
-  return "other";
-}
-function osLabel(os: DetectedOS): string {
-  return os === "mac" ? "macOS" : os === "windows" ? "Windows" : os === "linux" ? "Linux" : "Pick platform";
-}
-function downloadButtonLabel(os: DetectedOS): string {
-  return os === "other" ? "Download" : `Download for ${osLabel(os)}`;
-}
-function isIntelMac(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /intel mac os x/i.test(navigator.userAgent);
-}
-function downloadUrl(os: DetectedOS): string {
-  const base = "/downloads";
-  if (os === "mac") {
-    return isIntelMac() ? `${base}/apical-mac-intel.dmg` : `${base}/apical-mac.dmg`;
-  }
-  if (os === "windows") return `${base}/apical-windows.exe`;
-  if (os === "linux") return `${base}/apical-linux.AppImage`;
-  return `${base}/`;
-}
+import {
+  detectOS,
+  detectMacArch,
+  detectMacArchSync,
+  downloadUrlFor,
+  downloadButtonLabel,
+  PLATFORM_CHOICES,
+  type DetectedOS,
+  type MacArch,
+  type PlatformChoice,
+} from "@/lib/detect-platform";
 function installCommandFor(os: DetectedOS): string {
   if (os === "mac") return "brew install --cask apical";
   if (os === "windows") return "winget install apical.apical";
@@ -145,12 +125,15 @@ const PLAN_LIST: Plan[] = [
 
 function HomeContent() {
   const [os, setOs] = React.useState<DetectedOS>("other");
+  const [macArch, setMacArch] = React.useState<MacArch>("unknown");
   const [mounted, setMounted] = React.useState(false);
   const prefersReducedMotion = useReducedMotion();
   const { launch } = useAuth();
 
   React.useEffect(() => {
     setOs(detectOS());
+    setMacArch(detectMacArchSync());
+    void detectMacArch().then(setMacArch);
     setMounted(true);
   }, []);
 
@@ -171,15 +154,15 @@ function HomeContent() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground" suppressHydrationWarning>
-      <Nav os={mounted ? os : "other"} onLaunch={launch} />
+      <Nav os={mounted ? os : "other"} macArch={mounted ? macArch : "unknown"} onLaunch={launch} />
       <main className="flex-1">
-        <Hero os={mounted ? os : "other"} onLaunch={launch} reduced={prefersReducedMotion} />
+        <Hero os={mounted ? os : "other"} macArch={mounted ? macArch : "unknown"} onLaunch={launch} reduced={prefersReducedMotion} />
         <SocialProof />
         <HowItWorks reduced={prefersReducedMotion} />
         <UseCases reduced={prefersReducedMotion} />
         <Pricing os={mounted ? os : "other"} onLaunch={launch} />
         <ForDevelopers />
-        <FinalCTA os={mounted ? os : "other"} onLaunch={launch} />
+        <FinalCTA os={mounted ? os : "other"} macArch={mounted ? macArch : "unknown"} onLaunch={launch} />
       </main>
       <Footer />
     </div>
@@ -196,7 +179,7 @@ export default function Home() {
 
 // ─── Nav ────────────────────────────────────────────────────────────────────
 
-function Nav({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+function Nav({ os, macArch, onLaunch }: { os: DetectedOS; macArch: MacArch; onLaunch: () => void }) {
   const [open, setOpen] = React.useState(false);
   const { user, openAuth, signOut } = useAuth();
   return (
@@ -245,7 +228,7 @@ function Nav({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
               </Button>
             </>
           )}
-          <DownloadButton os={os} variant="default" size="sm" withPlatformPicker />
+          <DownloadButton os={os} macArch={macArch} variant="default" size="sm" withPlatformPicker />
           <div className="md:hidden">
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger asChild>
@@ -276,10 +259,12 @@ function Nav({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
 
 function Hero({
   os,
+  macArch,
   onLaunch,
   reduced,
 }: {
   os: DetectedOS;
+  macArch: MacArch;
   onLaunch: () => void;
   reduced: boolean | null;
 }) {
@@ -315,7 +300,7 @@ function Hero({
           </p>
 
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <DownloadButton os={os} size="lg" className="w-full sm:w-auto" />
+            <DownloadButton os={os} macArch={macArch} size="lg" className="w-full sm:w-auto" />
             <Button variant="outline" size="lg" onClick={onLaunch} className="w-full sm:w-auto">
               Open the web app <ArrowRight className="ml-1.5 h-4 w-4" />
             </Button>
@@ -668,7 +653,7 @@ function ForDevelopers() {
 
 // ─── Final CTA ──────────────────────────────────────────────────────────────
 
-function FinalCTA({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
+function FinalCTA({ os, macArch, onLaunch }: { os: DetectedOS; macArch: MacArch; onLaunch: () => void }) {
   return (
     <section className="border-t border-border/50">
       <div className="mx-auto max-w-3xl px-4 py-20 text-center md:px-6 md:py-28">
@@ -679,7 +664,7 @@ function FinalCTA({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
           Install Apical. Describe one job. Get your time back.
         </p>
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <DownloadButton os={os} size="lg" />
+          <DownloadButton os={os} macArch={macArch} size="lg" />
           <Button variant="ghost" size="lg" onClick={onLaunch}>
             Or try it in the browser
           </Button>
@@ -744,58 +729,76 @@ function Footer() {
 
 function DownloadButton({
   os: detectedOs,
+  macArch: detectedMacArch,
   variant = "default",
   size = "default",
   className,
   withPlatformPicker = false,
 }: {
   os: DetectedOS;
+  macArch: MacArch;
   variant?: "default" | "outline" | "ghost";
   size?: "default" | "sm" | "lg";
   className?: string;
   withPlatformPicker?: boolean;
 }) {
-  const initialOs: DetectedOS = detectedOs === "other" ? "mac" : detectedOs;
-  const [selectedOs, setSelectedOs] = React.useState<DetectedOS>(initialOs);
+  const initialChoice = React.useMemo((): PlatformChoice => {
+    const os = detectedOs === "other" ? "mac" : detectedOs;
+    if (os === "mac") {
+      const arch = detectedMacArch === "intel" ? "intel" : "apple-silicon";
+      return PLATFORM_CHOICES.find((c) => c.os === "mac" && c.macArch === arch) ?? PLATFORM_CHOICES[0];
+    }
+    return PLATFORM_CHOICES.find((c) => c.os === os) ?? PLATFORM_CHOICES[0];
+  }, [detectedOs, detectedMacArch]);
+
+  const [selected, setSelected] = React.useState<PlatformChoice>(initialChoice);
   const [open, setOpen] = React.useState(false);
   const { toast } = useToast();
 
   React.useEffect(() => {
-    if (detectedOs !== "other") setSelectedOs(detectedOs);
-  }, [detectedOs]);
+    setSelected(initialChoice);
+  }, [initialChoice]);
 
-  const handleDownload = async (target: DetectedOS) => {
+  const resolveUrl = (choice: PlatformChoice) =>
+    downloadUrlFor(choice.os, choice.os === "mac" ? (choice.macArch ?? "apple-silicon") : "apple-silicon");
+
+  const handleDownload = async (choice: PlatformChoice) => {
+    const url = resolveUrl(choice);
     try {
-      const res = await fetch(downloadUrl(target), { method: "HEAD" });
+      const res = await fetch(url, { method: "HEAD" });
       if (res.ok) {
-        window.location.href = downloadUrl(target);
+        window.location.href = url;
         return;
       }
-      setSelectedOs(target);
+      setSelected(choice);
       setOpen(true);
     } catch {
-      setSelectedOs(target);
+      setSelected(choice);
       setOpen(true);
     }
   };
 
-  const activeOs = withPlatformPicker ? selectedOs : detectedOs;
+  const activeChoice = withPlatformPicker
+    ? selected
+    : detectedOs === "other"
+      ? selected
+      : detectedOs === "mac"
+        ? initialChoice
+        : (PLATFORM_CHOICES.find((c) => c.os === detectedOs) ?? selected);
 
   const handleClick = async () => {
-    if (!withPlatformPicker && activeOs === "other") {
+    if (!withPlatformPicker && detectedOs === "other") {
       setOpen(true);
       return;
     }
-    await handleDownload(withPlatformPicker ? selectedOs : activeOs);
+    await handleDownload(withPlatformPicker ? selected : activeChoice);
   };
-
-  const platforms: DetectedOS[] = ["mac", "windows", "linux"];
 
   const dialog = (
     <DownloadDialog
       open={open}
       onOpenChange={setOpen}
-      os={withPlatformPicker ? selectedOs : activeOs}
+      choice={withPlatformPicker ? selected : activeChoice}
       onCopied={() => toast({ title: "Copied" })}
     />
   );
@@ -805,7 +808,7 @@ function DownloadButton({
       <>
         <Button variant={variant} size={size} onClick={() => void handleClick()} className={className}>
           <Download className="mr-1.5 h-4 w-4" />
-          {downloadButtonLabel(activeOs)}
+          {downloadButtonLabel(activeChoice.os, activeChoice.macArch ?? detectedMacArch)}
         </Button>
         {dialog}
       </>
@@ -822,7 +825,7 @@ function DownloadButton({
           className={cn(className, "rounded-r-none")}
         >
           <Download className="mr-1.5 h-4 w-4" />
-          {downloadButtonLabel(selectedOs)}
+          {downloadButtonLabel(selected.os, selected.macArch ?? detectedMacArch)}
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -836,17 +839,17 @@ function DownloadButton({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {platforms.map((p) => (
+            {PLATFORM_CHOICES.map((choice) => (
               <DropdownMenuItem
-                key={p}
+                key={choice.id}
                 className="gap-2"
                 onClick={() => {
-                  setSelectedOs(p);
-                  void handleDownload(p);
+                  setSelected(choice);
+                  void handleDownload(choice);
                 }}
               >
-                <Check className={cn("h-3.5 w-3.5", selectedOs !== p && "invisible")} />
-                {osLabel(p)}
+                <Check className={cn("h-3.5 w-3.5", selected.id !== choice.id && "invisible")} />
+                {choice.label}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -860,16 +863,17 @@ function DownloadButton({
 function DownloadDialog({
   open,
   onOpenChange,
-  os,
+  choice,
   onCopied,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  os: DetectedOS;
+  choice: PlatformChoice;
   onCopied: () => void;
 }) {
-  const cmd = installCommandFor(os);
+  const cmd = installCommandFor(choice.os);
   const [copied, setCopied] = React.useState(false);
+  const url = downloadUrlFor(choice.os, choice.macArch ?? "apple-silicon");
 
   const copy = () => {
     navigator.clipboard?.writeText(cmd).then(() => {
@@ -883,52 +887,33 @@ function DownloadDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Install Apical for {osLabel(os)}</DialogTitle>
+          <DialogTitle>Install Apical for {choice.label}</DialogTitle>
           <DialogDescription>
-            {os === "other"
-              ? "Pick your platform below."
-              : "The desktop app is the fastest way to get started. If the download above didn't start, use the command below."}
+            The desktop app is the fastest way to get started. If the download above didn&apos;t start, use the command below.
           </DialogDescription>
         </DialogHeader>
 
-        {os !== "other" && (
-          <div className="space-y-3">
-            <a
-              href={downloadUrl(os)}
-              className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-            >
-              <Download className="h-4 w-4" /> Download {osLabel(os)} app
-            </a>
+        <div className="space-y-3">
+          <a
+            href={url}
+            className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            <Download className="h-4 w-4" /> Download {choice.label} app
+          </a>
 
-            <div className="relative">
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-2.5 pl-3">
-                <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <code className="flex-1 truncate font-mono text-xs">{cmd}</code>
-                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={copy}>
-                  {copied ? <Check className="h-3.5 w-3.5 text-brand" /> : <Copy className="h-3.5 w-3.5" />}
-                </Button>
-              </div>
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Or install from the command line.
-              </p>
+          <div className="relative">
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-2.5 pl-3">
+              <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <code className="flex-1 truncate font-mono text-xs">{cmd}</code>
+              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={copy}>
+                {copied ? <Check className="h-3.5 w-3.5 text-brand" /> : <Copy className="h-3.5 w-3.5" />}
+              </Button>
             </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Or install from the command line.
+            </p>
           </div>
-        )}
-
-        {os === "other" && (
-          <div className="space-y-2">
-            {(["mac", "windows", "linux"] as DetectedOS[]).map((o) => (
-              <a
-                key={o}
-                href={downloadUrl(o)}
-                className="flex items-center justify-between rounded-lg border border-border p-3 text-sm hover:bg-accent/50"
-              >
-                <span>{osLabel(o)}</span>
-                <Download className="h-4 w-4 text-muted-foreground" />
-              </a>
-            ))}
-          </div>
-        )}
+        </div>
 
         <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
           <Button variant="outline" className="w-full" asChild>

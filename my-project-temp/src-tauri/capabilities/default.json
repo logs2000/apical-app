@@ -3,6 +3,12 @@
   "identifier": "default",
   "description": "Default capability for the Apical desktop windows (main + popped-out secondary windows).",
   "windows": ["main", "apical-*"],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:3000/**",
+      "http://localhost:3000/**"
+    ]
+  },
   "permissions": [
     "core:default",
     "shell:allow-open",

@@ -143,8 +143,18 @@ export const authOptions: NextAuthOptions = {
       // Dev bypass: synthesize a token for the dev user so getServerSession
       // returns something sensible even when the user never actually signed in.
       if (!token.userId && isDevBypass()) {
-        try {
-          const dev = await getOrCreateDevUser()
+      // Desktop local without Postgres: synthesize a dev session without Prisma.
+      if (
+        process.env.DESKTOP_LOCAL === 'true' &&
+        !process.env.DATABASE_URL?.startsWith('postgres')
+      ) {
+        token.userId = 'desktop-local-dev'
+        token.email = DEV_USER_EMAIL
+        token.name = DEV_USER_NAME
+        return token
+      }
+      try {
+        const dev = await getOrCreateDevUser()
           token.userId = dev.id
           token.email = dev.email
           token.name = dev.name ?? undefined

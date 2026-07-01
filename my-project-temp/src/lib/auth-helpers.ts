@@ -34,6 +34,22 @@ import type { PersonalAccessToken, User } from '@prisma/client'
 export async function getCurrentUser(req?: Request): Promise<User | null> {
   // 1. Dev bypass — short-circuit before anything else.
   if (isDevBypass()) {
+    if (
+      process.env.DESKTOP_LOCAL === 'true' &&
+      !process.env.DATABASE_URL?.startsWith('postgres')
+    ) {
+      return {
+        id: 'desktop-local-dev',
+        email: DEV_USER_EMAIL,
+        name: DEV_USER_NAME,
+        provider: 'credentials',
+        passwordHash: null,
+        image: null,
+        emailVerified: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as User
+    }
     try {
       return await getOrCreateDevUser()
     } catch (err) {

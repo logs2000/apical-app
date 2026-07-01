@@ -22,7 +22,7 @@
         "decorations": true,
         "transparent": false,
         "titleBarStyle": "Visible",
-        "visible": true,
+        "visible": false,
         "acceptFirstMouse": true
       }
     ],

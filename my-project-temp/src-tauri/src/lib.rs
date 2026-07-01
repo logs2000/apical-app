@@ -27,7 +27,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, WebviewUrl};
+use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
 /// Monotonic counter for unique secondary-window labels (multi-window).
@@ -227,16 +228,90 @@ async fn spawn_mcp_stdio(
 
 // ─── Bundled Next.js standalone server (production desktop) ─────────────────
 
+const DESKTOP_UI_URL: &str = "http://127.0.0.1:3000/api/auth/desktop-ui";
+
 /// Keeps the bundled Node server process alive for the app lifetime.
 struct BundledServer(Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
+
+fn append_startup_log(app: &tauri::AppHandle, line: &str) {
+    let log_dir = app
+        .path()
+        .app_log_dir()
+        .or_else(|_| app.path().app_data_dir())
+        .ok();
+    if let Some(dir) = log_dir {
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("startup.log");
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+    log::info!("{line}");
+}
+
+fn server_responds_ok() -> bool {
+    use std::io::{Read, Write};
+    let addr = "127.0.0.1:3000".parse().unwrap();
+    let mut stream = match std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(1)) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let req = format!(
+        "GET /api/auth/desktop-ui HTTP/1.1\r\nHost: 127.0.0.1:3000\r\nConnection: close\r\n\r\n"
+    );
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 1024];
+    let n = stream.read(&mut buf).unwrap_or(0);
+    let text = std::str::from_utf8(&buf[..n]).unwrap_or("");
+    text.contains("HTTP/1.") && (text.contains(" 200 ") || text.contains(" 302 "))
+}
+
+fn navigate_main_to_desktop_ui(app: &tauri::AppHandle) -> Result<(), String> {
+    let url = DESKTOP_UI_URL
+        .parse()
+        .map_err(|e| format!("parse desktop UI url: {e}"))?;
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window missing".to_string())?;
+    window
+        .navigate(WebviewUrl::External(url))
+        .map_err(|e| format!("navigate main window: {e}"))?;
+    let _ = window.show();
+    let _ = window.set_focus();
+    Ok(())
+}
+
+fn show_startup_error(app: &tauri::AppHandle, message: &str) {
+    append_startup_log(app, &format!("startup error: {message}"));
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    use tauri_plugin_dialog::DialogExt;
+    let _ = app
+        .dialog()
+        .message(message)
+        .title("Apical failed to start")
+        .blocking_show();
+}
 
 /// Spawn the bundled Node sidecar + standalone server and wait until it listens.
 #[cfg(not(debug_assertions))]
 fn start_bundled_server(app: &tauri::AppHandle) -> Result<(), String> {
+    append_startup_log(app, "starting bundled Next.js server");
+
     let resource_dir = app
         .path()
         .resource_dir()
-        .map_err(|e| format!("resource_dir: {}", e))?;
+        .map_err(|e| format!("resource_dir: {e}"))?;
     let standalone_dir = resource_dir.join("standalone");
     if !standalone_dir.join("server.js").exists() {
         return Err(format!(
@@ -248,17 +323,17 @@ fn start_bundled_server(app: &tauri::AppHandle) -> Result<(), String> {
     let data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {}", e))?;
+        .map_err(|e| format!("app_data_dir: {e}"))?;
     std::fs::create_dir_all(&data_dir)
-        .map_err(|e| format!("create app_data_dir: {}", e))?;
+        .map_err(|e| format!("create app_data_dir: {e}"))?;
     let db_path = data_dir.join("custom.db");
 
     let sidecar = app
         .shell()
         .sidecar("node")
-        .map_err(|e| format!("sidecar node: {}", e))?;
+        .map_err(|e| format!("sidecar node: {e}"))?;
 
-    let (_rx, child) = sidecar
+    let (mut rx, child) = sidecar
         .args(["server.js"])
         .current_dir(&standalone_dir)
         .env("DESKTOP_LOCAL", "true")
@@ -273,13 +348,34 @@ fn start_bundled_server(app: &tauri::AppHandle) -> Result<(), String> {
         .env("NEXTAUTH_SECRET", "desktop-local-secret")
         .env("NEXTAUTH_URL", "http://127.0.0.1:3000")
         .spawn()
-        .map_err(|e| format!("spawn node sidecar: {}", e))?;
+        .map_err(|e| format!("spawn node sidecar: {e}"))?;
+
+    let log_app = app.clone();
+    std::thread::spawn(move || {
+        while let Some(event) = rx.blocking_recv() {
+            match event {
+                CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                    append_startup_log(&log_app, &format!("node: {line}"));
+                }
+                CommandEvent::Error(err) => {
+                    append_startup_log(&log_app, &format!("node error: {err}"));
+                }
+                CommandEvent::Terminated(payload) => {
+                    append_startup_log(
+                        &log_app,
+                        &format!("node terminated: code={:?} signal={:?}", payload.code, payload.signal),
+                    );
+                }
+                _ => {}
+            }
+        }
+    });
 
     app.manage(BundledServer(Mutex::new(Some(child))));
 
     for attempt in 0..90 {
-        if std::net::TcpStream::connect("127.0.0.1:3000").is_ok() {
-            log::info!("bundled Next.js server ready (attempt {})", attempt + 1);
+        if server_responds_ok() {
+            append_startup_log(app, &format!("bundled Next.js server ready (attempt {})", attempt + 1));
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(500));
@@ -494,8 +590,33 @@ pub fn run() {
             let handle = app.handle().clone();
 
             #[cfg(not(debug_assertions))]
-            if let Err(e) = start_bundled_server(&handle) {
-                log::error!("bundled server failed: {}", e);
+            {
+                match start_bundled_server(&handle) {
+                    Ok(()) => {
+                        if let Err(e) = navigate_main_to_desktop_ui(&handle) {
+                            show_startup_error(
+                                &handle,
+                                &format!("Server started but the window could not load:\n{e}"),
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        show_startup_error(
+                            &handle,
+                            &format!(
+                                "The bundled server failed to start.\n\n{e}\n\nIf you are on an Intel Mac, download the Intel build from apical-app.vercel.app."
+                            ),
+                        );
+                    }
+                }
+            }
+
+            #[cfg(debug_assertions)]
+            {
+                if let Some(w) = handle.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
             }
 
             // Native application menu bar.
@@ -521,7 +642,7 @@ pub fn run() {
                 );
                 let summon_for_handler = summon;
 
-                handle.plugin(
+                if let Err(e) = handle.plugin(
                     tauri_plugin_global_shortcut::Builder::new()
                         .with_handler(move |app, shortcut, event| {
                             if shortcut == &summon_for_handler
@@ -541,10 +662,10 @@ pub fn run() {
                             }
                         })
                         .build(),
-                )?;
-
-                if let Err(e) = app.global_shortcut().register(summon) {
-                    log::warn!("global shortcut register failed: {}", e);
+                ) {
+                    log::warn!("global shortcut plugin init failed: {e}");
+                } else if let Err(e) = app.global_shortcut().register(summon) {
+                    log::warn!("global shortcut register failed: {e}");
                 }
             }
 
