@@ -27,7 +27,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Emitter, Manager, WebviewUrl};
+use tauri::{Emitter, Manager};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
@@ -282,7 +282,7 @@ fn navigate_main_to_desktop_ui(app: &tauri::AppHandle) -> Result<(), String> {
         .get_webview_window("main")
         .ok_or_else(|| "main window missing".to_string())?;
     window
-        .navigate(WebviewUrl::External(url))
+        .navigate(url)
         .map_err(|e| format!("navigate main window: {e}"))?;
     let _ = window.show();
     let _ = window.set_focus();
@@ -303,6 +303,14 @@ fn show_startup_error(app: &tauri::AppHandle, message: &str) {
         .blocking_show();
 }
 
+fn bundled_standalone_dir(resource_dir: &std::path::Path) -> std::path::PathBuf {
+    let nested = resource_dir.join("bundle-resources/standalone");
+    if nested.join("server.js").exists() {
+        return nested;
+    }
+    resource_dir.join("standalone")
+}
+
 /// Spawn the bundled Node sidecar + standalone server and wait until it listens.
 #[cfg(not(debug_assertions))]
 fn start_bundled_server(app: &tauri::AppHandle) -> Result<(), String> {
@@ -312,7 +320,7 @@ fn start_bundled_server(app: &tauri::AppHandle) -> Result<(), String> {
         .path()
         .resource_dir()
         .map_err(|e| format!("resource_dir: {e}"))?;
-    let standalone_dir = resource_dir.join("standalone");
+    let standalone_dir = bundled_standalone_dir(&resource_dir);
     if !standalone_dir.join("server.js").exists() {
         return Err(format!(
             "missing bundled server at {}",
@@ -355,7 +363,8 @@ fn start_bundled_server(app: &tauri::AppHandle) -> Result<(), String> {
         while let Some(event) = rx.blocking_recv() {
             match event {
                 CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
-                    append_startup_log(&log_app, &format!("node: {line}"));
+                    let text = String::from_utf8_lossy(&line);
+                    append_startup_log(&log_app, &format!("node: {text}"));
                 }
                 CommandEvent::Error(err) => {
                     append_startup_log(&log_app, &format!("node error: {err}"));
