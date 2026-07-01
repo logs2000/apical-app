@@ -28,6 +28,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install packaging tools
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: '1'
         run: brew install create-dmg
 
       - name: Install dependencies
@@ -43,6 +45,7 @@ jobs:
         env:
           CI: 'true'
           MACOSX_DEPLOYMENT_TARGET: '10.15'
+          APICAL_UNIVERSAL_MAC: '1'
         run: |
           rustup target add x86_64-apple-darwin aarch64-apple-darwin
           bun run tauri:build -- --target universal-apple-darwin
@@ -116,7 +119,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
             librsvg2-dev \
             patchelf \
             libssl-dev \
