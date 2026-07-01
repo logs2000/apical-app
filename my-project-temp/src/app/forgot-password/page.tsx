@@ -56,7 +56,7 @@ export default function ForgotPasswordPage() {
       />
       <div className="relative w-full max-w-md">
         <div className="mb-6 flex items-center justify-center gap-2">
-          <ApicalMark className="h-7 w-7" withGlow />
+          <ApicalMark className="h-7" withGlow />
           <Link href="/">
             <ApicalName withDot />
           </Link>

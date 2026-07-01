@@ -16,7 +16,7 @@ function esc(s: string) {
     .replace(/"/g, "&quot;");
 }
 
-const MARK_SVG = `<svg viewBox="0 0 465 341" fill="none" width="44" height="32" aria-hidden="true">
+const MARK_SVG = `<svg viewBox="-14 -10 493 361" fill="none" width="44" height="32" aria-hidden="true">
   <path fill="#171717" d="M231 0 L465 341 L373 341 L231 136 L91 341 L0 341 Z"/>
   <path fill="#171717" d="M231 249 L293 341 L169 341 Z"/>
 </svg>`;

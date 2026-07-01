@@ -52,7 +52,7 @@ function GateForm() {
     <Card className="w-full max-w-sm border-border/60 shadow-lg">
       <CardHeader className="text-center">
         <div className="mb-2 flex items-center justify-center gap-2">
-          <ApicalMark className="h-7 w-7" withGlow />
+          <ApicalMark className="h-7" withGlow />
           <ApicalName withDot />
         </div>
         <CardTitle className="flex items-center justify-center gap-2 text-lg">

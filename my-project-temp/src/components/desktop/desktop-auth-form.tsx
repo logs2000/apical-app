@@ -19,7 +19,7 @@ export function DesktopAuthForm({
     <div className="flex h-screen w-screen items-center justify-center bg-background px-6">
       <div className="w-full max-w-[360px]">
         <div className="mb-8 flex flex-col items-center text-center">
-          <ApicalMark className="h-11 w-11" withGlow />
+          <ApicalMark className="h-11" withGlow />
           <h1 className="mt-4 text-[22px] font-semibold tracking-tight">
             {isSignup ? "Create your account" : "Welcome back"}
           </h1>

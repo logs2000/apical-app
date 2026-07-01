@@ -104,7 +104,7 @@ export default function SignupPage() {
         {/* Marketing column (hidden on mobile) */}
         <div className="hidden md:block">
           <div className="mb-6 flex items-center gap-2">
-            <ApicalMark className="h-7 w-7" withGlow />
+            <ApicalMark className="h-7" withGlow />
             <Link href="/">
             <ApicalName withDot />
             </Link>
@@ -127,7 +127,7 @@ export default function SignupPage() {
 
         {/* Form column */}
         <div className="md:hidden mb-6 flex items-center justify-center gap-2">
-          <ApicalMark className="h-7 w-7" withGlow />
+          <ApicalMark className="h-7" withGlow />
           <Link href="/">
             <ApicalName withDot />
           </Link>

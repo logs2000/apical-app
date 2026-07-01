@@ -20,18 +20,18 @@ const ICON_BG = "#0d0d0d";
 
 function parseViewBox(svg) {
   const m = svg.match(/viewBox="([^"]+)"/);
-  const parts = (m?.[1] ?? "0 0 465 341").split(/\s+/).map(Number);
+  const parts = (m?.[1] ?? "-14 -10 493 361").split(/\s+/).map(Number);
   return { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
 }
 
 async function renderIconPng(size, outPath) {
   const svg = await readFile(CLEAN_SVG, "utf8");
-  const { w, h } = parseViewBox(svg);
+  const { x, y, w, h } = parseViewBox(svg);
   const paths = svg.match(/<path[^>]+\/>/g)?.join("\n    ") ?? "";
-  const pad = Math.max(w, h) * 0.08;
+  const pad = Math.max(w, h) * 0.06;
   const square = Math.max(w, h) + pad * 2;
-  const offsetX = (square - w) / 2;
-  const offsetY = (square - h) / 2;
+  const offsetX = (square - w) / 2 + x;
+  const offsetY = (square - h) / 2 + y;
 
   const composed = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${square} ${square}">
   <rect width="${square}" height="${square}" fill="${ICON_BG}"/>

@@ -65,9 +65,15 @@ function osLabel(os: DetectedOS): string {
 function downloadButtonLabel(os: DetectedOS): string {
   return os === "other" ? "Download" : `Download for ${osLabel(os)}`;
 }
+function isIntelMac(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /intel mac os x/i.test(navigator.userAgent);
+}
 function downloadUrl(os: DetectedOS): string {
   const base = "/downloads";
-  if (os === "mac") return `${base}/apical-mac.dmg`;
+  if (os === "mac") {
+    return isIntelMac() ? `${base}/apical-mac-intel.dmg` : `${base}/apical-mac.dmg`;
+  }
   if (os === "windows") return `${base}/apical-windows.exe`;
   if (os === "linux") return `${base}/apical-linux.AppImage`;
   return `${base}/`;
@@ -196,7 +202,7 @@ function Nav({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-lg">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4 md:px-6">
-        <ApicalMark className="h-6 w-6" />
+        <ApicalMark className="h-6" />
         <ApicalName />
 
         <nav className="ml-6 hidden items-center gap-6 text-sm text-muted-foreground md:flex">
@@ -290,7 +296,7 @@ function Hero({
       />
 
       <div className="mx-auto max-w-4xl px-4 py-20 text-center md:py-24 md:px-6">
-        <ApicalMarkAnimated className="mx-auto mb-8 aspect-[465/375] h-14 text-brand md:h-16" />
+        <ApicalMarkAnimated className="mx-auto mb-8 h-14 text-brand md:h-16" />
 
         <motion.div
           initial={reduced ? undefined : { opacity: 0, y: 16 }}
@@ -691,7 +697,7 @@ function Footer() {
       <div className="mx-auto max-w-6xl px-4 py-10 md:px-6">
         <div className="flex flex-col items-start justify-between gap-8 md:flex-row">
           <div className="flex items-center gap-2">
-            <ApicalMark className="h-5 w-5" />
+            <ApicalMark className="h-5" />
             <ApicalName />
           </div>
           <div className="grid grid-cols-2 gap-8 text-xs sm:grid-cols-4">

@@ -281,7 +281,7 @@ export function DemoAppShell() {
                 {gate && (
                   <div className="rounded-md border border-border bg-muted p-3 text-xs text-foreground">
                     <div className="flex items-start gap-2">
-                      <ApicalMark className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <ApicalMark className="mt-0.5 h-3.5 shrink-0" />
                       <div>
                         <div className="font-medium">{gate}</div>
                         <button className="mt-1.5 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90">

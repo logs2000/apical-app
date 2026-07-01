@@ -6,7 +6,7 @@ on:
       tag:
         description: 'Release tag (e.g. desktop-v0.1.1)'
         required: true
-        default: 'desktop-v0.1.3'
+        default: 'desktop-v0.1.4'
   push:
     tags:
       - 'desktop-v*'
@@ -46,18 +46,39 @@ jobs:
           CI: 'true'
           MACOSX_DEPLOYMENT_TARGET: '10.15'
           APICAL_UNIVERSAL_MAC: '1'
+          CFLAGS: '-mmacosx-version-min=10.15'
+          CXXFLAGS: '-mmacosx-version-min=10.15'
+          RUSTFLAGS: '-C link-arg=-mmacosx-version-min=10.15'
         run: |
           rustup target add x86_64-apple-darwin aarch64-apple-darwin
           bun run tauri:build -- --target universal-apple-darwin
 
-      - name: Package macOS download
+      - name: Package universal macOS DMG
         working-directory: my-project-temp
-        run: bash scripts/package-desktop.sh mac
+        run: bash scripts/package-desktop.sh mac apical-mac.dmg
+
+      - name: Build desktop (Intel x86_64 fallback)
+        working-directory: my-project-temp
+        env:
+          CI: 'true'
+          MACOSX_DEPLOYMENT_TARGET: '10.15'
+          APICAL_UNIVERSAL_MAC: '0'
+          APICAL_NODE_TRIPLES: 'x86_64-apple-darwin'
+          CFLAGS: '-mmacosx-version-min=10.15'
+          CXXFLAGS: '-mmacosx-version-min=10.15'
+          RUSTFLAGS: '-C link-arg=-mmacosx-version-min=10.15'
+        run: bun run tauri:build -- --target x86_64-apple-darwin
+
+      - name: Package Intel macOS DMG
+        working-directory: my-project-temp
+        run: bash scripts/package-desktop.sh mac apical-mac-intel.dmg
 
       - uses: actions/upload-artifact@v4
         with:
           name: apical-mac
-          path: my-project-temp/public/downloads/apical-mac.dmg
+          path: |
+            my-project-temp/public/downloads/apical-mac.dmg
+            my-project-temp/public/downloads/apical-mac-intel.dmg
           if-no-files-found: error
 
   build-windows:
@@ -183,6 +204,9 @@ jobs:
         run: |
           mkdir -p release-assets
           cp artifacts/apical-mac/apical-mac.dmg release-assets/
+          if [[ -f artifacts/apical-mac/apical-mac-intel.dmg ]]; then
+            cp artifacts/apical-mac/apical-mac-intel.dmg release-assets/
+          fi
           if [[ -f artifacts/apical-windows/apical-windows.exe ]]; then
             cp artifacts/apical-windows/apical-windows.exe release-assets/
           fi
@@ -215,9 +239,14 @@ jobs:
         run: |
           TAG="${{ steps.tag.outputs.name }}"
           MAC_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-mac.dmg"
+          MAC_INTEL_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-mac-intel.dmg"
           WIN_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-windows.exe"
           LINUX_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-linux.AppImage"
           FILES='"apical-mac.dmg": "'"${MAC_URL}"'"'
+          if [[ -f release-assets/apical-mac-intel.dmg ]]; then
+            FILES="${FILES},
+              \"apical-mac-intel.dmg\": \"${MAC_INTEL_URL}\""
+          fi
           if [[ -f release-assets/apical-windows.exe ]]; then
             FILES="${FILES},
               \"apical-windows.exe\": \"${WIN_URL}\""

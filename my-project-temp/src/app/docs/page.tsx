@@ -227,7 +227,7 @@ export default function DocsPage() {
       <header className="sticky top-0 z-10 border-b border-border/60 bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2">
-            <ApicalMark className="h-6 w-6" />
+            <ApicalMark className="h-6" />
             <ApicalName withDot />
             <span className="ml-2 text-xs text-muted-foreground">Docs</span>
           </Link>

@@ -272,7 +272,7 @@ function AuthDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <div className="mb-2 flex items-center gap-2">
-            <ApicalMark className="h-6 w-6" />
+            <ApicalMark className="h-6" />
             <ApicalName />
           </div>
           <DialogTitle>{isSignup ? "Create your account" : "Sign in to Apical"}</DialogTitle>

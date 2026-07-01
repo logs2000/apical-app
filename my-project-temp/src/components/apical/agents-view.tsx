@@ -678,7 +678,7 @@ function MobileAgentsView() {
     <div className="flex h-full flex-col bg-background">
       {/* Top bar — current agent name (no logo on desktop) */}
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
-        {!IS_TAURI && <ApicalMark className="h-5 w-5" />}
+        {!IS_TAURI && <ApicalMark className="h-5" />}
         <span className="text-sm font-semibold">
           {isNewChat ? "New chat" : activeAgent?.name ?? "Agents"}
         </span>
@@ -1727,7 +1727,7 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
         {isThinking && messages[messages.length - 1]?.role !== "agent" && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-foreground">
-              {isNewChat ? <MessageSquare className="h-3.5 w-3.5" /> : <ApicalMark className="h-3.5 w-3.5" />}
+              {isNewChat ? <MessageSquare className="h-3.5 w-3.5" /> : <ApicalMark className="h-3.5" />}
             </div>
             <span className="flex gap-1">
               <Dot delay={0} />

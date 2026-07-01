@@ -3,12 +3,14 @@
 import { cn } from "@/lib/utils";
 import { agentAvatarStyle, agentInitials } from "@/lib/apical";
 
-/** Tight bounds around the mark (465×341), origin at top-left of artwork. */
+/** Logo artwork bounds (465×341) with padding so edges are not clipped. */
 const OUTER = "M231 0 L465 341 L373 341 L231 136 L91 341 L0 341 Z";
 const INNER = "M231 249 L293 341 L169 341 Z";
-const VIEWBOX_STATIC = "0 0 465 341";
-/** Extra bottom room for entrance animation translateY. */
-const VIEWBOX_ANIMATED = "0 0 465 375";
+const VIEWBOX_STATIC = "-14 -10 493 361";
+const VIEWBOX_ANIMATED = "-14 -10 493 395";
+
+const markClass = (aspect: string, className?: string) =>
+  cn(`h-7 w-auto shrink-0 aspect-[${aspect}] text-foreground`, className);
 
 /**
  * Apical mark — nested triangles (apex / growth tip). Uses `currentColor` on
@@ -31,7 +33,9 @@ export function ApicalMark({
     <svg
       viewBox={VIEWBOX_STATIC}
       fill="none"
-      className={cn("h-7 w-7 text-foreground", className)}
+      preserveAspectRatio="xMidYMid meet"
+      overflow="visible"
+      className={markClass("465/341", className)}
       aria-hidden="true"
     >
       <path fill="currentColor" d={OUTER} />
@@ -46,7 +50,9 @@ export function ApicalMarkAnimated({ className }: { className?: string }) {
     <svg
       viewBox={VIEWBOX_ANIMATED}
       fill="none"
-      className={cn("h-7 w-7 text-foreground", className)}
+      preserveAspectRatio="xMidYMid meet"
+      overflow="visible"
+      className={markClass("465/375", className)}
       aria-hidden="true"
     >
       <style>{`
@@ -99,7 +105,7 @@ export function ApicalName({
 export function ApicalWordmark({ className, compact = false }: { className?: string; compact?: boolean }) {
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <ApicalMark className="h-6 w-6" />
+      <ApicalMark className="h-6" />
       {!compact && <ApicalName />}
     </div>
   );

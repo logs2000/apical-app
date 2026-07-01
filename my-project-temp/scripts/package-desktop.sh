@@ -31,16 +31,33 @@ find_bundle_dir() {
 }
 
 pack_mac() {
-  local bundle app
+  local out_name="${1:-apical-mac.dmg}"
+  local bundle app bin macos_dir
   bundle="$(find_bundle_dir macos)"
   app="$(find "$bundle/macos" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null || true)"
   if [[ -z "$app" ]]; then
     echo "No macOS .app found under $bundle/macos" >&2
     exit 1
   fi
-  rm -f "$OUT/apical-mac.dmg"
-  bash "$SCRIPT_DIR/create-mac-dmg.sh" "$app" "$OUT/apical-mac.dmg"
-  echo "Wrote $OUT/apical-mac.dmg ($(du -h "$OUT/apical-mac.dmg" | cut -f1))"
+
+  macos_dir="$app/Contents/MacOS"
+  bin="$macos_dir/apical"
+
+  echo "Verifying binary…"
+  lipo -info "$bin" 2>/dev/null || file "$bin"
+
+  for sidecar in "$macos_dir"/node*; do
+    [[ -f "$sidecar" ]] || continue
+    echo "Sidecar: $(basename "$sidecar")"
+    lipo -info "$sidecar" 2>/dev/null || file "$sidecar"
+  done
+
+  echo "Ad-hoc signing .app bundle…"
+  codesign --force --deep --sign - "$app"
+
+  rm -f "$OUT/$out_name"
+  bash "$SCRIPT_DIR/create-mac-dmg.sh" "$app" "$OUT/$out_name"
+  echo "Wrote $OUT/$out_name ($(du -h "$OUT/$out_name" | cut -f1))"
 }
 
 pack_windows() {
@@ -72,7 +89,7 @@ pack_linux() {
 }
 
 case "${1:-all}" in
-  mac) pack_mac ;;
+  mac) pack_mac "${2:-apical-mac.dmg}" ;;
   windows) pack_windows ;;
   linux) pack_linux ;;
   all)
