@@ -26,6 +26,7 @@ import {
   DEV_USER_EMAIL,
   DEV_USER_NAME,
   isDevBypass,
+  isDesktopLocalWithoutDb,
 } from './dev-bypass'
 import { sessionCookieName, useSecureSessionCookies } from '@/lib/desktop/session-cookie'
 
@@ -144,10 +145,7 @@ export const authOptions: NextAuthOptions = {
       // returns something sensible even when the user never actually signed in.
       if (!token.userId && isDevBypass()) {
       // Desktop local without Postgres: synthesize a dev session without Prisma.
-      if (
-        process.env.DESKTOP_LOCAL === 'true' &&
-        !process.env.DATABASE_URL?.startsWith('postgres')
-      ) {
+      if (isDesktopLocalWithoutDb()) {
         token.userId = 'desktop-local-dev'
         token.email = DEV_USER_EMAIL
         token.name = DEV_USER_NAME

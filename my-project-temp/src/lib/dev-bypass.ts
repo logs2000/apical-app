@@ -8,3 +8,11 @@ export function isDevBypass(): boolean {
 
 export const DEV_USER_EMAIL = 'dev@apical.local'
 export const DEV_USER_NAME = 'Developer'
+
+/** Tauri prod bundle uses a local file DATABASE_URL — Prisma Postgres is unavailable. */
+export function isDesktopLocalWithoutDb(): boolean {
+  return (
+    process.env.DESKTOP_LOCAL === 'true' &&
+    !(process.env.DATABASE_URL ?? '').startsWith('postgres')
+  )
+}

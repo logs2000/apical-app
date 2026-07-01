@@ -7,6 +7,7 @@
 
 import * as React from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { IS_TAURI } from '@/lib/desktop/tauri-bridge'
 
 export type SessionUser = {
   id?: string
@@ -55,6 +56,8 @@ export function SupabaseSessionProvider({
 
   React.useEffect(() => {
     void refresh()
+    // Desktop shell uses NextAuth cookies — skip Supabase browser client.
+    if (IS_TAURI) return
     const supabase = createClient()
     if (!supabase) return
     const { data: sub } = supabase.auth.onAuthStateChange(() => {

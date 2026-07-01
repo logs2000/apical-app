@@ -15,7 +15,7 @@
 import { createHash, randomBytes } from 'crypto'
 import { db } from './db'
 import { getOrCreateDevUser, isDevBypass } from './auth'
-import { DEV_USER_EMAIL, DEV_USER_NAME } from './dev-bypass'
+import { DEV_USER_EMAIL, DEV_USER_NAME, isDesktopLocalWithoutDb } from './dev-bypass'
 import { createSupabaseServerClient } from './supabase/server'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import type { PersonalAccessToken, User } from '@prisma/client'
@@ -35,10 +35,7 @@ import type { PersonalAccessToken, User } from '@prisma/client'
 export async function getCurrentUser(req?: Request): Promise<User | null> {
   // 1. Dev bypass — short-circuit before anything else.
   if (isDevBypass()) {
-    if (
-      process.env.DESKTOP_LOCAL === 'true' &&
-      !process.env.DATABASE_URL?.startsWith('postgres')
-    ) {
+    if (isDesktopLocalWithoutDb()) {
       return {
         id: 'desktop-local-dev',
         email: DEV_USER_EMAIL,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
+import { isDesktopLocalWithoutDb } from '@/lib/dev-bypass'
 import { mapWorkflow } from '@/lib/mappers'
 import { serializeWorkflowJSON } from '@/lib/apical-server'
 import type { WorkflowJSON } from '@/lib/types'
@@ -15,6 +16,9 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req)
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if (isDesktopLocalWithoutDb()) {
+      return NextResponse.json([])
     }
     const url = new URL(req.url)
     const workspaceId = url.searchParams.get('workspaceId')

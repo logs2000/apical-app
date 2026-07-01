@@ -4,7 +4,7 @@
 import { NextResponse } from "next/server";
 import { encode } from "next-auth/jwt";
 import { getOrCreateDevUser } from "@/lib/auth";
-import { isDevBypass } from "@/lib/dev-bypass";
+import { isDevBypass, isDesktopLocalWithoutDb, DEV_USER_EMAIL, DEV_USER_NAME } from "@/lib/dev-bypass";
 import { appendDesktopShellCookie } from "@/lib/desktop/shell-cookie";
 import { desktopAppUrl } from "@/lib/desktop/desktop-origin";
 import { sessionCookieName, useSecureSessionCookies } from "@/lib/desktop/session-cookie";
@@ -15,7 +15,9 @@ export async function GET(req: Request) {
   }
 
   try {
-    const devUser = await getOrCreateDevUser();
+    const devUser = isDesktopLocalWithoutDb()
+      ? { id: "desktop-local-dev", email: DEV_USER_EMAIL, name: DEV_USER_NAME }
+      : await getOrCreateDevUser();
     const secret = process.env.NEXTAUTH_SECRET;
     if (!secret) throw new Error("NEXTAUTH_SECRET is not configured");
 
