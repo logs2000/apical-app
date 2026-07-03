@@ -6,7 +6,7 @@ const VALID_PLANS = new Set(['free', 'starter', 'pro', 'scale'])
 
 // POST /api/dev/billing/plan — change the developer's plan.
 // Body: { plan: 'free'|'starter'|'pro'|'scale' }. Returns the updated account.
-export const POST = withDevAuth(async (req, { developer }) => {
+export const POST = withDevAuth(async (req, { workspace }) => {
   try {
     const body = (await req.json().catch(() => ({}))) as { plan?: string }
     const plan = typeof body.plan === 'string' ? body.plan.trim().toLowerCase() : ''
@@ -17,31 +17,31 @@ export const POST = withDevAuth(async (req, { developer }) => {
       )
     }
 
-    const updated = await db.developerAccount.update({
-      where: { id: developer.id },
+    const updated = await db.workspace.update({
+      where: { id: workspace.id },
       data: { plan },
     })
 
     await db.mcpAuditLog.create({
       data: {
-        developerId: developer.id,
+        workspaceId: workspace.id,
         apiKeyId: null,
         action: 'billing:plan',
-        target: developer.id,
+        target: workspace.id,
         success: true,
         costCents: 0,
-        detail: `Plan changed from ${developer.plan} → ${plan}.`,
+        detail: `Plan changed from ${workspace.plan} → ${plan}.`,
         source: 'web',
       },
     })
 
     return NextResponse.json({
       id: updated.id,
-      email: updated.email,
+      email: updated.billingEmail,
       name: updated.name,
       plan: updated.plan,
       balanceCents: updated.balanceCents,
-      workspaceId: updated.workspaceId,
+      workspaceId: updated.id,
       status: updated.status,
       stripeCustomerId: updated.stripeCustomerId,
       createdAt: updated.createdAt.toISOString(),

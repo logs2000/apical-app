@@ -1,22 +1,30 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser } from '@/lib/auth-helpers'
+import { workspaceIdForUser } from '@/lib/integration-scope'
 import { integrationFromRow } from '@/lib/apical-server'
 
 interface RouteCtx {
   params: Promise<{ id: string }>
 }
 
-// POST /api/integrations/[id]/install — install a public library integration
-// into your account. Clones the public integration as a private one (new id,
+// POST /api/integrations/[id]/install — install a registry integration into
+// your workspace. Clones the registry row as a workspace instance (new id,
 // source='private', visibility='private'), keeps its tools/config intact, and
 // increments the original's `installs` count.
-//
-// Like adding a food from the MyFitnessPal community library to your diary.
 export async function POST(_req: Request, { params }: RouteCtx) {
   try {
+    const user = await getCurrentUser(_req)
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { id } = await params
+    const wsId = await workspaceIdForUser(user)
 
-    const original = await db.integration.findUnique({ where: { id } })
+    // Only global registry rows are installable (not other workspaces' instances).
+    const original = await db.integration.findFirst({
+      where: { id, workspaceId: null },
+    })
     if (!original) {
       return NextResponse.json(
         { error: 'Integration not found' },
@@ -25,10 +33,12 @@ export async function POST(_req: Request, { params }: RouteCtx) {
     }
 
     // Clone with a fresh id; tools keep their ids (they're namespaced like
-    // "notion.queryDatabase" so a duplicate id in the user's account is fine
-    // — they install one copy per source integration).
+    // "notion.queryDatabase" so a duplicate id in the workspace is fine
+    // — one copy is installed per source integration).
     const cloned = await db.integration.create({
       data: {
+        workspaceId: wsId,
+        registrySlug: original.registrySlug,
         name: original.name,
         kind: original.kind,
         description: original.description,

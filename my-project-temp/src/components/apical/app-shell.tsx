@@ -16,7 +16,8 @@ import {
   PRIMARY_NAV,
   SECONDARY_NAV,
   fmtShortcut,
-  MOD_LABEL,
+  useModLabel,
+  useFmtShortcut,
 } from "./command-menu";
 import {
   IS_TAURI,
@@ -60,6 +61,17 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
 
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
+
+  // Precomputed so the `?.`/`??` downleveling (browserslist targets pre-`??`
+  // engines) happens in statement position. Inlining these in JSX children
+  // tripped a temp-var hoisting bug that threw `_ref is not defined` at render.
+  const userInitial = user?.name?.[0]?.toUpperCase() ?? "D";
+  const userEmail = user?.email ?? "dev@apical.local";
+
+  // Hydration-safe modifier label: server renders "Ctrl", client swaps to the
+  // platform label ("⌘" on Mac) after mount so the header markup matches.
+  const modLabel = useModLabel();
+  const fmtShortcutSafe = useFmtShortcut();
 
   // Deep link: a popped-out window opens with "/#popout=<conversationId>".
   // Read it once on mount and focus that conversation (this window becomes a
@@ -195,7 +207,7 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
                 <button
                   key={t.key}
                   onClick={() => setMode(t.key)}
-                  title={t.shortcut ? `${t.label} (${fmtShortcut(t.shortcut)})` : t.label}
+                  title={t.shortcut ? `${t.label} (${fmtShortcutSafe(t.shortcut)})` : t.label}
                   className={cn(
                     "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                     active
@@ -214,13 +226,13 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
           {/* Command palette trigger — the primary "find anything" affordance. */}
           <button
             onClick={() => setPaletteOpen(true)}
-            title={`Search & commands (${MOD_LABEL}K)`}
+            title={`Search & commands (${modLabel}K)`}
             className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             <Search className="h-3.5 w-3.5" />
             <span className="hidden md:inline">Search</span>
             <kbd className="hidden items-center rounded border border-border bg-background px-1 text-[10px] font-medium md:inline-flex">
-              {MOD_LABEL}K
+              {modLabel}K
             </kbd>
           </button>
 
@@ -273,9 +285,9 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
               <DropdownMenuSeparator />
               <DropdownMenuItem className="gap-2 text-xs text-muted-foreground">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-semibold text-foreground">
-                  {user?.name?.[0]?.toUpperCase() ?? "D"}
+                  {userInitial}
                 </span>
-                <span className="min-w-0 flex-1 truncate">{user?.email ?? "dev@apical.local"}</span>
+                <span className="min-w-0 flex-1 truncate">{userEmail}</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2 text-xs"

@@ -3,16 +3,16 @@
   "version": "0.2.0",
   "private": true,
   "browserslist": [
-    "chrome >= 64",
-    "firefox >= 67",
+    "chrome >= 80",
+    "firefox >= 74",
     "safari >= 14",
     "ios >= 14",
-    "edge >= 79"
+    "edge >= 80"
   ],
   "scripts": {
-    "dev": "AUTH_BYPASS_DEV=true NEXTAUTH_SECRET=dev-local-secret NEXTAUTH_URL=http://127.0.0.1:3000 next dev --webpack -p 3000 -H 127.0.0.1 2>&1 | tee dev.log",
+    "dev": "NEXTAUTH_SECRET=dev-local-secret NEXTAUTH_URL=http://127.0.0.1:3000 next dev --webpack -p 3000 -H 127.0.0.1 2>&1 | tee dev.log",
     "dev:desktop": "bash scripts/ensure-dev-server.sh",
-    "dev:turbo": "AUTH_BYPASS_DEV=true NEXTAUTH_SECRET=dev-local-secret NEXTAUTH_URL=http://localhost:3000 next dev --turbopack -p 3000 2>&1 | tee dev.log",
+    "dev:turbo": "NEXTAUTH_SECRET=dev-local-secret NEXTAUTH_URL=http://localhost:3000 next dev --turbopack -p 3000 2>&1 | tee dev.log",
     "build": "next build --webpack && node scripts/copy-standalone-assets.mjs",
     "build:vercel": "prisma generate && prisma db push --accept-data-loss && next build --webpack",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",

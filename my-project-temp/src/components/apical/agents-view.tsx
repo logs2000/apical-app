@@ -11,6 +11,7 @@ import {
   type ChatMessage,
   type Workflow,
   type AgentRuntime,
+  type PlanItem,
 } from "@/lib/apical";
 import { formatSendError, isSendError, isRetryableSendError } from "@/lib/apical/send-error";
 import { SendFailureNotice } from "./send-failure-notice";
@@ -100,7 +101,7 @@ import { workflowStepDetail, workflowStepToolLabel } from "@/lib/apical/workflow
 import { ArtifactEditor, type ArtifactEditorInitial } from "./artifact-editor";
 import { AssetCards } from "./asset-cards";
 import { SandboxPanel } from "./sandbox-panel";
-import { CredentialBox } from "./credential-box";
+import { CredentialRequestList } from "./credential-box";
 import { AgentChecklist } from "./agent-checklist";
 import { ClarificationCard } from "./clarification-card";
 import { MarkdownText } from "./markdown-text";
@@ -111,7 +112,7 @@ import { fetchArtifactText } from "@/lib/apical/attachments";
 import { sandboxItemFromAttachment } from "@/lib/apical/sandbox";
 import type { ChatAttachment } from "@/lib/apical";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAgentMessages } from "@/lib/queries";
+import { useAgentMessages, useCreateWorkflow } from "@/lib/queries";
 import { useAuth } from "@/components/auth/AuthDialog";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -120,6 +121,21 @@ function agentStatus(agent: Workflow): { color: string; label: string } {
   if (agent.status === "paused") return { color: "bg-muted-foreground", label: "Paused" };
   if (agent.flaggedCount > 0) return { color: "bg-gate", label: "Flagged" };
   return { color: "bg-foreground", label: "Active" };
+}
+
+/**
+ * The most recent checklist in the thread that still has unfinished items —
+ * passed to the next turn so the agent RESUMES it instead of re-planning from
+ * scratch. Returns undefined when the latest plan is fully done (or absent).
+ */
+function latestUnfinishedPlan(messages: ChatMessage[]): PlanItem[] | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const plan = messages[i].checklist;
+    if (plan && plan.length > 0) {
+      return plan.some((p) => p.status !== "done") ? plan : undefined;
+    }
+  }
+  return undefined;
 }
 
 // ─── Main view: responsive 3-rail (desktop) / stacked (mobile) ─────────────
@@ -206,8 +222,11 @@ function DesktopAgentsView() {
     });
   }, [isPopout, isNewChat, activeAgent?.name]);
 
+  const agentWorking = useAppStore((s) => s.agentWorking);
   const hasData = sandboxItems.length > 0;
-  const showData = sandboxOpen && hasData;
+  // Reveal the Progress rail as soon as the agent starts working, even before
+  // the first tool observation produces a sandbox item.
+  const showData = sandboxOpen && (hasData || agentWorking);
   const showInspectorPanel = isWide && inspectorOpen && !!activeAgent && !isNewChat;
   const showRightRail = isWide && (showData || showInspectorPanel);
 
@@ -284,7 +303,7 @@ function AgentNavigator({
       const wf = workflows.find((w) => w.id === c.workflowId);
       return (
         c.title.toLowerCase().includes(search.toLowerCase()) ||
-        (wf?.title ?? "").toLowerCase().includes(search.toLowerCase())
+        (wf?.name ?? "").toLowerCase().includes(search.toLowerCase())
       );
     }),
   );
@@ -626,7 +645,7 @@ function AgentRailRow({
             <span className="truncate text-[11px] font-medium">{convo.title}</span>
             <FlaggedCountBadge count={agent.flaggedCount} />
           </div>
-          <div className="truncate text-[9px] text-muted-foreground">{agent.title ?? "Agent"}</div>
+          <div className="truncate text-[9px] text-muted-foreground">{agent.trigger === "schedule" ? agent.schedule ?? "Scheduled" : "Manual"}</div>
         </div>
       </button>
       <RailRowActions
@@ -683,7 +702,9 @@ function MobileAgentsView() {
           {isNewChat ? "New chat" : activeAgent?.name ?? "Agents"}
         </span>
         {activeAgent && (
-          <span className="ml-auto text-[10px] text-muted-foreground">{activeAgent.title ?? "Agent"}</span>
+          <span className="ml-auto text-[10px] text-muted-foreground">
+            {activeAgent.trigger === "schedule" ? activeAgent.schedule ?? "Scheduled" : "Manual"}
+          </span>
         )}
       </header>
 
@@ -700,7 +721,10 @@ function MobileAgentsView() {
         )}
         {mobilePane === "chat" && (
           <ChatPane
-            key={isNewChat ? NEW_CHAT_CONVERSATION_ID : activeAgent?.id ?? "pending-agent"}
+            // Key by the STABLE conversation id (not activeAgent?.id) so the pane
+            // doesn't remount when the agent object arrives a render late after a
+            // new chat is created — a remount would drop the queued first turn.
+            key={activeConversationId ?? NEW_CHAT_CONVERSATION_ID}
             agent={activeAgent}
             isNewChat={isNewChat}
           />
@@ -862,7 +886,7 @@ function MobileAgentList({
                 <span className="truncate text-sm font-medium">{wf.name}</span>
                 <FlaggedCountBadge count={wf.flaggedCount} />
               </div>
-              <div className="truncate text-[10px] text-muted-foreground">{wf.title ?? "Agent"}</div>
+              <div className="truncate text-[10px] text-muted-foreground">{wf.trigger === "schedule" ? wf.schedule ?? "Scheduled" : "Manual"}</div>
             </div>
           </button>
           <RailRowActions
@@ -999,7 +1023,7 @@ function CenterPane({
                 <span className="text-sm font-semibold">{agent.name}</span>
                 <RuntimeBadge runtime={agent.runtime} />
               </div>
-              <div className="text-[10px] text-muted-foreground">{agent.title ?? "Agent"}</div>
+              <div className="text-[10px] text-muted-foreground">{agent.trigger === "schedule" ? agent.schedule ?? "Scheduled" : "Manual"}</div>
             </div>
           </div>
         ) : null}
@@ -1045,7 +1069,13 @@ function CenterPane({
       {/* Chat only */}
       <div className="min-h-0 flex-1 overflow-hidden">
         <ChatPane
-          key={isNewChat ? NEW_CHAT_CONVERSATION_ID : agent?.id ?? "pending-agent"}
+          // Key by the STABLE conversation id, not agent?.id. The agent object
+          // can arrive a render late (React Query cache lag) right after a new
+          // chat is created; keying by agent id would mount a throwaway
+          // "pending-agent" pane and then remount, which unmounts the pane
+          // before its queued first-turn runTurn fires — leaving dots but no
+          // thinking. The conversation id is known immediately and never flips.
+          key={conversationId ?? NEW_CHAT_CONVERSATION_ID}
           agent={agent}
           isNewChat={isNewChat}
         />
@@ -1092,6 +1122,9 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
   // (or once a handoff turn starts), local message state owns this session so a
   // background refetch can never wipe a streaming/finished reply.
   const hydratedAgentRef = React.useRef<string | null>(null);
+  // Latest messages, for async callbacks that must not use a stale closure.
+  const messagesRef = React.useRef<ChatMessage[]>([]);
+  messagesRef.current = messages;
   const mountedRef = React.useRef(true);
   React.useEffect(() => {
     mountedRef.current = true;
@@ -1152,18 +1185,20 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       processedHandoffIdRef.current = handoff.id;
       // The handoff turn drives the conversation from here — local state owns it.
       hydratedAgentRef.current = agentId;
-      setMessages([]);
+      const handoffAttachments = (handoff.attachments ?? []) as ChatAttachment[];
+      const handoffUserMsg: ChatMessage = {
+        id: Math.random().toString(36).slice(2),
+        role: "user",
+        content: handoff.prompt,
+        attachments: handoffAttachments.length ? handoffAttachments : undefined,
+        createdAt: new Date().toISOString(),
+      };
+      // Paint the user's message + thinking indicator synchronously so the
+      // freshly mounted pane never flashes blank while the first turn spins up.
+      setMessages([handoffUserMsg]);
+      setIsThinking(true);
       queueMicrotask(() => {
         if (!mountedRef.current) return;
-        setIsThinking(true);
-        const handoffAttachments = (handoff.attachments ?? []) as ChatAttachment[];
-        const handoffUserMsg: ChatMessage = {
-          id: Math.random().toString(36).slice(2),
-          role: "user",
-          content: handoff.prompt,
-          attachments: handoffAttachments.length ? handoffAttachments : undefined,
-          createdAt: new Date().toISOString(),
-        };
         void runTurnRef.current(
           handoff.prompt,
           [handoffUserMsg],
@@ -1271,10 +1306,17 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
     if (!mountedRef.current) return;
     setIsThinking(true);
     setComposerError(null);
+    // Reveal the Progress rail the moment work starts so the user can watch the
+    // agent think/act live, instead of waiting for the first tool observation.
+    {
+      const store = useAppStore.getState();
+      store.setAgentWorking(true);
+      store.setSandboxOpen(true);
+      if (store.rightRailTab !== "inspector") store.setRightRailTab("progress");
+    }
     const handoff = useAppStore.getState().pendingAgentHandoff;
     const agentId = agent?.id ?? handoff?.agentId ?? null;
     const agentName = agent?.name ?? handoff?.agentName ?? "Agent";
-    const agentTitle = agent?.title;
     const agentDescription = agent?.description;
     const replyId = Math.random().toString(36).slice(2);
     const replyMsg: ChatMessage = {
@@ -1310,15 +1352,17 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
 
     try {
       const agentContext = agentId
-        ? `You are acting as the agent "${agentName}"${agentTitle ? ` (${agentTitle})` : ""}. What it does: ${agentDescription ?? "A general assistant."}`
+        ? `You are acting as the agent "${agentName}". What it does: ${agentDescription ?? "A general assistant."}`
         : undefined;
+      // Carry forward the most recent unfinished checklist so the agent resumes
+      // it instead of planning from scratch.
+      const priorPlan = latestUnfinishedPlan(priorMessages);
       const result = await streamAgentThink(text, {
         context: agentContext,
         history: chatHistoryForApi(priorMessages, true),
+        priorPlan,
         agentId,
         attachments: turnAttachments,
-        allowCli: IS_TAURI,
-        isDesktop: IS_TAURI,
         maxIterations: 64,
         signal: controller.signal,
         onStreamOpen: commitUser,
@@ -1391,8 +1435,13 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
                 ...(result.clarificationRequest
                   ? { clarificationRequest: result.clarificationRequest }
                   : {}),
-                ...(result.credentialRequest
-                  ? { credentialRequest: result.credentialRequest }
+                ...(result.credentialRequests?.length
+                  ? {
+                      credentialRequests: result.credentialRequests.map((r) => ({
+                        ...r,
+                        status: "pending" as const,
+                      })),
+                    }
                   : {}),
                 ...(automationSaveSucceeded(result.trace, result.workflowSavedToAgentId)
                   ? { workflowSaved: { agentName: agent?.name ?? "this agent" } }
@@ -1427,7 +1476,14 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
         attachments: producedAttachments,
         ...(result.checklist ? { checklist: result.checklist } : {}),
         ...(result.clarificationRequest ? { clarificationRequest: result.clarificationRequest } : {}),
-        ...(result.credentialRequest ? { credentialRequest: result.credentialRequest } : {}),
+        ...(result.credentialRequests?.length
+          ? {
+              credentialRequests: result.credentialRequests.map((r) => ({
+                ...r,
+                status: "pending" as const,
+              })),
+            }
+          : {}),
         ...(result.createdAgentId
           ? {
               createdAgent: {
@@ -1452,6 +1508,13 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       }
 
       void persistMessage(finishedMsg).then((serverId) => {
+        // Remember the server row id so interactive-card state (credential
+        // boxes) can be PATCHed when the user saves/dismisses them.
+        if (serverId && mountedRef.current) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === replyId ? { ...m, serverId } : m)),
+          );
+        }
         setAnalyzingId(replyId);
         void analyzeRun({
           goal: text,
@@ -1466,8 +1529,13 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
               (analysis.workflowAutoSaved || !!result.workflowSavedToAgentId) &&
               analysis.success &&
               analysis.outcomeAchieved !== false;
+            // Merge in the LIVE credential-box state — the user may have saved
+            // a key while the analysis was still running.
+            const liveCreds = messagesRef.current.find((m) => m.id === replyId)
+              ?.credentialRequests;
             const analyzedMsg: ChatMessage = {
               ...finishedMsg,
+              ...(liveCreds ? { credentialRequests: liveCreds } : {}),
               runAnalysis: analysis,
               ...(showWorkflowSaved
                 ? { workflowSaved: { agentName: agent?.name ?? "this agent" } }
@@ -1555,6 +1623,7 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       setComposerAttachments(turnAttachments);
     } finally {
       if (mountedRef.current) setIsThinking(false);
+      useAppStore.getState().setAgentWorking(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
   }
@@ -1577,14 +1646,66 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
     );
   }
 
+  // Send a continuation turn directly to the CURRENT agent — no routing. Used
+  // for credential-saved resumes and clarification answers, which must never
+  // be handed off to a different agent by the router.
+  function sendDirect(text: string) {
+    if (isThinking) return;
+    const pendingUserMsg: ChatMessage = {
+      id: Math.random().toString(36).slice(2),
+      role: "user",
+      content: text,
+      createdAt: new Date().toISOString(),
+    };
+    void runTurn(text, messagesRef.current, [], pendingUserMsg, undefined);
+  }
+
+  // User saved or dismissed an inline credential box. Update + persist the box
+  // state; once every box in the message is resolved and at least one key was
+  // saved, resume the agent automatically.
+  function handleCredentialResolved(
+    messageId: string,
+    info: { service: string; label: string },
+    action: "saved" | "dismissed",
+  ) {
+    const msg = messagesRef.current.find((m) => m.id === messageId);
+    if (!msg?.credentialRequests) return;
+    const nextReqs = msg.credentialRequests.map((r) =>
+      r.service === info.service && r.label === info.label ? { ...r, status: action } : r,
+    );
+    const nextMsg: ChatMessage = { ...msg, credentialRequests: nextReqs };
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? nextMsg : m)));
+    if (nextMsg.serverId) void patchMessage(nextMsg.serverId, nextMsg);
+    const pending = nextReqs.some((r) => !r.status || r.status === "pending");
+    const saved = nextReqs.filter((r) => r.status === "saved").map((r) => r.label);
+    const skipped = nextReqs
+      .filter((r) => r.status === "dismissed")
+      .map((r) => r.label);
+    // Resume once every key has been resolved (saved OR skipped) — the user may
+    // deliberately skip them all, in which case the agent should still continue
+    // (using placeholders/mocks) rather than hang waiting for a key.
+    if (!pending && !isThinking && (saved.length > 0 || skipped.length > 0)) {
+      const parts: string[] = [];
+      if (saved.length) parts.push(`saved ${saved.join(", ")} to the vault`);
+      if (skipped.length) parts.push(`skipped ${skipped.join(", ")} for now`);
+      const tail = saved.length
+        ? "Please continue."
+        : "Please continue without those keys — use placeholders/mocks where needed.";
+      sendDirect(`I've ${parts.join(" and ")}. ${tail}`);
+    }
+  }
+
   // User clicked a multiple-choice clarification option — mark it answered and
   // send the choice back so the agent resumes with the answer.
   function handleClarificationAnswer(messageId: string, answer: string) {
     if (isThinking) return;
+    const msg = messagesRef.current.find((m) => m.id === messageId);
+    const nextMsg = msg ? { ...msg, clarificationAnswered: true } : undefined;
     setMessages((prev) =>
       prev.map((m) => (m.id === messageId ? { ...m, clarificationAnswered: true } : m)),
     );
-    void send({ text: answer });
+    if (nextMsg?.serverId) void patchMessage(nextMsg.serverId, nextMsg);
+    sendDirect(answer);
   }
 
   function dismissDeliveryError(messageId: string) {
@@ -1657,6 +1778,18 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       }
 
       if (isNewChat) {
+        // Show the user's message immediately so the send feels instant while
+        // the agent is created in the background — the handoff seeds the same
+        // content into the new pane, so there's no blank flash on remount.
+        setMessages([
+          {
+            id: Math.random().toString(36).slice(2),
+            role: "user",
+            content,
+            attachments: attachments.length ? attachments : undefined,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
         const created = await createConversationFromMessage(content);
         if (!mountedRef.current) return;
         setPendingAgentHandoff({
@@ -1667,9 +1800,10 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
           kind: "continue",
           attachments: attachments.length ? attachments : undefined,
         });
+        // Keep the thinking indicator up through the remount+handoff so the
+        // stream appears continuous instead of momentarily going quiet.
         setActiveConversation(conversationIdForWorkflow(created.id));
         setMobilePane("chat");
-        setIsThinking(false);
         return;
       }
 
@@ -1713,11 +1847,7 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
             isStreaming={isThinking && i === messages.length - 1 && m.role === "agent"}
             isAnalyzing={analyzingId === m.id}
             onEditArtifact={openArtifactForEdit}
-            onCredentialSaved={(info) =>
-              send({
-                text: `I've saved the ${info.label} to the vault. Please continue.`,
-              })
-            }
+            onCredentialResolved={handleCredentialResolved}
             onPickPrompt={(prompt) => send({ text: prompt })}
             onClarify={handleClarificationAnswer}
             onRetryFailedSend={retryFromDeliveryError}
@@ -1785,7 +1915,7 @@ function MessageBubble({
   isStreaming,
   isAnalyzing,
   onEditArtifact,
-  onCredentialSaved,
+  onCredentialResolved,
   onPickPrompt,
   onClarify,
   onRetryFailedSend,
@@ -1796,7 +1926,11 @@ function MessageBubble({
   isStreaming?: boolean;
   isAnalyzing?: boolean;
   onEditArtifact?: (a: ChatAttachment) => void;
-  onCredentialSaved?: (info: { label: string; service: string }) => void;
+  onCredentialResolved?: (
+    messageId: string,
+    info: { service: string; label: string },
+    action: "saved" | "dismissed",
+  ) => void;
   onPickPrompt?: (prompt: string) => void;
   onClarify?: (messageId: string, answer: string) => void;
   onRetryFailedSend?: (payload: { text: string; attachments?: ChatAttachment[] }) => void;
@@ -1896,9 +2030,13 @@ function MessageBubble({
           <AssetCards attachments={message.attachments} onEdit={onEditArtifact} />
         </div>
       )}
-      {message.credentialRequest && (
+      {message.credentialRequests && message.credentialRequests.length > 0 && (
         <div className="select-none">
-          <CredentialBox request={message.credentialRequest} onSaved={onCredentialSaved} />
+          <CredentialRequestList
+            requests={message.credentialRequests}
+            onSaved={(info) => onCredentialResolved?.(message.id, info, "saved")}
+            onDismiss={(info) => onCredentialResolved?.(message.id, info, "dismissed")}
+          />
         </div>
       )}
       {message.workflowSaved && (
@@ -1914,20 +2052,22 @@ function MessageBubble({
         </div>
       )}
       {message.workflowProposal && (
-        <div className="mt-2 select-none rounded-md border border-border bg-muted p-2.5 text-xs">
-          <div className="mb-1 font-semibold text-foreground">Proposed workflow: {message.workflowProposal.name}</div>
-          <div className="text-muted-foreground">{message.workflowProposal.description}</div>
-          <div className="mt-1.5 text-[10px] text-muted-foreground">{message.workflowProposal.steps.steps.length} steps</div>
-        </div>
+        <ProposedWorkflowCard
+          title={`Proposed workflow: ${message.workflowProposal.name}`}
+          detail={message.workflowProposal.description}
+          name={message.workflowProposal.name}
+          description={message.workflowProposal.description}
+          steps={message.workflowProposal.steps}
+        />
       )}
       {message.automateOffer && (
-        <div className="mt-2 select-none rounded-md border border-border bg-muted p-2.5 text-xs">
-          <div className="mb-1 font-semibold text-foreground">Automate this?</div>
-          <p className="text-muted-foreground">{message.automateOffer.summary}</p>
-          <div className="mt-1.5 text-[10px] text-muted-foreground">
-            {message.automateOffer.steps.steps.length} steps
-          </div>
-        </div>
+        <ProposedWorkflowCard
+          title="Automate this?"
+          detail={message.automateOffer.summary}
+          name={message.automateOffer.name}
+          description={message.automateOffer.summary}
+          steps={message.automateOffer.steps}
+        />
       )}
       <div className="flex select-none items-center gap-1 text-[10px] text-muted-foreground">
         <span>
@@ -1940,6 +2080,71 @@ function MessageBubble({
           />
         )}
       </div>
+    </div>
+  );
+}
+
+/** Proposed-workflow chat card with a real Accept action → POST /v1/workflows. */
+function ProposedWorkflowCard({
+  title,
+  detail,
+  name,
+  description,
+  steps,
+}: {
+  title: string;
+  detail: string;
+  name: string;
+  description: string;
+  steps: { version: 1 | 2; steps: unknown[] };
+}) {
+  const createWorkflow = useCreateWorkflow();
+  const [created, setCreated] = React.useState<{ id: string; name: string } | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function accept() {
+    setError(null);
+    try {
+      const wf = await createWorkflow.mutateAsync({
+        name,
+        description,
+        steps: steps as import("@/lib/types").WorkflowJSON,
+        origin: "chat",
+      });
+      setCreated({ id: wf.id, name: wf.name });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save the workflow.");
+    }
+  }
+
+  return (
+    <div className="mt-2 select-none rounded-md border border-border bg-muted p-2.5 text-xs">
+      <div className="mb-1 font-semibold text-foreground">{title}</div>
+      <p className="text-muted-foreground">{detail}</p>
+      <div className="mt-1.5 text-[10px] text-muted-foreground">{steps.steps.length} steps</div>
+      {created ? (
+        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <CheckCircle2 className="h-3 w-3 text-foreground" />
+          Saved as <span className="font-medium text-foreground">{created.name}</span> — it&rsquo;s in your agents list.
+        </div>
+      ) : (
+        <div className="mt-2 flex items-center gap-2">
+          <Button
+            size="sm"
+            className="h-6 px-2.5 text-[11px]"
+            disabled={createWorkflow.isPending || steps.steps.length === 0}
+            onClick={() => void accept()}
+          >
+            {createWorkflow.isPending ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <Check className="mr-1 h-3 w-3" />
+            )}
+            Accept &amp; save
+          </Button>
+          {error && <span className="text-[10px] text-destructive">{error}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -2220,8 +2425,8 @@ function AgentDashboard({ agent }: { agent: Workflow }) {
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About</h3>
           <p className="mt-1.5 text-sm">{agent.description}</p>
           <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-3">
-            <Meta label="Title" value={agent.title ?? "—"} />
             <Meta label="Trigger" value={agent.trigger === "schedule" ? `Schedule · ${agent.schedule}` : "Manual"} />
+            <Meta label="Runtime" value={agent.runtime === "local" ? "Local (desktop)" : "Hosted (cloud)"} />
           </div>
         </div>
         <RunLog workflowId={agent.id} title="Recent runs" limit={15} maxHeight="max-h-96" />
@@ -2285,7 +2490,6 @@ function AgentWorkflow({ agent }: { agent: Workflow }) {
 
 function AgentConfig({ agent }: { agent: Workflow }) {
   const [name, setName] = React.useState(agent.name);
-  const [title, setTitle] = React.useState(agent.title ?? "");
   const [description, setDescription] = React.useState(agent.description);
   const [trigger, setTrigger] = React.useState<"manual" | "schedule">(agent.trigger);
   const [schedule, setSchedule] = React.useState(agent.schedule ?? "");
@@ -2312,12 +2516,11 @@ function AgentConfig({ agent }: { agent: Workflow }) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/workflows/${agent.id}`, {
+      const res = await fetch(`/v1/workflows/${agent.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          title: title.trim() || null,
           description,
           trigger,
           schedule: trigger === "schedule" ? schedule.trim() || null : null,
@@ -2345,13 +2548,9 @@ function AgentConfig({ agent }: { agent: Workflow }) {
         <div className="rounded-lg border border-border bg-card p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Identity</h3>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2">
               <Label className="text-xs">Name</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 text-sm" />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label className="text-xs">Title</Label>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} className="h-9 text-sm" placeholder="e.g. Filing Agent" />
             </div>
           </div>
           <div className="mt-3 space-y-1.5">

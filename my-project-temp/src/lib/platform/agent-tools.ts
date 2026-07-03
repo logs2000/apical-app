@@ -17,14 +17,17 @@
 //   - integration_list: lets the agent see what connections are available.
 
 import { db } from '@/lib/db'
+import type { ToolSpec } from '@/lib/platform/llm-gateway'
 import { integrationFromRow, parseConfig, serializeWorkflowJSON } from '@/lib/apical-server'
-import { callMcpTool } from '@/lib/mcp-client'
+import { callMcpTool, connectMcpServer } from '@/lib/mcp-client'
 import { buildSecureHeaders, listCredentialsForAgent } from '@/lib/platform/agent-credentials'
 import { ingestOpenApiSpec } from '@/lib/openapi-parser'
 import { searchWeb } from '@/lib/platform/web-search'
 import { saveAsset, assetDownloadUrl } from '@/lib/platform/assets'
 import { normalizeSteps } from '@/lib/deploy'
 import { buildStepsForFreeze } from '@/lib/platform/workflow-distill'
+import { saveWorkflowSteps } from '@/lib/platform/workflow-revisions'
+import { validateWorkflowJSON } from '@/lib/workflow-schema'
 import { computeNextRun, validateSchedule, parseFixedRate, type ScheduleKind } from '@/lib/platform/cron'
 import type { WorkflowJSON, McpServerConfig } from '@/lib/types'
 import {
@@ -119,10 +122,11 @@ export interface ClarificationRequest {
 
 export interface ToolContext {
   userId: string
+  /** Resolved lazily from userId; cached here after first lookup. */
+  workspaceId?: string | null
   agentId?: string | null
-  /** The current agent's display name + role (when chatting with a specific agent). */
+  /** The current agent's display name (when chatting with a specific agent). */
   agentName?: string | null
-  agentTitle?: string | null
   /** The current agent's saved workflow JSON (so it can follow + evolve it). */
   currentWorkflow?: WorkflowJSON
   /** Whether CLI execution is allowed (routes through the desktop bridge). */
@@ -139,8 +143,9 @@ export interface ToolContext {
   createdAgentName?: string
   /** The user's goal for this turn — used to seed the new agent's thread. */
   userGoal?: string
-  /** Set by credential_request — surfaced to the chat as an inline key-entry box. */
-  credentialRequest?: CredentialRequest
+  /** Set by credential_request — surfaced to the chat as inline key-entry boxes.
+   *  An array so one turn can request several keys (one box each). */
+  credentialRequests?: CredentialRequest[]
   /** Set by update_plan — the live checklist surfaced above the answer. */
   plan?: PlanItem[]
   /** Set by ask_clarification — a multiple-choice question that ends the turn. */
@@ -173,6 +178,12 @@ export interface ToolContext {
   }>
   /** Meta-tool failures (workflow_freeze, schedule_agent, etc.) — not in executionTrace. */
   metaToolFailures?: Array<{ tool: string; error: string }>
+  /**
+   * Abort signal from the originating HTTP request. Long-running tools
+   * (network fetches, CLI/script runs) should pass this to their I/O so a
+   * client disconnect cancels in-flight work instead of leaking it.
+   */
+  signal?: AbortSignal
 }
 
 export interface ToolDef {
@@ -207,10 +218,48 @@ function isGenericAgentName(name: string): boolean {
   return GENERIC_AGENT_NAME.test(name.trim())
 }
 
+/**
+ * Combined abort signal for a tool's I/O: fires on the per-call timeout OR
+ * when the originating request is aborted (client disconnected / user hit
+ * stop). Keeps in-flight fetches from outliving the agent turn.
+ */
+function toolAbortSignal(ctx: ToolContext, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs)
+  return ctx.signal ? AbortSignal.any([timeout, ctx.signal]) : timeout
+}
+
+/** Resolve (and cache) the acting user's primary workspace id on the ctx. */
+async function ctxWorkspaceId(ctx: ToolContext): Promise<string | null> {
+  if (ctx.workspaceId !== undefined) return ctx.workspaceId
+  const member = await db.workspaceMember.findFirst({
+    where: { userId: ctx.userId },
+    orderBy: { createdAt: 'asc' },
+    select: { workspaceId: true },
+  })
+  let wsId = member?.workspaceId ?? null
+  if (!wsId) {
+    const legacy = await db.workspace.findFirst({
+      where: { userId: ctx.userId },
+      select: { id: true },
+    })
+    wsId = legacy?.id ?? null
+  }
+  ctx.workspaceId = wsId
+  return wsId
+}
+
+/** Integration visibility filter: workspace instances + global registry rows. */
+function integrationScope(wsId: string | null): { OR: Array<{ workspaceId: string | null }> } {
+  return wsId
+    ? { OR: [{ workspaceId: wsId }, { workspaceId: null }] }
+    : { OR: [{ workspaceId: null }] }
+}
+
 import {
   invokeLocalDesktopTool,
   isLocalDesktopRuntime,
 } from './desktop-local-runtime'
+import { enforceGrantedRoots } from './granted-folders'
 
 /**
  * Invoke a tool on the user's connected desktop via the desktop bridge.
@@ -226,6 +275,17 @@ async function invokeDesktopTool(
 ): Promise<ToolResult> {
   const timeoutMs = Math.min(60_000, Math.max(1000, opts.timeoutMs ?? 15_000))
   try {
+    // fs tools are sandboxed to the user's granted folder roots (fail closed).
+    const rootViolation = await enforceGrantedRoots(ctx.userId, tool, args)
+    if (rootViolation) {
+      return {
+        ok: false,
+        output: null,
+        error: rootViolation,
+        display: { ...opts.display, summary: 'blocked: folder not granted' },
+      }
+    }
+
     if (isLocalDesktopRuntime()) {
       const data = await invokeLocalDesktopTool(tool, args, timeoutMs)
       return {
@@ -258,6 +318,7 @@ async function invokeDesktopTool(
         args,
         timeoutMs: timeoutMs + 2000,
       }),
+      signal: toolAbortSignal(ctx, timeoutMs + 5000),
     })
     const data = (await r.json()) as { ok: boolean; result?: unknown; error?: string }
     return {
@@ -350,7 +411,7 @@ const webRead: ToolDef = {
 
     try {
       const r = await fetch(url, {
-        signal: AbortSignal.timeout(12_000),
+        signal: toolAbortSignal(ctx, 12_000),
         headers,
       })
       if (!r.ok) {
@@ -445,7 +506,7 @@ const httpRequest: ToolDef = {
         method,
         headers,
         body: ['GET', 'HEAD'].includes(method) ? undefined : body,
-        signal: AbortSignal.timeout(12_000),
+        signal: toolAbortSignal(ctx, 12_000),
       })
       const text = await Promise.race([
         r.text(),
@@ -638,30 +699,66 @@ const cliRun: ToolDef = {
   },
 }
 
-// 5a. script_run — run JS (sandbox), Python, or shell (desktop CLI).
+// 5a. script_run — run JS or Python on the server (with optional npm/PyPI
+//     packages, installed automatically), or shell via the desktop CLI.
 const scriptRun: ToolDef = {
   name: 'script_run',
   description:
-    'Execute a script once. JavaScript runs in a sandboxed eval. Python and shell require desktop CLI access (allowCli). Use for one-off computation, data transforms, or local commands.',
+    'Execute a script. JavaScript and Python run server-side and CAN use real packages: pass packages:["axios"] (npm) or packages:["requests"] (PyPI) and they are installed automatically before the run — never tell the user to install anything. JS: require("pkg") works when packages are given; a returned value is printed. Python: import as normal. Shell scripts run on the user desktop (requires CLI access). Use for computation, data transforms, API glue, file parsing — anything a small script solves.',
   inputSchema: {
     language: { type: 'string', description: 'javascript | python | shell', required: true },
     code: { type: 'string', description: 'Script source code.', required: true },
-    data: { type: 'string', description: 'Optional JSON string passed as `data` to JS scripts.' },
+    packages: { type: 'array', description: 'Packages to install first: npm names for javascript, PyPI names for python. Installed into a cached env — fast on repeat runs.', items: { type: 'string' } },
+    data: { type: 'string', description: 'Optional JSON string passed as `data` to the script.' },
   },
   async run(input, ctx) {
     const language = asString(input.language).toLowerCase()
     const code = asString(input.code, 50_000)
     if (!code) return { ok: false, output: null, error: 'code is required' }
+    const packages = Array.isArray(input.packages)
+      ? input.packages.map(String).filter(Boolean)
+      : []
+    const data = input.data ? asString(input.data, 100_000) : undefined
+
     if (language === 'javascript' || language === 'js') {
-      return codeEval.run({ code, data: input.data }, ctx)
-    }
-    if (!ctx.allowCli) {
-      return { ok: false, output: null, error: 'Python/shell scripts require desktop CLI access.' }
+      // No packages → fast in-process sandbox. With packages → real Node run.
+      if (packages.length === 0) return codeEval.run({ code, data: input.data }, ctx)
+      const { runNodeScript } = await import('./script-runner')
+      const res = await runNodeScript(code, packages, { data })
+      return {
+        ok: res.ok,
+        output: res.ok
+          ? { stdout: res.stdout || '(no output)', stderr: res.stderr || undefined }
+          : null,
+        error: res.ok ? undefined : res.error,
+        display: { title: 'Ran Node script', summary: `packages: ${packages.join(', ')}`, kind: 'code' },
+      }
     }
     if (language === 'python' || language === 'py') {
-      return cliRun.run({ command: 'python3', args: ['-c', code], timeoutMs: 30_000 }, ctx)
+      // Prefer the server runtime (works on web + supports packages); fall
+      // back to the desktop CLI when the server has no python3.
+      const { runPythonScript } = await import('./script-runner')
+      const res = await runPythonScript(code, packages, { data })
+      if (!res.ok && /python3|ENOENT/i.test(res.error ?? '') && ctx.allowCli && packages.length === 0) {
+        return cliRun.run({ command: 'python3', args: ['-c', code], timeoutMs: 30_000 }, ctx)
+      }
+      return {
+        ok: res.ok,
+        output: res.ok
+          ? { stdout: res.stdout || '(no output)', stderr: res.stderr || undefined }
+          : null,
+        error: res.ok ? undefined : res.error,
+        display: {
+          title: 'Ran Python script',
+          summary: packages.length ? `packages: ${packages.join(', ')}` : 'ran',
+          kind: 'code',
+        },
+      }
     }
     if (language === 'shell' || language === 'bash' || language === 'sh') {
+      if (!ctx.allowCli) {
+        return { ok: false, output: null, error: 'Shell scripts require desktop CLI access. Use javascript or python instead — both run server-side.' }
+      }
       return cliRun.run({ command: 'bash', args: ['-lc', code], timeoutMs: 30_000 }, ctx)
     }
     return { ok: false, output: null, error: `Unsupported language: ${language}` }
@@ -761,10 +858,10 @@ const integrationList: ToolDef = {
   inputSchema: {},
   async run(_input, ctx) {
     try {
-      // The Integration model has no userId column (integrations are shared
-      // in dev), so we query by status only.
-      void ctx
-      const all = await db.integration.findMany({ where: { status: 'connected' } })
+      const wsId = await ctxWorkspaceId(ctx)
+      const all = await db.integration.findMany({
+        where: { status: 'connected', ...integrationScope(wsId) },
+      })
       const out = all.map((i) => integrationFromRow(i))
       return {
         ok: true,
@@ -788,11 +885,12 @@ const mcpListServers: ToolDef = {
   inputSchema: {},
   async run(_input, ctx) {
     try {
-      // MCP integrations are Integration rows with kind='mcp'. The Integration
-      // model has no userId column (integrations are shared in dev), so we
-      // query by kind + status.
-      void ctx // (ctx.userId is not needed here — integrations are global)
-      const pool = await db.integration.findMany({ where: { kind: 'mcp', status: 'connected' } })
+      // MCP integrations are Integration rows with kind='mcp', scoped to the
+      // user's workspace (plus global registry rows).
+      const wsId = await ctxWorkspaceId(ctx)
+      const pool = await db.integration.findMany({
+        where: { kind: 'mcp', status: 'connected', ...integrationScope(wsId) },
+      })
       const servers = pool.map((r) => {
         const cfg = parseConfig<{ mcp?: McpServerConfig }>(r.config, {})
         const tools = JSON.parse(r.tools) as Array<{ id: string; name: string; description?: string; inputSchema?: Record<string, unknown> }>
@@ -846,10 +944,11 @@ const mcpCallTool: ToolDef = {
       return { ok: false, output: null, error: 'serverId and tool are required' }
     const args = (input.args as Record<string, unknown>) ?? {}
     try {
-      // Look up the MCP integration by id. The Integration model has no
-      // userId column (integrations are shared), so we query by id + kind.
+      // Look up the MCP integration by id, restricted to rows visible to the
+      // user's workspace (own instances + global registry rows).
+      const wsId = await ctxWorkspaceId(ctx)
       const row = await db.integration.findFirst({
-        where: { id: serverId, kind: 'mcp' },
+        where: { id: serverId, kind: 'mcp', ...integrationScope(wsId) },
       })
       if (!row) return { ok: false, output: null, error: 'MCP server not found' }
       const cfg = parseConfig<{ mcp?: McpServerConfig }>(row.config, {})
@@ -1039,10 +1138,14 @@ const toolConfigure: ToolDef = {
     // OpenAPI
     specUrl: { type: 'string', description: 'For openapi: the spec URL to ingest.' },
   },
-  async run(input, _ctx) {
+  async run(input, ctx) {
     const kind = asString(input.kind, 20)
     if (kind !== 'mcp' && kind !== 'openapi')
       return { ok: false, output: null, error: 'kind must be "mcp" or "openapi"' }
+
+    // Integrations created by the agent belong to the acting user's workspace
+    // (direct lib calls — no unauthenticated localhost round-trips).
+    const wsId = await ctxWorkspaceId(ctx)
 
     try {
       if (kind === 'openapi') {
@@ -1051,75 +1154,130 @@ const toolConfigure: ToolDef = {
         const result = await ingestOpenApiSpec(specUrl)
         if (result.error || result.tools.length === 0)
           return { ok: false, output: null, error: result.error || 'no tools discovered' }
-        // Persist the integration via the API route (server-side fetch).
         const name = asString(input.name, 200) || result.title || 'Untitled API'
-        const res = await fetch('http://localhost:3000/api/integrations/ingest-spec', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ specUrl, name, filter: { mode: 'all' } }),
+        const defaultScheme = result.authSchemes.length === 1 ? result.authSchemes[0] : null
+        const created = await db.integration.create({
+          data: {
+            workspaceId: wsId,
+            name,
+            kind: 'api',
+            description: `Auto-ingested from OpenAPI ${result.specVersion} spec on ${new Date().toISOString().slice(0, 10)}. ${result.totalOperations} operations.`,
+            category: 'general',
+            color: 'violet',
+            status: 'connected',
+            config: JSON.stringify({
+              url: result.baseUrl,
+              specUrl,
+              auth: defaultScheme
+                ? {
+                    type: defaultScheme.type,
+                    schemeName: defaultScheme.schemeName,
+                    headerName: defaultScheme.headerName,
+                    headerIn: defaultScheme.headerIn,
+                  }
+                : { type: 'none' },
+              authSchemes: result.authSchemes,
+            }),
+            tools: '[]',
+            source: 'private',
+            visibility: 'private',
+            authorLabel: null,
+            installs: 0,
+          },
         })
-        if (!res.ok) {
-          return { ok: false, output: null, error: `ingest-spec HTTP ${res.status}` }
-        }
-        const data = (await res.json()) as { integration: { id: string }; tools: unknown[] }
+        const tools = result.tools.map((t) => ({ ...t, integrationId: created.id }))
+        await db.integration.update({
+          where: { id: created.id },
+          data: { tools: JSON.stringify(tools) },
+        })
         return {
           ok: true,
           output: {
-            integrationId: data.integration.id,
+            integrationId: created.id,
             name,
-            toolCount: data.tools.length,
-            tools: data.tools,
+            toolCount: tools.length,
+            tools: tools.slice(0, 40).map((t) => ({ id: t.id, name: t.name, description: t.description })),
             kind: 'openapi',
           },
           display: {
             title: `Configured ${name}`,
-            summary: `${data.tools.length} tools from OpenAPI spec`,
+            summary: `${tools.length} tools from OpenAPI spec`,
             kind: 'info',
           },
         }
       }
 
-      // MCP — connect via the API route.
+      // MCP — connect + discover directly.
       const transport = asString(input.transport, 10) || 'stdio'
-      const body: Record<string, unknown> = {
-        name: asString(input.name, 200) || 'MCP server',
-        transport,
+      const name = asString(input.name, 200) || 'MCP server'
+      const config: McpServerConfig =
+        transport === 'stdio'
+          ? {
+              transport: 'stdio',
+              command: asString(input.command, 500) || undefined,
+              args: Array.isArray(input.args)
+                ? (input.args as unknown[]).map((a) => String(a))
+                : undefined,
+            }
+          : {
+              transport: transport === 'sse' ? 'sse' : 'http',
+              url: asString(input.url, 2000) || undefined,
+              headers:
+                input.headers && typeof input.headers === 'object'
+                  ? (input.headers as Record<string, string>)
+                  : undefined,
+              bearerToken: asString(input.bearerToken, 2000) || undefined,
+            }
+      if (config.transport === 'stdio' && !config.command) {
+        return { ok: false, output: null, error: 'stdio transport requires a "command"' }
       }
-      if (transport === 'stdio') {
-        body.command = asString(input.command, 500)
-        if (input.args) body.args = input.args
-      } else {
-        body.url = asString(input.url, 2000)
-        if (input.headers) body.headers = input.headers
-        if (input.bearerToken) {
-          // If the bearerToken is a cred reference, resolve it from the vault.
-          const bt = asString(input.bearerToken, 2000)
-          body.bearerToken = bt
+      if (config.transport !== 'stdio' && !config.url) {
+        return { ok: false, output: null, error: `${transport} transport requires a "url"` }
+      }
+
+      const discovered = await connectMcpServer(config)
+      if (discovered.error || discovered.tools.length === 0) {
+        return {
+          ok: false,
+          output: null,
+          error: discovered.error || 'Connected but no tools were discovered',
         }
       }
-      const res = await fetch('http://localhost:3000/api/mcp/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+
+      const created = await db.integration.create({
+        data: {
+          workspaceId: wsId,
+          name,
+          kind: 'mcp',
+          description: `MCP server (${transport}) connected on ${new Date().toISOString().slice(0, 10)}.`,
+          category: 'general',
+          color: 'violet',
+          status: 'connected',
+          config: JSON.stringify({ mcp: config }),
+          tools: '[]',
+          source: 'private',
+          visibility: 'private',
+          authorLabel: null,
+          installs: 0,
+        },
       })
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '')
-        return { ok: false, output: null, error: `mcp/connect HTTP ${res.status}: ${errBody}` }
-      }
-      const data = (await res.json()) as { integration: { id: string }; tools: unknown[]; error?: string }
-      if (data.error) return { ok: false, output: null, error: data.error }
+      const tools = discovered.tools.map((t) => ({ ...t, integrationId: created.id }))
+      await db.integration.update({
+        where: { id: created.id },
+        data: { tools: JSON.stringify(tools) },
+      })
       return {
         ok: true,
         output: {
-          integrationId: data.integration.id,
-          name: body.name as string,
-          toolCount: data.tools.length,
-          tools: data.tools,
+          integrationId: created.id,
+          name,
+          toolCount: tools.length,
+          tools: tools.slice(0, 40).map((t) => ({ id: t.id, name: t.name, description: t.description })),
           kind: 'mcp',
         },
         display: {
-          title: `Configured ${body.name}`,
-          summary: `${data.tools.length} MCP tools`,
+          title: `Configured ${name}`,
+          summary: `${tools.length} MCP tools`,
           kind: 'info',
         },
       }
@@ -1262,6 +1420,26 @@ const workflowFreeze: ToolDef = {
   },
 }
 
+/**
+ * SECURITY: verify a workflow belongs to the current user before reading run
+ * history or mutating its frozen steps. Legacy seed rows (userId null) pass
+ * until the tenancy backfill assigns owners. Returns the row or null.
+ */
+async function findOwnedWorkflow(
+  workflowId: string,
+  userId: string,
+): Promise<{ id: string; stepsJson: string } | null> {
+  if (!workflowId || !userId) return null
+  try {
+    return await db.workflow.findFirst({
+      where: { id: workflowId, OR: [{ userId }, { userId: null }] },
+      select: { id: true, stepsJson: true },
+    })
+  } catch {
+    return null
+  }
+}
+
 // 13b. workflow_update — update the CURRENT agent's own workflow JSON. This is
 //      how an agent evolves the process it owns over time (after learning a
 //      better step order, fixing a failure, adding a gate, etc.). Operates on
@@ -1281,16 +1459,22 @@ const workflowUpdate: ToolDef = {
     const rawSteps = Array.isArray(input.steps) ? input.steps : []
     if (rawSteps.length === 0)
       return { ok: false, output: null, error: 'a non-empty steps array is required' }
+    const owned = await findOwnedWorkflow(ctx.agentId, ctx.userId)
+    if (!owned)
+      return { ok: false, output: null, error: 'workflow not found or not owned by you' }
     try {
       const steps = normalizeSteps(rawSteps)
       const wf: WorkflowJSON = { version: 1, steps }
       const description = asString(input.description, 1000)
-      await db.workflow.update({
-        where: { id: ctx.agentId },
-        data: {
-          stepsJson: serializeWorkflowJSON(wf),
-          ...(description ? { description } : {}),
-        },
+      if (description) {
+        await db.workflow.update({
+          where: { id: ctx.agentId },
+          data: { description },
+        })
+      }
+      await saveWorkflowSteps(ctx.agentId, wf, {
+        author: 'agent',
+        note: asString(input.note, 500) || 'workflow_update',
       })
       ctx.currentWorkflow = wf
       ctx.workflowSavedToAgentId = ctx.agentId
@@ -1472,12 +1656,12 @@ const requestReviewTool: ToolDef = {
 const credentialRequestTool: ToolDef = {
   name: 'credential_request',
   description:
-    "Ask the user for an API key / token you need. This renders a SECURE inline box in the chat where the user types the key — it is saved straight to the vault and you get back only a credentialId (never the secret). Call credential_list first to check it isn't already saved. Use this instead of telling the user to open the Vault tab. After the user saves it, it appears in credential_list and you reference it by credentialId.",
+    "Ask the user for an API key / token you need. This renders a SECURE inline entry in the chat where the user types the key — it is saved straight to the vault and you get back only a credentialId (never the secret). Call it ONCE PER KEY, and request ALL the keys this job needs IN THE SAME TURN — they are presented to the user as a single checklist stepped through ONE AT A TIME (each with a Skip option), NOT as a stack of boxes. So call credential_request for every key up front rather than trickling them across turns. Call credential_list first to skip keys already saved. In your final answer, briefly LIST the keys you're asking for and why each is needed, but do NOT describe the boxes/stepper themselves and do NOT ask the user to paste keys into chat. The user may save or skip each; you'll be resumed with a summary of what was saved vs skipped — proceed with placeholders/mocks for skipped keys.",
   inputSchema: {
     service: { type: 'string', description: 'The service the key is for (e.g. "openai", "stripe", "github").', required: true },
     label: { type: 'string', description: 'A human label for the credential (e.g. "OpenAI API key").', required: true },
     instructions: { type: 'string', description: 'Plain-English: why you need it + where the user finds it.' },
-    docsUrl: { type: 'string', description: "Link to the service's API-key settings page." },
+    docsUrl: { type: 'string', description: "ALWAYS provide: direct deep link to the exact page where the user creates/copies this API key (e.g. https://platform.openai.com/api-keys). The box shows it as a 'Get your key' link." },
     headerName: { type: 'string', description: 'Header to inject the secret into when calling the API (default X-Api-Key).' },
     headerPrefix: { type: 'string', description: 'Value prefix, e.g. "Bearer " for bearer tokens (default empty).' },
   },
@@ -1486,28 +1670,33 @@ const credentialRequestTool: ToolDef = {
     const label = asString(input.label, 200) || service
     if (!service)
       return { ok: false, output: null, error: 'service is required' }
-    ctx.credentialRequest = {
-      service,
-      label,
-      instructions: asString(input.instructions, 1000) || undefined,
-      docsUrl: asString(input.docsUrl, 2000) || undefined,
-      headerName: asString(input.headerName, 100) || undefined,
-      headerPrefix: asString(input.headerPrefix, 50) || undefined,
-      fields: [
-        {
-          key: 'value',
-          label,
-          type: 'password',
-          placeholder: `Paste your ${label}`,
-          required: true,
-        },
-      ],
+    ctx.credentialRequests = ctx.credentialRequests ?? []
+    // Dedupe repeat calls for the same key within one turn (same service may
+    // legitimately need several keys, e.g. Stripe publishable + secret).
+    if (!ctx.credentialRequests.some((r) => r.service === service && r.label === label)) {
+      ctx.credentialRequests.push({
+        service,
+        label,
+        instructions: asString(input.instructions, 1000) || undefined,
+        docsUrl: asString(input.docsUrl, 2000) || undefined,
+        headerName: asString(input.headerName, 100) || undefined,
+        headerPrefix: asString(input.headerPrefix, 50) || undefined,
+        fields: [
+          {
+            key: 'value',
+            label,
+            type: 'password',
+            placeholder: `Paste your ${label}`,
+            required: true,
+          },
+        ],
+      })
     }
     return {
       ok: true,
       output: {
         requested: service,
-        note: 'A secure key-entry box is now shown in the chat. Once the user saves it, call credential_list to get the new credentialId, then continue. Do NOT ask the user to paste the key into the chat text.',
+        note: 'Queued. Keys are shown to the user as ONE checklist stepped through one at a time (each skippable) — so if this job needs more keys, call credential_request now for EACH remaining key before finishing. Then emit your final answer: briefly LIST which keys you asked for and why, but do NOT describe the entry boxes and do NOT ask the user to paste keys into chat. The turn ends there; you will be resumed with a summary of which keys were saved vs skipped.',
       },
       display: {
         title: `Requested ${label}`,
@@ -1524,15 +1713,19 @@ const credentialRequestTool: ToolDef = {
 const workflowMonitor: ToolDef = {
   name: 'workflow_monitor',
   description:
-    'Phase 4 — OVERSEE: Review recent automated runs and failures for YOUR workflow. Returns run status, errors, and failure patterns. Call this when the user asks how automation is going, or before workflow_update / workflow_improve to fix broken nodes. When you are a specific agent, workflowId defaults to your own workflow.',
+    'Phase 4 — OVERSEE: Review recent automated runs for YOUR workflow. Returns run status, per-run report summaries, and the REAL step errors of failed runs. Pass review=true to also batch-audit recent run outputs for silent quality problems. Call this when the user asks how automation is going, or before workflow_update / workflow_improve. When you are a specific agent, workflowId defaults to your own workflow.',
   inputSchema: {
     workflowId: { type: 'string', description: 'The workflow id to monitor. Defaults to YOUR OWN workflow when you are a specific agent.' },
     limit: { type: 'number', description: 'Max runs to return (default 10).' },
+    review: { type: 'boolean', description: 'true = also run a batch output review (samples recent runs, sanity-checks their real outputs).' },
   },
   async run(input, ctx) {
     const workflowId = asString(input.workflowId, 100) || ctx.agentId || ''
     if (!workflowId)
       return { ok: false, output: null, error: 'workflowId is required (or act as a specific agent)' }
+    const ownedMonitor = await findOwnedWorkflow(workflowId, ctx.userId)
+    if (!ownedMonitor)
+      return { ok: false, output: null, error: 'workflow not found or not owned by you' }
     const limit = Math.min(50, Math.max(1, asNumber(input.limit, 10)))
     try {
       const runs = await db.run.findMany({
@@ -1548,6 +1741,10 @@ const workflowMonitor: ToolDef = {
           startedAt: true,
           finishedAt: true,
           reportJson: true,
+          steps: {
+            where: { status: 'failed' },
+            select: { stepId: true, label: true, kind: true, outputJson: true },
+          },
         },
       })
       // Also pull tool failure logs for this workflow.
@@ -1557,20 +1754,54 @@ const workflowMonitor: ToolDef = {
         take: 20,
         select: { id: true, stepId: true, occurrences: true, signature: true, outputJson: true, hardened: true },
       })
+
+      const runsOut = runs.map((r) => {
+        let reportSummary: string | undefined
+        try {
+          reportSummary = r.reportJson
+            ? ((JSON.parse(r.reportJson) as { summary?: string }).summary ?? undefined)
+            : undefined
+        } catch {
+          reportSummary = undefined
+        }
+        return {
+          id: r.id,
+          status: r.status,
+          itemsProcessed: r.itemsProcessed,
+          flaggedCount: r.flaggedCount,
+          durationMs: r.durationMs,
+          startedAt: r.startedAt.toISOString(),
+          finishedAt: r.finishedAt?.toISOString() ?? null,
+          reportSummary,
+          // The REAL errors of failed steps — what to actually fix.
+          stepErrors: r.steps.map((s) => {
+            let error = ''
+            try {
+              error = s.outputJson
+                ? String((JSON.parse(s.outputJson) as { error?: unknown }).error ?? '')
+                : ''
+            } catch {
+              error = (s.outputJson ?? '').slice(0, 300)
+            }
+            return { stepId: s.stepId, label: s.label, kind: s.kind, error: error.slice(0, 500) }
+          }),
+        }
+      })
+
+      // Optional batch output review — catches "green but garbage" runs.
+      let batchReview: import('./oversight').BatchReviewResult | undefined
+      if (input.review === true || input.review === 'true') {
+        const { batchReviewRuns } = await import('./oversight')
+        batchReview = await batchReviewRuns(workflowId, ctx.userId, 5)
+      }
+
+      const failedCount = runs.filter((r) => r.status === 'failed').length
       return {
         ok: true,
         output: {
-          runs: runs.map((r) => ({
-            id: r.id,
-            status: r.status,
-            itemsProcessed: r.itemsProcessed,
-            flaggedCount: r.flaggedCount,
-            durationMs: r.durationMs,
-            startedAt: r.startedAt.toISOString(),
-            finishedAt: r.finishedAt?.toISOString() ?? null,
-          })),
+          runs: runsOut,
           totalRuns: runs.length,
-          recentFailures: runs.filter((r) => r.status === 'failed').length,
+          recentFailures: failedCount,
           failurePatterns: failures.map((f) => ({
             stepId: f.stepId,
             occurrences: f.occurrences,
@@ -1578,10 +1809,11 @@ const workflowMonitor: ToolDef = {
             output: f.outputJson,
             hardened: f.hardened,
           })),
+          ...(batchReview ? { batchReview } : {}),
         },
         display: {
           title: `Monitor ${workflowId}`,
-          summary: `${runs.length} runs · ${runs.filter((r) => r.status === 'failed').length} failed`,
+          summary: `${runs.length} runs · ${failedCount} failed${batchReview ? ` · review: ${batchReview.verdict}` : ''}`,
           kind: 'info',
         },
       }
@@ -1611,19 +1843,17 @@ const workflowImprove: ToolDef = {
     if (!workflowId || !improvement)
       return { ok: false, output: null, error: 'workflowId and improvement are required (or act as a specific agent)' }
     try {
-      const wf = await db.workflow.findUnique({
-        where: { id: workflowId },
-        select: { id: true, stepsJson: true },
-      })
-      if (!wf) return { ok: false, output: null, error: 'workflow not found' }
+      const wf = await findOwnedWorkflow(workflowId, ctx.userId)
+      if (!wf) return { ok: false, output: null, error: 'workflow not found or not owned by you' }
 
-      // If newSteps provided, replace the frozen artifact.
+      // If newSteps provided, replace the frozen artifact (as a new revision).
       if (input.newSteps && Array.isArray(input.newSteps)) {
-        const newStepsJson = JSON.stringify({ version: 1, steps: input.newSteps })
-        await db.workflow.update({
-          where: { id: workflowId },
-          data: { stepsJson: newStepsJson },
-        })
+        const normalized = normalizeSteps(input.newSteps as unknown[])
+        await saveWorkflowSteps(
+          workflowId,
+          { version: 1, steps: normalized },
+          { author: 'agent', note: `workflow_improve: ${improvement.slice(0, 400)}` },
+        )
         if (ctx.agentId === workflowId) {
           ctx.currentWorkflow = { version: 1, steps: input.newSteps as never }
           ctx.workflowSavedToAgentId = workflowId
@@ -1696,7 +1926,6 @@ const agentList: ToolDef = {
           id: true,
           name: true,
           description: true,
-          title: true,
           status: true,
           trigger: true,
           schedule: true,
@@ -1725,7 +1954,6 @@ const agentCreate: ToolDef = {
     name: { type: 'string', description: 'Specific, descriptive agent name (e.g. "Lead Scout", "HubSpot Pipeline Builder"). NOT generic placeholders.', required: true },
     description: { type: 'string', description: 'One-line description of what the agent does.', required: true },
     steps: { type: 'array', description: 'Workflow steps (each has kind: "tool" | "reason" | "gate").', items: { type: 'object' }, required: true },
-    title: { type: 'string', description: 'A plain role title (e.g. "Filing Agent").' },
     schedule: { type: 'string', description: 'Optional human-readable schedule label (e.g. "Daily at 9am"). For an actual recurring trigger, call schedule_agent after.' },
     contextForAgent: { type: 'string', description: 'Onboarding notes for the new agent: user goals, setup decisions, missing credentials, outreach copy, prospect sources, etc.' },
   },
@@ -1743,7 +1971,6 @@ const agentCreate: ToolDef = {
       }
     try {
       const steps = normalizeSteps(rawSteps)
-      const title = asString(input.title, 100) || null
       const scheduleLabel = asString(input.schedule, 200) || null
       const contextForAgent = asString(input.contextForAgent, 8000)
       const created = await db.workflow.create({
@@ -1756,9 +1983,11 @@ const agentCreate: ToolDef = {
           schedule: scheduleLabel,
           status: 'active',
           origin: 'agent',
-          department: 'General',
-          title,
         },
+      })
+      await saveWorkflowSteps(created.id, { version: 1, steps }, {
+        author: 'agent',
+        note: 'Initial revision (agent_create).',
       })
       ctx.createdAgentId = created.id
       ctx.createdAgentName = created.name
@@ -1882,6 +2111,73 @@ const scheduleAgent: ToolDef = {
   },
 }
 
+// 18b. watch_folder — register a watched-folder trigger: new files appearing
+//      in a granted folder start a run of the frozen workflow. The desktop
+//      counterpart to schedule_agent.
+const watchFolder: ToolDef = {
+  name: 'watch_folder',
+  description:
+    'Phase 3 — DESIGN: Trigger the automation whenever a NEW file appears in a desktop folder (e.g. "when a scan lands in ~/Scans, file it"). Requires workflow_freeze first and the folder must be inside the user\'s granted folder roots. Pass agentId, path, and an optional filename pattern like "*.pdf". Runs receive {{trigger.newFiles}}.',
+  inputSchema: {
+    agentId: { type: 'string', description: 'The agent (workflow) id to trigger.', required: true },
+    path: { type: 'string', description: 'Absolute folder path to watch (must be granted).', required: true },
+    pattern: { type: 'string', description: 'Optional filename glob, e.g. "*.pdf" or "invoice-*".' },
+  },
+  async run(input, ctx) {
+    const agentId = asString(input.agentId, 100)
+    const watchPath = asString(input.path, 2000)
+    const pattern = asString(input.pattern, 200) || null
+    if (!agentId || !watchPath)
+      return { ok: false, output: null, error: 'agentId and path are required' }
+    try {
+      const wf = await db.workflow.findFirst({
+        where: { id: agentId, OR: [{ userId: ctx.userId }, { userId: null }] },
+        select: { id: true, name: true, stepsJson: true, workspaceId: true },
+      })
+      if (!wf) return { ok: false, output: null, error: 'agent not found (or not owned by this user)' }
+      if (!savedWorkflowHasExecutableSteps(wf.stepsJson)) {
+        return {
+          ok: false,
+          output: null,
+          error:
+            'Cannot watch — this agent has no production automation yet. Call workflow_freeze first.',
+        }
+      }
+      const { checkPathsGranted, normalizeGrantedPath } = await import('./granted-folders')
+      const normalized = normalizeGrantedPath(watchPath)
+      const granted = await checkPathsGranted(ctx.userId, [normalized])
+      if (!granted.ok) return { ok: false, output: null, error: granted.error }
+
+      const watch = await db.watchedFolder.create({
+        data: {
+          userId: ctx.userId,
+          workspaceId: wf.workspaceId,
+          workflowId: agentId,
+          path: normalized,
+          pattern,
+        },
+      })
+      return {
+        ok: true,
+        output: {
+          watchId: watch.id,
+          agentId,
+          path: normalized,
+          pattern,
+          note: `Watching ${normalized}${pattern ? ` (${pattern})` : ''}. New files start ${wf.name}; existing files are ignored.`,
+        },
+        display: {
+          title: `Watching ${normalized}`,
+          summary: pattern ? `new ${pattern} files run ${wf.name}` : `new files run ${wf.name}`,
+          kind: 'workflow',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
 // ---------------- Workflow persistence helpers ----------------
 
 /** Persist workflow steps onto an agent's owned workflow row. */
@@ -1894,16 +2190,37 @@ export async function persistAgentWorkflowSteps(
   if (steps.length < MIN_SUBSTANTIVE_FREEZE_STEPS) {
     return { ok: false, stepCount: 0, error: `need at least ${MIN_SUBSTANTIVE_FREEZE_STEPS} steps` }
   }
+  const owned = await findOwnedWorkflow(ctx.agentId, ctx.userId)
+  if (!owned) return { ok: false, stepCount: 0, error: 'workflow not found or not owned by you' }
   const wf: WorkflowJSON = { version: 1, steps }
+
+  // Single save path: every agent save goes through the same schema +
+  // referential validation as POST /v1/workflows. Invalid steps never persist.
+  const check = validateWorkflowJSON(wf)
+  if (!check.ok) {
+    const detail = check.issues
+      .slice(0, 5)
+      .map((i) => `${i.path}: ${i.message}`)
+      .join('; ')
+    return {
+      ok: false,
+      stepCount: 0,
+      error: `workflow failed schema validation — ${detail}. Fix the steps and retry.`,
+    }
+  }
+
   const description = opts.description?.trim() || ctx.agentName || 'Agent workflow'
   try {
     await db.workflow.update({
       where: { id: ctx.agentId },
       data: {
-        stepsJson: serializeWorkflowJSON(wf),
         description,
         ...(opts.schedule ? { schedule: opts.schedule } : {}),
       },
+    })
+    await saveWorkflowSteps(ctx.agentId, wf, {
+      author: 'agent',
+      note: 'workflow_freeze',
     })
     ctx.currentWorkflow = wf
     ctx.workflowSavedToAgentId = ctx.agentId
@@ -2026,54 +2343,11 @@ function parseLegacyToolInput(input: unknown, tool: string): Record<string, unkn
   return {}
 }
 
-/** Safety-net persist from a chat UI trace (post-run analyze path). */
-export async function persistAgentWorkflowFromChatTrace(
-  agentId: string,
-  userId: string,
-  trace: Array<{ tool?: string; action: string; status: string; toolInput?: Record<string, unknown> }>,
-  description: string,
-): Promise<{ ok: boolean; stepCount: number }> {
-  const engineTrace: EngineTraceStep[] = trace
-    .filter(
-      (s) =>
-        s.status === 'done' &&
-        s.tool &&
-        s.tool !== 'reason' &&
-        !WORKFLOW_META_TOOLS.has(s.tool),
-    )
-    .map((s, i) => ({
-      stepId: `chat_${i + 1}`,
-      kind: 'tool' as const,
-      label: s.action,
-      tool: normalizeTraceTool(s.tool!),
-      input: s.toolInput ?? parseLegacyToolInput(s.action, s.tool!),
-      status: 'done' as const,
-    }))
-
-  const validation = validateWorkflowFreezeTrace(engineTrace)
-  if (!validation.ok) return { ok: false, stepCount: 0 }
-
-  const rawSteps = workflowStepsFromExecutionTrace(engineTrace)
-  const { steps } = await buildStepsForFreeze({
-    userId,
-    trace: engineTrace,
-    jobDescription: description,
-    rawSteps,
-  })
-  if (steps.length < MIN_SUBSTANTIVE_FREEZE_STEPS) return { ok: false, stepCount: 0 }
-  try {
-    await db.workflow.update({
-      where: { id: agentId, userId },
-      data: {
-        stepsJson: serializeWorkflowJSON({ version: 1, steps }),
-        description: description || 'Saved from successful run',
-      },
-    })
-    return { ok: true, stepCount: steps.length }
-  } catch {
-    return { ok: false, stepCount: 0 }
-  }
-}
+// NOTE: the old persistAgentWorkflowFromChatTrace "safety net" (auto-saving a
+// workflow from a CLIENT-supplied chat trace in /api/agent/analyze-run) was
+// deleted: it trusted unverifiable client data and silently overwrote the
+// agent's workflow. Saves happen only through explicit workflow_freeze /
+// workflow_update tool calls, all funneled through saveWorkflowSteps.
 
 // ---------------- Registry ----------------
 
@@ -2100,6 +2374,7 @@ export const AGENT_TOOLS: ToolDef[] = [
   agentList,
   agentCreate,
   scheduleAgent,
+  watchFolder,
   workflowFreeze,
   workflowUpdate,
   workflowMonitor,
@@ -2122,7 +2397,8 @@ export function getAgentTool(name: string): ToolDef | undefined {
   return AGENT_TOOL_MAP[name]
 }
 
-// The tool catalog passed to the LLM (compact).
+// The tool catalog passed to the LLM (compact). Legacy fallback for models
+// without native tool calling (llama.cpp) — the native path uses toolSpecsForLLM.
 export function toolCatalogForLLM(allowCli: boolean): string {
   return AGENT_TOOLS.filter((t) => allowCli || !DESKTOP_TOOLS.has(t.name))
     .map((t) => {
@@ -2132,4 +2408,29 @@ export function toolCatalogForLLM(allowCli: boolean): string {
       return `- ${t.name}: ${t.description}\n      params:\n      ${params || '(none)'}`
     })
     .join('\n')
+}
+
+// The native tool-calling specs (JSON Schema) passed to the LLM gateway's
+// `tools` param. Mirrors toolCatalogForLLM's desktop gating.
+export function toolSpecsForLLM(allowCli: boolean): ToolSpec[] {
+  return AGENT_TOOLS.filter((t) => allowCli || !DESKTOP_TOOLS.has(t.name)).map((t) => ({
+    name: t.name,
+    description: t.description,
+    parameters: {
+      type: 'object',
+      properties: Object.fromEntries(
+        Object.entries(t.inputSchema).map(([k, v]) => [
+          k,
+          {
+            type: v.type,
+            description: v.description,
+            ...(v.items ? { items: v.items } : {}),
+          },
+        ]),
+      ),
+      required: Object.entries(t.inputSchema)
+        .filter(([, v]) => v.required)
+        .map(([k]) => k),
+    },
+  }))
 }

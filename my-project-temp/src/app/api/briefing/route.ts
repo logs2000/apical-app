@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { simpleComplete } from '@/lib/platform/llm-gateway'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
-import { parseWorkflowJSON, relativeTime } from '@/lib/apical-server'
+import { tryParseWorkflowJSON, relativeTime } from '@/lib/apical-server'
 import type { RunReport, WorkflowStep, UserProfile } from '@/lib/types'
 
 // GET /api/briefing?workspaceId= — the proactive secretary briefing shown as
@@ -69,7 +69,7 @@ function safeParseReport(raw: string | null): RunReport | null {
 /** Parse workflow steps so we can look up the kind of a flagged stepId. */
 function parseSteps(stepsJson: string | null): WorkflowStep[] {
   if (!stepsJson) return []
-  return parseWorkflowJSON(stepsJson).steps
+  return tryParseWorkflowJSON(stepsJson).steps
 }
 
 /** Roughly 10 cents per AI call saved — matches the seeded ratio on Workflow. */
@@ -201,8 +201,6 @@ export async function GET(req: Request) {
           select: {
             id: true,
             name: true,
-            title: true,
-            department: true,
             status: true,
             stepsJson: true,
           },

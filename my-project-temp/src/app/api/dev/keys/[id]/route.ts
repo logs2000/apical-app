@@ -9,13 +9,13 @@ interface RouteCtx {
 // DELETE /api/dev/keys/[id] — revoke an API key.
 // Sets status='revoked' (does NOT delete — we keep the row for audit history).
 // The key can no longer authenticate any request after this.
-export const DELETE = withDevAuth(async (_req, { developer, params }) => {
+export const DELETE = withDevAuth(async (_req, { workspace, params }) => {
   try {
     const { id } = params
 
-    // Make sure the key belongs to THIS developer.
+    // Make sure the key belongs to THIS workspace.
     const existing = await db.apiKey.findUnique({ where: { id } })
-    if (!existing || existing.developerId !== developer.id) {
+    if (!existing || existing.workspaceId !== workspace.id) {
       return NextResponse.json(
         { error: 'API key not found.' },
         { status: 404 },
@@ -29,7 +29,7 @@ export const DELETE = withDevAuth(async (_req, { developer, params }) => {
 
     await db.mcpAuditLog.create({
       data: {
-        developerId: developer.id,
+        workspaceId: workspace.id,
         apiKeyId: id,
         action: 'key:revoke',
         target: id,

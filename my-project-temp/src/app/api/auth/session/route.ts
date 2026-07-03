@@ -1,9 +1,9 @@
 // GET /api/auth/session — the single client-facing session endpoint.
 //
 // Resolves the current user via getCurrentUser(), which checks (in order):
-//   1. Dev bypass (NODE_ENV=development AND AUTH_BYPASS_DEV=true) → dev user.
-//   2. Supabase auth session (the production login path).
-//   3. PAT (Authorization: Bearer ap_pat_...).
+//   1. Unified API key (Authorization: Bearer ap_pat_... / ap_sk_...).
+//   2. Desktop device token (Authorization: Bearer dsk_...).
+//   3. Supabase auth session (the production login path).
 //
 // Returns a NextAuth-compatible shape ({ user, expires }) so the client
 // SupabaseSessionProvider/useSession() hook can consume it unchanged. Returns
@@ -11,7 +11,6 @@
 
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth-helpers'
-import { isDesktopLocalWithoutDb } from '@/lib/dev-bypass'
 import { db } from '@/lib/db'
 
 export async function GET(req: Request) {
@@ -25,13 +24,6 @@ export async function GET(req: Request) {
       email: user.email,
       name: user.name ?? user.email?.split('@')[0] ?? 'User',
       image: user.image ?? null,
-    }
-
-    if (isDesktopLocalWithoutDb()) {
-      return NextResponse.json({
-        user: { ...baseUser, agentNameStyle: 'evocative' },
-        expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
-      })
     }
 
     const profile = await db.userProfile.findFirst({

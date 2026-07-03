@@ -7,7 +7,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { isDevBypass } from "@/lib/dev-bypass";
 import { buildDesktopAuthHtml } from "@/lib/desktop/desktop-auth-html";
 import { appendDesktopShellCookie } from "@/lib/desktop/shell-cookie";
 import { desktopAppUrl } from "@/lib/desktop/desktop-origin";
@@ -25,11 +24,7 @@ export async function GET(req: Request) {
   const mode = url.searchParams.get("mode") === "signup" ? "signup" : "signin";
   const error = url.searchParams.get("error") ?? undefined;
 
-  const html = buildDesktopAuthHtml({
-    mode,
-    error,
-    isDev: isDevBypass(),
-  });
+  const html = buildDesktopAuthHtml({ mode, error });
 
   const headers = new Headers({
     "Content-Type": "text/html; charset=utf-8",

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
+import { integrationVisibleWhere, workspaceIdForUser } from '@/lib/integration-scope'
 import { integrationFromRow } from '@/lib/apical-server'
 import { ingestOpenApiSpec } from '@/lib/openapi-parser'
 import type {
@@ -10,16 +11,17 @@ import type {
   ToolDef,
 } from '@/lib/types'
 
-// GET /api/integrations — list all integrations (sorted by category then name).
-// Integrations are a global catalog (no userId column) — auth is still required
-// so anonymous traffic can't enumerate them.
+// GET /api/integrations — list integrations visible to the caller's
+// workspace: its own private instances + global registry rows.
 export async function GET(req: Request) {
   try {
     const user = await getCurrentUser(req)
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const wsId = await workspaceIdForUser(user)
     const rows = await db.integration.findMany({
+      where: integrationVisibleWhere(wsId),
       orderBy: [{ category: 'asc' }, { name: 'asc' }],
     })
     const integrations: Integration[] = rows.map((r) => integrationFromRow(r))
@@ -193,9 +195,14 @@ export async function POST(req: Request) {
       url: config.url || specBaseUrl,
     }
 
+    // Instance rows belong to the caller's workspace; publishing to the
+    // community library (source='public') creates a global registry row.
+    const wsId = await workspaceIdForUser(user)
+
     // We need the integration id first to stamp tools with it.
     const created = await db.integration.create({
       data: {
+        workspaceId: source === 'public' ? null : wsId,
         name,
         kind,
         description:

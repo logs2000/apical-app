@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
+import { integrationVisibleWhere, workspaceIdForUser } from '@/lib/integration-scope'
 import { parseConfig } from '@/lib/apical-server'
 import { callMcpTool } from '@/lib/mcp-client'
 import type { McpServerConfig } from '@/lib/types'
@@ -47,7 +48,10 @@ export async function POST(req: Request, { params }: RouteCtx) {
       )
     }
 
-    const row = await db.integration.findUnique({ where: { id } })
+    const wsId = await workspaceIdForUser(user)
+    const row = await db.integration.findFirst({
+      where: { id, ...integrationVisibleWhere(wsId) },
+    })
     if (!row) {
       return NextResponse.json(
         { error: 'Integration not found' },

@@ -90,6 +90,10 @@ interface AppState {
   sandboxItems: SandboxItem[];
   sandboxOpen: boolean;
   rightRailTab: RightRailTab;
+  /** True while the agent is actively working a turn — used to reveal the
+   *  Progress rail immediately, before the first tool observation lands. */
+  agentWorking: boolean;
+  setAgentWorking: (v: boolean) => void;
   addSandboxItem: (item: SandboxItem) => void;
   clearSandbox: () => void;
   setSandboxOpen: (v: boolean) => void;
@@ -121,7 +125,10 @@ export const useAppStore = create<AppState>((set) => ({
   selectWorkflow: (id) => set({ selectedWorkflowId: id }),
   popoutConversationId: null,
   setPopoutConversation: (id) => set({ popoutConversationId: id }),
-  inspectorOpen: false,
+  // Open by default so the full Agent inspector menu (overview / dashboard /
+  // workflow / config / runs) shows in the right rail whenever an agent is open
+  // on a wide screen. Users can still collapse it via the header toggle / ⌘I.
+  inspectorOpen: true,
   setInspectorOpen: (v) => set({ inspectorOpen: v }),
   toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
   mobilePane: "list",
@@ -129,6 +136,8 @@ export const useAppStore = create<AppState>((set) => ({
   sandboxItems: [],
   sandboxOpen: false,
   rightRailTab: "progress",
+  agentWorking: false,
+  setAgentWorking: (v) => set({ agentWorking: v }),
   addSandboxItem: (item) =>
     set((s) => {
       let items = [...s.sandboxItems];

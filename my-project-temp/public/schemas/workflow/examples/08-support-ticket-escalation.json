@@ -1,0 +1,41 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "open_tickets",
+      "kind": "tool",
+      "label": "Fetch open tickets via the Zendesk MCP server",
+      "mcp": {
+        "integrationId": "zendesk",
+        "tool": "search_tickets",
+        "args": { "query": "status:open updated<24h" }
+      }
+    },
+    {
+      "id": "assess",
+      "kind": "reason",
+      "label": "Assess severity and churn risk per ticket",
+      "prompt": "For each ticket in {{open_tickets.tickets}}, assess severity (sev1-sev4) and churn risk (high/medium/low) from tone, plan tier, and issue type.",
+      "outputShape": { "severity": "string", "churnRisk": "string", "confidence": "number 0-1" },
+      "confidenceThreshold": 0.7
+    },
+    {
+      "id": "escalation_gate",
+      "kind": "gate",
+      "label": "Approve escalations before paging",
+      "gateMessage": "The following tickets were assessed sev1 or high churn risk. Approve to page the on-call TAM."
+    },
+    {
+      "id": "page_tam",
+      "kind": "tool",
+      "label": "Page the on-call TAM for approved escalations",
+      "http": {
+        "method": "POST",
+        "url": "https://api.pagerduty.com/incidents",
+        "auth": { "type": "apikey_header", "ref": "cred_pagerduty", "headerName": "Authorization" },
+        "body": { "incidents": "{{assess.escalations}}" }
+      }
+    }
+  ]
+}

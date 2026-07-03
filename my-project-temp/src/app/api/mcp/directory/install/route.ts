@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
+import { workspaceIdForUser } from '@/lib/integration-scope'
 import { integrationFromRow } from '@/lib/apical-server'
 import { connectMcpServer } from '@/lib/mcp-client'
 import { getDirectoryEntry, buildInstallConfig } from '@/lib/mcp-directory'
@@ -103,8 +104,11 @@ export async function POST(req: Request) {
     const integrationName = (body.name || entry.name).trim()
     const integrationConfig = { mcp: config, directorySlug: slug }
 
+    const wsId = await workspaceIdForUser(user)
     const created = await db.integration.create({
       data: {
+        workspaceId: wsId,
+        registrySlug: slug,
         name: integrationName,
         kind: 'mcp',
         description: `${entry.shortDesc} — ${entry.description}`,

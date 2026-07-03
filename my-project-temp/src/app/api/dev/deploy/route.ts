@@ -9,10 +9,10 @@ import {
 
 // POST /api/dev/deploy — authenticated via bearer API key (NOT cookie).
 // Called by the apical-mcp server (or the REST API directly). Accepts an
-// AutomationFile (same shape as /api/employees/import), installs its inline
+// AutomationFile (same shape as /api/workflows/import), installs its inline
 // integrations + credentials, and creates a workflow scoped to the developer's
 // workspaceId. Logs to McpAuditLog with source='mcp'.
-export const POST = withDevAuth(async (req, { developer, apiKey }) => {
+export const POST = withDevAuth(async (req, { workspace, apiKey }) => {
   try {
     let file
     try {
@@ -28,7 +28,7 @@ export const POST = withDevAuth(async (req, { developer, apiKey }) => {
     let result
     try {
       result = await deployAutomationFile(file, {
-        workspaceId: developer.workspaceId,
+        workspaceId: workspace.id,
         origin: 'agent',
       })
     } catch (e) {
@@ -42,7 +42,7 @@ export const POST = withDevAuth(async (req, { developer, apiKey }) => {
     // Audit log.
     await db.mcpAuditLog.create({
       data: {
-        developerId: developer.id,
+        workspaceId: workspace.id,
         apiKeyId: apiKey.id,
         action: 'mcp:deploy',
         target: result.agent.id,

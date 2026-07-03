@@ -1,26 +1,36 @@
 import { db } from '@/lib/db'
 import { loadIntegrations } from '@/lib/mappers'
-import { savedWorkflowHasExecutableSteps } from './workflow-trace'
 
 /** Workspace + roster context injected into every agent turn. */
 export async function loadUserContextBlock(userId: string): Promise<string> {
+  // Resolve the user's primary workspace for integration visibility.
+  const membership = await db.workspaceMember.findFirst({
+    where: { userId },
+    orderBy: { createdAt: 'asc' },
+    select: { workspaceId: true },
+  })
+  const legacyWs = membership
+    ? null
+    : await db.workspace.findFirst({ where: { userId }, select: { id: true } })
+  const workspaceId = membership?.workspaceId ?? legacyWs?.id ?? null
+
   const [profile, agents, integrations] = await Promise.all([
     db.userProfile.findUnique({ where: { userId } }),
+    // Orientation only — the id/name/status is enough. Full stepsJson is loaded
+    // separately for the acting agent, or fetched on demand via workflow tools.
     db.workflow.findMany({
       where: { userId },
       orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
         name: true,
-        title: true,
         description: true,
         status: true,
-        stepsJson: true,
         schedule: true,
         trigger: true,
       },
     }),
-    loadIntegrations(),
+    loadIntegrations(workspaceId),
   ])
 
   const lines: string[] = ['USER & WORKSPACE CONTEXT:']
@@ -43,10 +53,9 @@ export async function loadUserContextBlock(userId: string): Promise<string> {
   if (agents.length > 0) {
     lines.push('\nUser\'s agents:')
     for (const a of agents) {
-      const hasWf = savedWorkflowHasExecutableSteps(a.stepsJson)
-      const wfLabel = hasWf ? 'has workflow' : 'no workflow yet'
       lines.push(
-        `  - id="${a.id}" · ${a.name}${a.title ? ` (${a.title})` : ''} · ${a.status} · ${wfLabel}` +
+        `  - id="${a.id}" · ${a.name} · ${a.status}` +
+          (a.schedule ? ` · ${a.schedule}` : '') +
           (a.description ? ` · ${a.description.slice(0, 120)}` : ''),
       )
     }

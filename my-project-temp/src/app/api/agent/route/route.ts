@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     const agents = await db.workflow.findMany({
       where: { userId: user.id },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true, name: true, title: true, description: true },
+      select: { id: true, name: true, description: true },
     })
 
     if (agents.length === 0) {
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
     const roster = agents
       .map(
         (a) =>
-          `- id="${a.id}" name="${a.name}"${a.title ? ` title="${a.title}"` : ''}${a.description ? ` — ${a.description.slice(0, 100)}` : ''}`,
+          `- id="${a.id}" name="${a.name}"${a.description ? ` — ${a.description.slice(0, 100)}` : ''}`,
       )
       .join('\n')
 

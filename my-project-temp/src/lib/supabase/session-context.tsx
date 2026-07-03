@@ -1,9 +1,9 @@
 'use client'
 
 // Drop-in replacement for next-auth's <SessionProvider> + useSession().
-// Backed by GET /api/auth/session (which resolves Supabase session, PAT, or
-// the dev bypass on the server) and Supabase's onAuthStateChange so the client
-// stays in sync after sign-in / sign-out.
+// Backed by GET /api/auth/session (which resolves Supabase session, API key,
+// or the dev auto-login on the server) and Supabase's onAuthStateChange so the
+// client stays in sync after sign-in / sign-out.
 
 import * as React from 'react'
 import { createClient } from '@/lib/supabase/client'

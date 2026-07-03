@@ -1,8 +1,9 @@
 // Apical seed — agents (not "employees"), workspaces, profile, conversations,
-// a dev user, and a sample personal access token (PAT).
+// a dev user, and sample workspace API keys.
 // Agent names are evocative/non-human (Nomi, Vexa, Kiro, Sova, Runa, Kovo).
 import { db } from '../src/lib/db'
 import { createHash, randomBytes } from 'crypto'
+import bcrypt from 'bcryptjs'
 
 async function main() {
   await db.runStep.deleteMany()
@@ -12,32 +13,34 @@ async function main() {
   await db.integration.deleteMany()
   await db.credential.deleteMany()
   await db.conversation.deleteMany()
-  await db.workspace.deleteMany()
-  await db.userProfile.deleteMany()
-  await db.personalAccessToken.deleteMany()
   await db.mcpAuditLog.deleteMany()
   await db.apiKey.deleteMany()
-  await db.developerAccount.deleteMany()
+  await db.workspaceMember.deleteMany()
+  await db.workspace.deleteMany()
+  await db.userProfile.deleteMany()
   await db.account.deleteMany()
   await db.user.deleteMany()
 
-  // ---------------- Dev user (AUTH-1) ----------------
-  // The dev user owns all seeded data + appears as "logged in" when dev bypass
-  // is on (AUTH_BYPASS_DEV=true). Email dev@apical.local, name "Developer".
+  // ---------------- Dev user ----------------
+  // The dev user owns all seeded data. There is no auth bypass anymore —
+  // log in with dev@apical.local / apical-dev (override via SEED_DEV_PASSWORD).
   const devUser = await db.user.create({
     data: {
       id: 'user_dev',
       email: 'dev@apical.local',
       name: 'Developer',
       provider: 'credentials',
-      passwordHash: null,
+      passwordHash: await bcrypt.hash(process.env.SEED_DEV_PASSWORD || 'apical-dev', 10),
     },
   })
 
-  // ---------------- Workspaces ----------------
-  const wsMain = await db.workspace.create({ data: { id: 'ws_main', userId: devUser.id, name: 'Main', description: 'Your primary workspace.', color: 'emerald' } })
+  // ---------------- Workspaces + memberships ----------------
+  const wsMain = await db.workspace.create({ data: { id: 'ws_main', userId: devUser.id, name: 'Main', description: 'Your primary workspace.', color: 'emerald', plan: 'pro', balanceCents: 2500, billingEmail: 'dev@apical.test' } })
   await db.workspace.create({ data: { id: 'ws_lab', userId: devUser.id, name: 'R&D Lab', description: 'Experiments and one-offs.', color: 'violet' } })
   await db.workspace.create({ data: { id: 'ws_acme', userId: devUser.id, name: 'Client: Acme Co', description: 'Automations running for Acme.', color: 'amber' } })
+  for (const wsId of ['ws_main', 'ws_lab', 'ws_acme']) {
+    await db.workspaceMember.create({ data: { workspaceId: wsId, userId: devUser.id, role: 'owner' } })
+  }
 
   // ---------------- Integrations (built-in + public library + private) ----------------
   const builtin = [
@@ -105,16 +108,19 @@ async function main() {
     { id: 'acme.getClient', name: 'Get client', description: 'Fetch a client record.', integrationId: 'int_acme_crm' },
     { id: 'acme.logCall', name: 'Log call', description: 'Log a call note.', integrationId: 'int_acme_crm' },
   ]}
-  for (const it of [...builtin, ...publicLib, privateInt]) {
+  for (const it of [...builtin, ...publicLib]) {
+    // builtin + public rows are global registry entries (workspaceId null).
     await db.integration.create({ data: { id: it.id, name: it.name, kind: it.kind, description: it.description, category: it.category, color: it.color, status: 'connected', source: (it as { source?: string }).source ?? ((it as { id: string }).id.endsWith('_pub') ? 'public' : 'builtin'), visibility: (it as { visibility?: string }).visibility ?? 'public', authorLabel: (it as { authorLabel?: string }).authorLabel ?? null, installs: (it as { installs?: number }).installs ?? 0, config: JSON.stringify(it.config), tools: JSON.stringify(it.tools) } })
   }
+  // The private integration is a workspace-scoped instance.
+  await db.integration.create({ data: { id: privateInt.id, workspaceId: wsMain.id, name: privateInt.name, kind: privateInt.kind, description: privateInt.description, category: privateInt.category, color: privateInt.color, status: 'connected', source: 'private', visibility: 'private', authorLabel: null, installs: 0, config: JSON.stringify(privateInt.config), tools: JSON.stringify(privateInt.tools) } })
 
   // ---------------- Agents (workflows) — evocative non-human names ----------------
   // Renamed for AUTH-1: Sorter→Vexa, Herald→Runa, Ledger→Kovo, Compass→Sova.
   // (Ids kept stable so existing references + audit logs still resolve.)
   const agents = [
     {
-      id: 'wf_sorter', name: 'Vexa', title: 'Filing Agent', department: 'Filing', workspaceId: wsMain.id, userId: devUser.id,
+      id: 'wf_sorter', name: 'Vexa', workspaceId: wsMain.id, userId: devUser.id,
       description: 'Watches the scanner inbox, figures out which client each PDF belongs to, and files it. Asks before moving anything uncertain.',
       trigger: 'schedule', schedule: 'Every 30 minutes',
       runsCount: 312, itemsProcessed: 4871, automaticCount: 4712, flaggedCount: 159, aiCallsSaved: 2310, estCostSavedCents: 23100,
@@ -128,7 +134,7 @@ async function main() {
       ]},
     },
     {
-      id: 'wf_digest', name: 'Runa', title: 'Client Digest Writer', department: 'Mailroom', workspaceId: wsMain.id, userId: devUser.id,
+      id: 'wf_digest', name: 'Runa', workspaceId: wsMain.id, userId: devUser.id,
       description: 'Every Monday, pulls last week\u2019s activity and drafts a one-paragraph summary email to each active client. Drafts come to you for approval first.',
       trigger: 'schedule', schedule: 'Every Monday at 8:00am',
       runsCount: 14, itemsProcessed: 168, automaticCount: 168, flaggedCount: 0, aiCallsSaved: 0, estCostSavedCents: 0,
@@ -142,7 +148,7 @@ async function main() {
       ]},
     },
     {
-      id: 'wf_audit', name: 'Kovo', title: 'Expense Auditor', department: 'Finance', workspaceId: wsMain.id, userId: devUser.id,
+      id: 'wf_audit', name: 'Kovo', workspaceId: wsMain.id, userId: devUser.id,
       description: 'Audits new expense reports against policy. Auto-approves compliant ones into QuickBooks; flags anything over $500 or missing a receipt for your review.',
       trigger: 'schedule', schedule: 'Every weekday at 9:00am',
       runsCount: 47, itemsProcessed: 612, automaticCount: 531, flaggedCount: 81, aiCallsSaved: 380, estCostSavedCents: 3800,
@@ -156,7 +162,7 @@ async function main() {
       ]},
     },
     {
-      id: 'wf_invoice', name: 'Sova', title: 'Collections Agent', department: 'Finance', workspaceId: wsMain.id, userId: devUser.id,
+      id: 'wf_invoice', name: 'Sova', workspaceId: wsMain.id, userId: devUser.id,
       description: 'Checks unpaid invoices daily. Sends a polite reminder for 7+ days overdue; drafts an escalation for 30+ days and gates it on your approval.',
       trigger: 'schedule', schedule: 'Every weekday at 10:00am',
       runsCount: 22, itemsProcessed: 134, automaticCount: 121, flaggedCount: 13, aiCallsSaved: 95, estCostSavedCents: 950,
@@ -170,7 +176,7 @@ async function main() {
     },
   ]
   for (const a of agents) {
-    await db.workflow.create({ data: { id: a.id, userId: a.userId, name: a.name, description: a.description, stepsJson: JSON.stringify(a.steps), trigger: a.trigger, schedule: a.schedule, status: 'active', origin: 'agent', department: a.department, title: a.title, workspaceId: a.workspaceId, runsCount: a.runsCount, itemsProcessed: a.itemsProcessed, automaticCount: a.automaticCount, flaggedCount: a.flaggedCount, aiCallsSaved: a.aiCallsSaved, estCostSavedCents: a.estCostSavedCents } })
+    await db.workflow.create({ data: { id: a.id, userId: a.userId, name: a.name, description: a.description, stepsJson: JSON.stringify(a.steps), trigger: a.trigger, schedule: a.schedule, status: 'active', origin: 'agent', workspaceId: a.workspaceId, runsCount: a.runsCount, itemsProcessed: a.itemsProcessed, automaticCount: a.automaticCount, flaggedCount: a.flaggedCount, aiCallsSaved: a.aiCallsSaved, estCostSavedCents: a.estCostSavedCents } })
   }
 
   // ---------------- Execution patterns ----------------
@@ -220,36 +226,27 @@ async function main() {
     { label: 'Slack', kind: 'messaging', detail: '#finance, #ops' },
   ]) } })
 
-  // ---------------- Sample Personal Access Token (PAT) ----------------
-  // A demo PAT for the dev user so the apical-mcp mini-service can auth without
-  // the user having to generate one first. The raw token is logged ONCE so you
-  // can copy it into your MCP client config during local dev.
+  // ---------------- Sample workspace API keys ----------------
+  // Unified keys (ApiKey table, workspace-scoped). One personal-style key
+  // (ap_pat_, for the apical-mcp mini-service) and two developer-style keys.
+  // Raw values are logged ONCE so you can copy them during local dev.
   const demoPatRaw = 'ap_pat_demo_' + randomBytes(12).toString('hex')
-  await db.personalAccessToken.create({ data: {
-    id: 'pat_demo', userId: devUser.id, label: 'Demo (Cursor)',
-    tokenHash: createHash('sha256').update(demoPatRaw).digest('hex'),
-    tokenPrefix: demoPatRaw.slice(0, 12), status: 'active',
+  await db.apiKey.create({ data: {
+    id: 'pat_demo', workspaceId: wsMain.id, createdById: devUser.id, label: 'Demo (Cursor)',
+    keyHash: createHash('sha256').update(demoPatRaw).digest('hex'),
+    keyPrefix: demoPatRaw.slice(0, 12), status: 'active',
     lastUsedAt: new Date(Date.now() - 1000 * 60 * 30),
   }})
 
-  // ---------------- Legacy SaaS Developer account (kept for backward compat) ----------------
-  // The new PersonalAccessToken model (above) replaces this for MCP/REST API auth.
-  // We keep the DeveloperAccount/ApiKey seed data so existing /api/dev/* routes
-  // don't break during the transition.
   const demoKeyRaw = 'ap_sk_demo_' + randomBytes(12).toString('hex')
   const demoKeyHash = createHash('sha256').update(demoKeyRaw).digest('hex')
-  const dev = await db.developerAccount.create({ data: {
-    id: 'dev_demo', email: 'dev@apical.test', name: 'Demo Developer',
-    plan: 'pro', balanceCents: 2500, billingEmail: 'dev@apical.test',
-    workspaceId: 'ws_main', status: 'active',
-  }})
   await db.apiKey.create({ data: {
-    id: 'key_demo', developerId: dev.id, label: 'Production',
+    id: 'key_demo', workspaceId: wsMain.id, createdById: devUser.id, label: 'Production',
     keyHash: demoKeyHash, keyPrefix: demoKeyRaw.slice(0, 12), status: 'active',
     lastUsedAt: new Date(Date.now() - 1000 * 60 * 15), lastUsedFrom: 'mcp',
   }})
   await db.apiKey.create({ data: {
-    id: 'key_demo2', developerId: dev.id, label: 'Local dev',
+    id: 'key_demo2', workspaceId: wsMain.id, createdById: devUser.id, label: 'Local dev',
     keyHash: createHash('sha256').update('ap_sk_demo_localkey123').digest('hex'),
     keyPrefix: 'ap_sk_demo_', status: 'active',
     lastUsedAt: new Date(Date.now() - 1000 * 60 * 60 * 3), lastUsedFrom: 'rest',
@@ -267,7 +264,7 @@ async function main() {
   for (let i = 0; i < logActions.length; i++) {
     const a = logActions[i]
     await db.mcpAuditLog.create({ data: {
-      developerId: dev.id, apiKeyId: i % 2 === 0 ? 'key_demo' : 'key_demo2',
+      workspaceId: wsMain.id, apiKeyId: i % 2 === 0 ? 'key_demo' : 'key_demo2',
       action: a.action, target: a.target, success: a.success, costCents: a.costCents,
       detail: a.detail, source: a.source,
       createdAt: new Date(Date.now() - 1000 * 60 * (15 + i * 47)),
@@ -280,9 +277,9 @@ async function main() {
   console.log(`  Integrations: ${builtin.length} builtin + ${publicLib.length} public + 1 private`)
   console.log(`  Agents: ${agents.length} (Vexa, Runa, Kovo, Sova)`)
   console.log(`  Runs: 3, Credentials: ${creds.length}`)
-  console.log(`  PAT: ${demoPatRaw} (demo — use in MCP client config)`)
-  console.log('  Developer account: dev@apical.test (pro, $25.00 balance)')
-  console.log('  API keys: 2 (Production, Local dev)')
+  console.log(`  Personal key: ${demoPatRaw} (demo — use in MCP client config)`)
+  console.log(`  Dev key: ${demoKeyRaw} (demo — Production)`)
+  console.log('  Workspace ws_main: pro plan, $25.00 balance')
   console.log('  Audit logs:', logActions.length)
 }
 

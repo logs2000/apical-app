@@ -13,7 +13,6 @@ if [[ -f "$ROOT/.env.local" ]]; then set -a; source "$ROOT/.env.local"; set +a; 
 
 export NODE_ENV=production
 export DESKTOP_LOCAL=true
-export AUTH_BYPASS_DEV=true
 export DATABASE_URL="file:${ROOT}/prisma/dev.db"
 export NEXTAUTH_SECRET="${NEXTAUTH_SECRET:-dev-local-secret}"
 export NEXTAUTH_URL="${NEXTAUTH_URL:-http://127.0.0.1:3000}"
@@ -112,7 +111,6 @@ write_standalone_env() {
   mkdir -p "$(dirname "$dest")"
   cat > "$dest" <<EOF
 DESKTOP_LOCAL=true
-AUTH_BYPASS_DEV=true
 NODE_ENV=production
 DATABASE_URL=file:${ROOT}/prisma/dev.db
 NEXTAUTH_SECRET=${NEXTAUTH_SECRET}

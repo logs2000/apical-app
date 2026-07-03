@@ -135,6 +135,34 @@ export async function saveFolderRef(input: {
   return toAssetRecord(row)
 }
 
+/** Register a desktop file path reference without uploading bytes. The agent
+ * reads it through fs_read (constrained to granted roots). */
+export async function saveFileRef(input: {
+  userId: string
+  name: string
+  localPath: string
+  mimeType?: string
+  sizeBytes?: number
+  agentId?: string | null
+}): Promise<AssetRecord> {
+  const id = `asset_${randomBytes(8).toString('hex')}`
+  const row = await db.userAsset.create({
+    data: {
+      id,
+      userId: input.userId,
+      agentId: input.agentId ?? null,
+      name: input.name,
+      mimeType: input.mimeType || 'application/octet-stream',
+      sizeBytes: input.sizeBytes ?? 0,
+      storageKey: `ref/${id}`,
+      kind: 'file',
+      source: 'desktop',
+      localPath: input.localPath,
+    },
+  })
+  return toAssetRecord(row)
+}
+
 export async function listUserAssets(
   userId: string,
   opts?: { agentId?: string; kind?: string; limit?: number },

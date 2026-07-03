@@ -10,14 +10,14 @@ interface RouteCtx {
 // GET /api/dev/agents/[id] — authenticated via bearer API key.
 // Returns one agent (mapped, with patterns). Must belong to the developer's
 // workspace — otherwise 404 (don't leak existence).
-export const GET = withDevAuth(async (_req, { developer, params }) => {
+export const GET = withDevAuth(async (_req, { workspace, params }) => {
   try {
     const { id } = params
     const row = await db.workflow.findUnique({
       where: { id },
       include: { patterns: true },
     })
-    if (!row || row.workspaceId !== developer.workspaceId) {
+    if (!row || row.workspaceId !== workspace.id) {
       return NextResponse.json(
         { error: 'Agent not found in your workspace.' },
         { status: 404 },

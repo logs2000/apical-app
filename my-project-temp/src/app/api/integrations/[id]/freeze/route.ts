@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
+import { workspaceIdForUser } from '@/lib/integration-scope'
 import { integrationFromRow } from '@/lib/apical-server'
 import { freezeArtifact, type FrozenArtifact } from '@/lib/auth/freeze-artifact'
 
@@ -57,7 +58,11 @@ export async function POST(req: Request, { params }: RouteCtx) {
     }
 
     const { id } = await params
-    const row = await db.integration.findUnique({ where: { id } })
+    // Freezing writes config — only the workspace's own instance is editable.
+    const wsId = await workspaceIdForUser(user)
+    const row = await db.integration.findFirst({
+      where: { id, workspaceId: wsId },
+    })
     if (!row) {
       return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
     }
@@ -113,7 +118,10 @@ export async function GET(req: Request, { params }: RouteCtx) {
     }
 
     const { id } = await params
-    const row = await db.integration.findUnique({ where: { id } })
+    const wsId = await workspaceIdForUser(user)
+    const row = await db.integration.findFirst({
+      where: { id, OR: [{ workspaceId: wsId }, { workspaceId: null }] },
+    })
     if (!row) {
       return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
     }

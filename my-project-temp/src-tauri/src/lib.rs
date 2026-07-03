@@ -345,7 +345,6 @@ fn start_bundled_server(app: &tauri::AppHandle) -> Result<(), String> {
         .args(["server.js"])
         .current_dir(&standalone_dir)
         .env("DESKTOP_LOCAL", "true")
-        .env("AUTH_BYPASS_DEV", "true")
         .env("NODE_ENV", "production")
         .env("PORT", "3000")
         .env("HOSTNAME", "127.0.0.1")

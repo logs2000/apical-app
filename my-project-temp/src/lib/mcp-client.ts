@@ -26,9 +26,12 @@
 // `{ error: message }` instead.
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
+// Type-only: the stdio transport pulls in cross-spawn/child_process, so it is
+// dynamically imported at call time (see buildTransport) to keep those Node
+// built-ins out of the client and instrumentation (edge) bundles.
+import type { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { McpServerConfig, ToolDef } from './types'
 
 const CONNECT_TIMEOUT_MS = 15_000
@@ -99,17 +102,20 @@ function buildAuthHeaders(
  * Build the right transport for the config. Throws on invalid config (missing
  * url for http/sse, missing command for stdio, unknown transport).
  */
-function buildTransport(config: McpServerConfig): {
+async function buildTransport(config: McpServerConfig): Promise<{
   transport:
     | StdioClientTransport
     | StreamableHTTPClientTransport
     | SSEClientTransport
   label: string
-} {
+}> {
   if (config.transport === 'stdio') {
     if (!config.command) {
       throw new Error('stdio MCP config requires a "command".')
     }
+    const { StdioClientTransport } = await import(
+      '@modelcontextprotocol/sdk/client/stdio.js'
+    )
     const transport = new StdioClientTransport({
       command: config.command,
       args: config.args,
@@ -171,9 +177,9 @@ export async function connectMcpServer(
     }
   }
 
-  let built: ReturnType<typeof buildTransport>
+  let built: Awaited<ReturnType<typeof buildTransport>>
   try {
-    built = buildTransport(config)
+    built = await buildTransport(config)
   } catch (err) {
     return {
       tools: [],
@@ -252,9 +258,9 @@ export async function callMcpTool(
 ): Promise<unknown> {
   if (!toolName) return { error: 'tool name is required' }
 
-  let built: ReturnType<typeof buildTransport>
+  let built: Awaited<ReturnType<typeof buildTransport>>
   try {
-    built = buildTransport(config)
+    built = await buildTransport(config)
   } catch (err) {
     return {
       error: `Failed to build MCP transport: ${err instanceof Error ? err.message : String(err)}`,

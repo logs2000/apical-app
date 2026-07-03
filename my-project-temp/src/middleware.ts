@@ -2,14 +2,12 @@
 //
 // Responsibilities (in order):
 //   1. Desktop shell: never show the marketing home inside the Tauri shell.
-//   2. Dev bypass: short-circuit everything in local development.
-//   3. Pre-launch passcode gate: when PRELAUNCH_PASSCODE is set, require the
+//   2. Pre-launch passcode gate: when PRELAUNCH_PASSCODE is set, require the
 //      `apical-prelaunch` cookie before serving anything but the gate itself.
-//   4. Supabase session refresh: keep the auth cookie fresh on every request.
+//   3. Supabase session refresh: keep the auth cookie fresh on every request.
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { isDevBypass } from '@/lib/dev-bypass'
 import {
   DESKTOP_SHELL_COOKIE,
   DESKTOP_SHELL_VALUE,
@@ -32,7 +30,12 @@ function gateRedirect(req: NextRequest): NextResponse | null {
     pathname.startsWith('/api/gate') ||
     pathname.startsWith('/auth/callback') ||
     pathname.startsWith('/api/auth') ||
-    pathname.startsWith('/downloads')
+    pathname.startsWith('/downloads') ||
+    // Public developer contract: schemas, examples, llms.txt.
+    pathname.startsWith('/schemas') ||
+    pathname === '/llms.txt' ||
+    // Headless API — authenticates via API key, not browser cookies.
+    pathname.startsWith('/v1')
   if (allow) return null
 
   if (req.cookies.get(PRELAUNCH_COOKIE)?.value === '1') return null
@@ -51,11 +54,6 @@ export async function middleware(req: NextRequest) {
   // Never show the marketing home page inside the desktop shell.
   if (isDesktopShell && pathname === '/') {
     return NextResponse.redirect(desktopAppUrl('/api/auth/desktop-ui'))
-  }
-
-  // Local development: skip the gate and Supabase refresh entirely.
-  if (isDevBypass()) {
-    return NextResponse.next()
   }
 
   // Pre-launch passcode gate.

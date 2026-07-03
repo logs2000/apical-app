@@ -26,7 +26,6 @@ export function shouldTryAgentRoute(
     if (agent.id === currentAgentId) continue
     const name = agent.name.toLowerCase()
     if (name.length >= 3 && lower.includes(name)) return true
-    if (agent.title && agent.title.length >= 3 && lower.includes(agent.title.toLowerCase())) return true
   }
   return false
 }

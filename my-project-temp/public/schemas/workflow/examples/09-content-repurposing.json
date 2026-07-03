@@ -1,0 +1,47 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "latest_post",
+      "kind": "tool",
+      "label": "Fetch the latest published blog post",
+      "http": {
+        "method": "GET",
+        "url": "https://example.com/wp-json/wp/v2/posts?per_page=1&status=publish",
+        "auth": { "type": "none" }
+      }
+    },
+    {
+      "id": "make_thread",
+      "kind": "spawn",
+      "label": "Draft a social thread from the post",
+      "spawnPrompt": "Read the blog post in {{latest_post.body}} and draft an 8-tweet thread: hook first, one idea per tweet, CTA last. Match the company voice: direct, no hashtags, no emoji.",
+      "spawnOutputShape": { "tweets": "string[] (8 items, each under 280 chars)" }
+    },
+    {
+      "id": "make_newsletter",
+      "kind": "spawn",
+      "label": "Draft a newsletter section from the post",
+      "spawnPrompt": "Summarize the blog post in {{latest_post.body}} into a 150-word newsletter section with a one-line takeaway and a read-more link.",
+      "spawnOutputShape": { "section": "string (markdown)" }
+    },
+    {
+      "id": "review_gate",
+      "kind": "gate",
+      "label": "Editorial review before anything is queued",
+      "gateMessage": "Review the drafted thread and newsletter section. Approving queues both for publishing."
+    },
+    {
+      "id": "queue_thread",
+      "kind": "tool",
+      "label": "Queue the approved thread in Typefully",
+      "http": {
+        "method": "POST",
+        "url": "https://api.typefully.com/v1/drafts/",
+        "auth": { "type": "apikey_header", "ref": "cred_typefully", "headerName": "X-API-KEY" },
+        "body": { "content": "{{make_thread.tweets}}", "schedule-date": "next-free-slot" }
+      }
+    }
+  ]
+}

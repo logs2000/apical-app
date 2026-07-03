@@ -1,25 +1,41 @@
 // Apical scheduler — a standalone bun mini-service that polls the Apical DB
 // for due ScheduledJobs and fires them through the Next.js workflow run API.
 //
-// Pattern matches mini-services/run-relay/index.ts: a separate bun project
-// with its own PrismaClient pointed at the same SQLite DB, no socket.io.
+// Loop: every 15s,
+//   1. Resolve outcomes: jobs whose last fired run has finished get their
+//      lastRunStatus set from the ACTUAL run result (success/failed/timeout).
+//      Consecutive run failures pause the job — a job that fires fine but
+//      whose runs always fail is a failing job.
+//   2. Fire due jobs: find active jobs with nextRunAt <= now and POST to
+//      /api/workflows/<id>/run with the X-Scheduler-Secret header. A job
+//      whose previous run is still going is SKIPPED (overlap lock) — runs
+//      never stack.
 //
-// Loop: every 15s, find active jobs whose nextRunAt <= now, fire each by
-// POSTing to http://localhost:3000/api/workflows/<id>/run with body
-// { trigger: 'schedule' } + an X-Scheduler-Secret header. On success, bump
-// runCount, recompute nextRunAt. On failure, bump failureCount and back off;
-// after 5 consecutive failures, pause the job.
+// Cron parsing lives in ../../src/lib/platform/cron.ts (single shared
+// implementation — bun imports the TS module directly).
 
 import { PrismaClient } from '@prisma/client'
 import { createServer, type IncomingMessage, type ServerResponse } from 'http'
+import { computeNextRun, type ScheduleKind } from '../../src/lib/platform/cron'
 
 // ---------------- Configuration ----------------
 
 const PORT = 3004
 const TICK_INTERVAL_MS = 15_000
 const API_BASE = process.env.APICAL_API_BASE || 'http://localhost:3000'
-const SCHEDULER_SECRET =
-  process.env.APICAL_SCHEDULER_SECRET || 'apical-scheduler-dev'
+// A run older than this that is still "running" counts as timed out for
+// job-status purposes (the run itself may still finish later).
+const RUN_TIMEOUT_MS = 60 * 60 * 1000
+// No default: the Next.js API fails scheduler auth closed when this is unset,
+// so booting without it would only produce 401s. Fail fast instead.
+const SCHEDULER_SECRET = process.env.APICAL_SCHEDULER_SECRET || ''
+if (!SCHEDULER_SECRET.trim()) {
+  console.error(
+    '[scheduler] APICAL_SCHEDULER_SECRET is not set. Set the same random secret ' +
+      'here and on the Next.js app, then restart. Exiting.',
+  )
+  process.exit(1)
+}
 const DATABASE_URL =
   process.env.DATABASE_URL || 'file:./db/custom.db'
 
@@ -29,148 +45,6 @@ if (!process.env.DATABASE_URL) {
 }
 
 const prisma = new PrismaClient()
-
-// ---------------- Cron helpers (duplicated from src/lib/platform/cron.ts) ----------------
-// The mini-service is a self-contained bun project — it doesn't share code
-// with the Next.js app. The cron logic here mirrors the shared helper so the
-// API routes (which use @/lib/platform/cron) and the scheduler compute
-// nextRunAt identically.
-
-type ScheduleKind = 'cron' | 'fixed_rate'
-
-const FALLBACK_SECONDS = 3600
-
-function parseFixedRate(schedule: string): number | null {
-  const m = /^fixed_rate:(\d+)$/.exec(schedule.trim())
-  if (!m) return null
-  const n = parseInt(m[1], 10)
-  if (!Number.isFinite(n) || n <= 0) return null
-  return n
-}
-
-interface CronFields {
-  minute: number[]
-  hour: number[]
-  dayOfMonth: number[]
-  month: number[]
-  dayOfWeek: number[]
-}
-
-const DAY_NAMES: Record<string, number> = {
-  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
-}
-const MONTH_NAMES: Record<string, number> = {
-  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
-  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
-}
-
-function parseField(
-  raw: string,
-  min: number,
-  max: number,
-  names?: Record<string, number>,
-): number[] | null {
-  const field = raw.trim().toLowerCase()
-  if (field === '*') {
-    const out: number[] = []
-    for (let i = min; i <= max; i++) out.push(i)
-    return out
-  }
-  const stepMatch = /^\*\/(\d+)$/.exec(field)
-  if (stepMatch) {
-    const step = parseInt(stepMatch[1], 10)
-    if (!step || step <= 0) return null
-    const out: number[] = []
-    for (let i = min; i <= max; i += step) out.push(i)
-    return out
-  }
-  const rangeMatch = /^(\d+)-(\d+)(?:\/(\d+))?$/.exec(field)
-  if (rangeMatch) {
-    const lo = parseInt(rangeMatch[1], 10)
-    const hi = parseInt(rangeMatch[2], 10)
-    const step = rangeMatch[3] ? parseInt(rangeMatch[3], 10) : 1
-    if (lo < min || hi > max || lo > hi || step <= 0) return null
-    const out: number[] = []
-    for (let i = lo; i <= hi; i += step) out.push(i)
-    return out
-  }
-  if (field.includes(',')) {
-    const parts = field.split(',')
-    const out: number[] = []
-    for (const part of parts) {
-      const sub = parseField(part, min, max, names)
-      if (!sub) return null
-      out.push(...sub)
-    }
-    return Array.from(new Set(out)).sort((a, b) => a - b)
-  }
-  let v: number
-  if (/^\d+$/.test(field)) {
-    v = parseInt(field, 10)
-  } else if (names && field in names) {
-    v = names[field]
-  } else {
-    return null
-  }
-  if (v < min || v > max) return null
-  return [v]
-}
-
-function parseCron(schedule: string): CronFields | null {
-  const parts = schedule.trim().split(/\s+/)
-  if (parts.length !== 5) return null
-  const [minF, hourF, domF, monF, dowF] = parts
-  const minute = parseField(minF, 0, 59)
-  const hour = parseField(hourF, 0, 23)
-  const dayOfMonth = parseField(domF, 1, 31)
-  const month = parseField(monF, 1, 12, MONTH_NAMES)
-  const dayOfWeek = parseField(dowF, 0, 6, DAY_NAMES)
-  if (!minute || !hour || !dayOfMonth || !month || !dayOfWeek) return null
-  return { minute, hour, dayOfMonth, month, dayOfWeek }
-}
-
-function matchesCron(date: Date, f: CronFields): boolean {
-  if (!f.minute.includes(date.getUTCMinutes())) return false
-  if (!f.hour.includes(date.getUTCHours())) return false
-  if (!f.month.includes(date.getUTCMonth() + 1)) return false
-  const domStar = f.dayOfMonth.length === 31
-  const dowStar = f.dayOfWeek.length === 7
-  const domMatch = f.dayOfMonth.includes(date.getUTCDate())
-  const dowMatch = f.dayOfWeek.includes(date.getUTCDay())
-  if (domStar && dowStar) {
-    // both unrestricted
-  } else if (!domStar && !dowStar) {
-    if (!domMatch && !dowMatch) return false
-  } else {
-    if (!domStar && !domMatch) return false
-    if (!dowStar && !dowMatch) return false
-  }
-  return true
-}
-
-function computeNextRun(
-  schedule: string,
-  kind: ScheduleKind,
-  _timezone: string | undefined,
-  from: Date = new Date(),
-): Date {
-  if (kind === 'fixed_rate') {
-    const secs = parseFixedRate(schedule)
-    if (secs == null) return new Date(from.getTime() + FALLBACK_SECONDS * 1000)
-    return new Date(from.getTime() + secs * 1000)
-  }
-  const fields = parseCron(schedule)
-  if (!fields) return new Date(from.getTime() + FALLBACK_SECONDS * 1000)
-  const start = new Date(from.getTime())
-  start.setUTCSeconds(0, 0)
-  start.setUTCMinutes(start.getUTCMinutes() + 1)
-  const maxSteps = 366 * 24 * 60
-  for (let i = 0; i < maxSteps; i++) {
-    if (matchesCron(start, fields)) return start
-    start.setUTCMinutes(start.getUTCMinutes() + 1)
-  }
-  return new Date(from.getTime() + FALLBACK_SECONDS * 1000)
-}
 
 // ---------------- Scheduler state ----------------
 
@@ -218,6 +92,80 @@ async function fireJob(job: {
   }
 }
 
+// ---------------- Outcome resolution (completion-based status) ----------------
+//
+// Firing a run successfully is NOT success. A job's lastRunStatus stays
+// "started" until the run it produced reaches a terminal state; then it
+// becomes "success" or "failed" based on what actually happened. Five
+// consecutive failed RUNS pause the job.
+
+async function resolveOutcomes(): Promise<void> {
+  const pending = await prisma.scheduledJob.findMany({
+    where: { lastRunStatus: 'started', lastRunId: { not: null } },
+    take: 50,
+  })
+  for (const job of pending) {
+    try {
+      const run = await prisma.run.findUnique({
+        where: { id: job.lastRunId! },
+        select: { status: true, startedAt: true },
+      })
+      if (!run) {
+        await prisma.scheduledJob.update({
+          where: { id: job.id },
+          data: { lastRunStatus: 'failed' },
+        })
+        continue
+      }
+      if (run.status === 'running' || run.status === 'awaiting_gate') {
+        // Still going. If it's been an hour, mark the job's view as timeout
+        // (the run itself may still complete; the job just can't wait forever).
+        if (
+          run.status === 'running' &&
+          Date.now() - run.startedAt.getTime() > RUN_TIMEOUT_MS
+        ) {
+          await prisma.scheduledJob.update({
+            where: { id: job.id },
+            data: { lastRunStatus: 'timeout' },
+          })
+          console.warn(
+            `[scheduler ${ts()}] ⏱ job ${job.id}: run ${job.lastRunId} exceeded ${RUN_TIMEOUT_MS / 1000}s — marked timeout`,
+          )
+        }
+        continue
+      }
+
+      if (run.status === 'completed') {
+        await prisma.scheduledJob.update({
+          where: { id: job.id },
+          data: { lastRunStatus: 'success', failureCount: 0 },
+        })
+        console.log(
+          `[scheduler ${ts()}] ✓ job ${job.id}: run ${job.lastRunId} completed`,
+        )
+      } else {
+        // failed | cancelled — the run did not do its work.
+        const failureCount = job.failureCount + 1
+        const shouldPause = failureCount >= 5
+        await prisma.scheduledJob.update({
+          where: { id: job.id },
+          data: {
+            lastRunStatus: 'failed',
+            failureCount: { increment: 1 },
+            ...(shouldPause ? { status: 'paused' } : {}),
+          },
+        })
+        console.warn(
+          `[scheduler ${ts()}] ✗ job ${job.id}: run ${job.lastRunId} ${run.status}` +
+            (shouldPause ? ` — paused after ${failureCount} consecutive run failures` : ''),
+        )
+      }
+    } catch (err) {
+      console.error(`[scheduler ${ts()}] outcome check for job ${job.id} crashed:`, err)
+    }
+  }
+}
+
 // ---------------- One tick ----------------
 
 async function tick(): Promise<void> {
@@ -228,12 +176,16 @@ async function tick(): Promise<void> {
   ticking = true
   lastTick = new Date()
   try {
+    await resolveOutcomes()
+
     const due = await prisma.scheduledJob.findMany({
       where: { status: 'active', nextRunAt: { lte: new Date() } },
       take: 20,
       orderBy: { nextRunAt: 'asc' },
     })
-    console.log(`[scheduler ${ts()}] tick: ${due.length} due job(s)`)
+    if (due.length > 0) {
+      console.log(`[scheduler ${ts()}] tick: ${due.length} due job(s)`)
+    }
     for (const job of due) {
       // Per-job try/catch so one failure doesn't kill the loop.
       try {
@@ -262,11 +214,34 @@ async function processJob(job: {
   runCount: number
 }): Promise<void> {
   const kind = (job.scheduleKind === 'fixed_rate' ? 'fixed_rate' : 'cron') as ScheduleKind
+  const now = new Date()
+
+  // Overlap lock: if this workflow still has a live run (from this job or
+  // anywhere else), skip this fire entirely — scheduled runs never stack.
+  // nextRunAt advances so a stuck run doesn't make the job fire every tick.
+  const liveRun = await prisma.run.findFirst({
+    where: {
+      workflowId: job.workflowId,
+      status: { in: ['running', 'awaiting_gate'] },
+    },
+    select: { id: true, status: true },
+  })
+  if (liveRun) {
+    const nextRunAt = computeNextRun(job.schedule, kind, job.timezone, now)
+    await prisma.scheduledJob.update({
+      where: { id: job.id },
+      data: { nextRunAt },
+    })
+    console.log(
+      `[scheduler ${ts()}] ⏭ job ${job.id} skipped — workflow ${job.workflowId} has a live run (${liveRun.id}, ${liveRun.status}); next attempt ${nextRunAt.toISOString()}`,
+    )
+    return
+  }
+
   console.log(
     `[scheduler ${ts()}] firing job ${job.id} → workflow ${job.workflowId} (${kind}:${job.schedule})`,
   )
   const result = await fireJob(job)
-  const now = new Date()
 
   if (result.ok && result.runId) {
     const nextRunAt = computeNextRun(job.schedule, kind, job.timezone, now)
@@ -274,21 +249,22 @@ async function processJob(job: {
       where: { id: job.id },
       data: {
         lastRunAt: now,
-        lastRunStatus: 'success',
+        // "started", not "success" — resolveOutcomes() upgrades this once the
+        // run actually finishes.
+        lastRunStatus: 'started',
         lastRunId: result.runId,
         runCount: { increment: 1 },
-        failureCount: 0,
         nextRunAt,
         status: 'active',
       },
     })
     console.log(
-      `[scheduler ${ts()}] ✓ job ${job.id} fired → run ${result.runId}; next at ${nextRunAt.toISOString()}`,
+      `[scheduler ${ts()}] → job ${job.id} fired → run ${result.runId}; next at ${nextRunAt.toISOString()}`,
     )
     return
   }
 
-  // Failure path.
+  // Fire failure path (the API refused or was unreachable).
   const failureCount = job.failureCount + 1
   const backoffSecs = Math.min(60 * failureCount, 3600)
   const nextRunAt = new Date(now.getTime() + backoffSecs * 1000)
@@ -311,7 +287,7 @@ async function processJob(job: {
     )
   } else {
     console.error(
-      `[scheduler ${ts()}] ✗ job ${job.id} failed (attempt ${failureCount}): ${result.error}; retry at ${nextRunAt.toISOString()}`,
+      `[scheduler ${ts()}] ✗ job ${job.id} failed to fire (attempt ${failureCount}): ${result.error}; retry at ${nextRunAt.toISOString()}`,
     )
   }
 }

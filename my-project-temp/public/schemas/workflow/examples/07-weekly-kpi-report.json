@@ -1,0 +1,46 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "fetch_metrics",
+      "kind": "tool",
+      "label": "Pull the week's metrics from the analytics API",
+      "http": {
+        "method": "GET",
+        "url": "https://api.example-analytics.com/v1/metrics?period=7d&metrics=signups,activation,churn,mrr",
+        "auth": { "type": "bearer", "ref": "cred_analytics" },
+        "description": "Weekly KPI pull"
+      },
+      "timeoutMs": 45000
+    },
+    {
+      "id": "compute_deltas",
+      "kind": "tool",
+      "label": "Compute week-over-week deltas",
+      "code": {
+        "language": "javascript",
+        "source": "const { current, previous } = data; const delta = (k) => ((current[k] - previous[k]) / previous[k] * 100).toFixed(1); return { signupsDelta: delta('signups'), activationDelta: delta('activation'), churnDelta: delta('churn'), mrrDelta: delta('mrr') };",
+        "data": { "current": "{{fetch_metrics.body.current}}", "previous": "{{fetch_metrics.body.previous}}" }
+      }
+    },
+    {
+      "id": "narrative",
+      "kind": "reason",
+      "label": "Write the weekly narrative",
+      "prompt": "Write a 3-paragraph weekly KPI report from metrics {{fetch_metrics.body.current}} and deltas {{compute_deltas}}. Lead with the most significant change, flag anything moving the wrong direction, end with one focus recommendation.",
+      "outputShape": { "report": "string (markdown)" }
+    },
+    {
+      "id": "post_slack",
+      "kind": "tool",
+      "label": "Post the report to #metrics",
+      "http": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "auth": { "type": "bearer", "ref": "cred_slack" },
+        "body": { "channel": "#metrics", "text": "{{narrative.report}}" }
+      }
+    }
+  ]
+}

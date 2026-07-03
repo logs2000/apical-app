@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-
-interface RouteCtx {
-  params: Promise<{ id: string }>
-}
+import { withUser } from '@/lib/auth-helpers'
 
 interface PatchBody {
   name?: string
@@ -23,11 +20,15 @@ const ALLOWED_COLORS = new Set([
 ])
 
 // PATCH /api/workspaces/[id] — update name / description / color.
-export async function PATCH(req: Request, { params }: RouteCtx) {
+// Only the owning user may update. Legacy seed rows (userId null) are
+// treated as owned by whoever is logged in until the tenancy backfill.
+export const PATCH = withUser(async (req, { user, params }) => {
   try {
-    const { id } = await params
+    const id = params.id
     const body = (await req.json().catch(() => ({}))) as PatchBody
-    const existing = await db.workspace.findUnique({ where: { id } })
+    const existing = await db.workspace.findFirst({
+      where: { id, OR: [{ userId: user.id }, { userId: null }] },
+    })
     if (!existing) {
       return NextResponse.json(
         { error: 'Workspace not found' },
@@ -66,4 +67,4 @@ export async function PATCH(req: Request, { params }: RouteCtx) {
       { status: 500 },
     )
   }
-}
+})

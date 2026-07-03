@@ -59,7 +59,8 @@ export function workflowStepToToolCall(
 
   if (step.code?.source) {
     const lang = step.code.language
-    if (lang === 'javascript') {
+    const packages = step.code.packages?.length ? step.code.packages : undefined
+    if (lang === 'javascript' && !packages) {
       return {
         tool: 'code_eval',
         input: {
@@ -70,7 +71,12 @@ export function workflowStepToToolCall(
     }
     return {
       tool: 'script_run',
-      input: { language: lang, code: step.code.source },
+      input: {
+        language: lang,
+        code: step.code.source,
+        packages,
+        data: step.code.data != null ? JSON.stringify(step.code.data) : undefined,
+      },
     }
   }
 
@@ -116,7 +122,23 @@ async function executeFrozenIntegrationTool(
   args: Record<string, unknown>,
   userId: string,
 ): Promise<WorkflowStepExecResult | null> {
-  const row = await db.integration.findUnique({ where: { id: integrationId } })
+  // Scope the lookup to integrations visible to the user's workspace (own
+  // instances + global registry rows / legacy unscoped rows).
+  const membership = userId
+    ? await db.workspaceMember.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        select: { workspaceId: true },
+      })
+    : null
+  const row = await db.integration.findFirst({
+    where: {
+      id: integrationId,
+      OR: membership
+        ? [{ workspaceId: membership.workspaceId }, { workspaceId: null }]
+        : [{ workspaceId: null }],
+    },
+  })
   if (!row) return null
   const cfg = parseConfig<{ frozenArtifact?: FrozenArtifact; baseUrl?: string }>(row.config, {})
   const artifact = cfg.frozenArtifact

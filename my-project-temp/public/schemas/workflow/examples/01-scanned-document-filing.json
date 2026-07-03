@@ -1,0 +1,31 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "list_inbox",
+      "kind": "tool",
+      "label": "List new files in the scanner inbox",
+      "tool": "fs.list",
+      "inputs": { "path": "/Scans/Inbox", "newerThanHours": 24 }
+    },
+    {
+      "id": "classify",
+      "kind": "reason",
+      "label": "Classify each document by client and type",
+      "prompt": "For each file in {{list_inbox.files}}, read the letterhead and body to determine the client name and document type (invoice, contract, correspondence, other).",
+      "outputShape": { "client": "string", "documentType": "string", "confidence": "number 0-1" },
+      "confidenceThreshold": 0.8
+    },
+    {
+      "id": "file_doc",
+      "kind": "tool",
+      "label": "Move each classified document into the client folder",
+      "tool": "fs.move",
+      "inputs": {
+        "from": "{{list_inbox.files}}",
+        "to": "/Clients/{{classify.client}}/{{classify.documentType}}/"
+      }
+    }
+  ]
+}

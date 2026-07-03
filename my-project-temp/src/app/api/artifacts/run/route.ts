@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth-helpers'
-import { isDevBypass } from '@/lib/dev-bypass'
+import { deriveDesktopContext } from '@/lib/desktop/device-auth'
 import { rateLimitByUser } from '@/lib/rate-limit'
 import { getAgentTool, type ToolContext } from '@/lib/platform/agent-tools'
 
@@ -8,7 +8,6 @@ interface RunBody {
   language?: 'javascript' | 'python' | 'shell'
   code?: string
   data?: string
-  allowCli?: boolean
 }
 
 // POST /api/artifacts/run — execute a single script once.
@@ -33,10 +32,13 @@ export async function POST(req: Request) {
   const tool = getAgentTool('script_run')
   if (!tool) return NextResponse.json({ error: 'script_run unavailable' }, { status: 500 })
 
+  // Desktop capability is derived server-side, never client-declared.
+  const desktop = await deriveDesktopContext(req, user.id)
+
   const ctx: ToolContext = {
     userId: user.id,
     agentId: null,
-    allowCli: body.allowCli ?? isDevBypass(),
+    allowCli: desktop.allowCli,
     maxFetchBytes: 50_000,
     findings: [],
     executionTrace: [],

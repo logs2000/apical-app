@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser } from '@/lib/auth-helpers'
+import { workspaceIdForUser } from '@/lib/integration-scope'
 import { integrationFromRow } from '@/lib/apical-server'
 import { connectMcpServer } from '@/lib/mcp-client'
 import type { McpServerConfig, ToolDef } from '@/lib/types'
@@ -48,6 +50,10 @@ const COLOR_BY_CATEGORY: Record<string, string> = {
 // when the server can't be reached (so the UI can show the error message).
 export async function POST(req: Request) {
   try {
+    const user = await getCurrentUser(req)
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const body = (await req.json()) as ConnectBody
     const name = (body.name || '').trim()
     const transport =
@@ -117,8 +123,10 @@ export async function POST(req: Request) {
     }
 
     const category = body.category || 'general'
+    const wsId = await workspaceIdForUser(user)
     const created = await db.integration.create({
       data: {
+        workspaceId: wsId,
         name,
         kind: 'mcp',
         description:

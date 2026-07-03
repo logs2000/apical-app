@@ -21,8 +21,11 @@ const nextConfig: NextConfig = {
   transpilePackages: [
     "framer-motion",
     "@mdxeditor/editor",
-    "@modelcontextprotocol/sdk",
   ],
+  // Server-only Node packages. Keeping them external stops webpack from pulling
+  // their Node built-ins (child_process, node:process/stream, etc.) into the
+  // client bundle via the instrumentation → folder-watch → runtime graph.
+  serverExternalPackages: ["@modelcontextprotocol/sdk"],
   typescript: {
     // Do NOT silently swallow type errors at build time.
     // Surface them so production builds fail loudly when types drift.
@@ -37,10 +40,53 @@ const nextConfig: NextConfig = {
     "localhost",
     "127.0.0.1",
   ],
-  webpack: (config) => {
+  webpack: (config, { nextRuntime, webpack }) => {
     // Windows CI runners hit EACCES when webpack follows symlinked WindowsApps.
     config.resolve = config.resolve ?? {};
     config.resolve.symlinks = false;
+    // The instrumentation hook is compiled for BOTH the Node.js and Edge
+    // runtimes. Its register() dynamically imports the folder watcher — a deep
+    // server-only chain (runtime, vault, webhooks, notifications, MCP stdio)
+    // that uses Node built-ins — but bails out unless NEXT_RUNTIME === 'nodejs'.
+    // The Edge compile still tries to resolve those built-ins and fails, so
+    // stub them out of the Edge bundle only. The real Node.js server keeps the
+    // native modules, and the client bundle is left untouched (it never imports
+    // this chain) so Next.js' own browser polyfills stay intact.
+    if (nextRuntime === "edge") {
+      const stubbedNodeBuiltins = [
+        "fs",
+        "fs/promises",
+        "path",
+        "os",
+        "crypto",
+        "net",
+        "tls",
+        "child_process",
+        "stream",
+        "process",
+        "buffer",
+        "events",
+        "util",
+        "url",
+        "http",
+        "https",
+        "zlib",
+      ];
+      // Bare specifiers (e.g. require('fs')) resolve via resolve.fallback.
+      config.resolve.fallback = {
+        ...(config.resolve.fallback ?? {}),
+        ...Object.fromEntries(stubbedNodeBuiltins.map((m) => [m, false])),
+      };
+      // `node:`-prefixed imports (e.g. import 'node:process') bypass fallback
+      // and throw UnhandledSchemeError. Rewrite them to bare specifiers so they
+      // hit the fallback stubs above.
+      config.plugins = config.plugins ?? [];
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(/^node:/, (resource: { request: string }) => {
+          resource.request = resource.request.replace(/^node:/, "");
+        }),
+      );
+    }
     if (process.env.CI && process.platform === "win32") {
       config.cache = false;
     }

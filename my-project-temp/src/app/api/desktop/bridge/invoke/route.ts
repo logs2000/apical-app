@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
 import { isKnownTool } from '@/lib/platform/desktop-tools'
+import { enforceGrantedRoots } from '@/lib/platform/granted-folders'
 
 // POST /api/desktop/bridge/invoke — proxy an MCP tool invocation to the
 // desktop-bridge mini-service on port 3005.
@@ -78,6 +79,12 @@ export const POST = withUser(async (req, { user }) => {
       { ok: false, error: `unknown_tool: ${tool}` },
       { status: 400 },
     )
+  }
+
+  // fs tools are sandboxed to the user's granted folder roots (fail closed).
+  const rootViolation = await enforceGrantedRoots(user.id, tool, args)
+  if (rootViolation) {
+    return NextResponse.json({ ok: false, error: rootViolation }, { status: 403 })
   }
 
   // Forward to the desktop-bridge mini-service.

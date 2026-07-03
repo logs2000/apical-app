@@ -13,6 +13,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 
+/** Where to land after login. Only same-origin paths are honored. */
+function safeNextPath(): string {
+  if (typeof window === 'undefined') return '/app'
+  const next = new URLSearchParams(window.location.search).get('next')
+  if (next && next.startsWith('/') && !next.startsWith('//')) return next
+  return '/app'
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const { toast } = useToast()
@@ -22,13 +30,12 @@ export default function LoginPage() {
   const [loading, setLoading] = React.useState(false)
   const [googleLoading, setGoogleLoading] = React.useState(false)
 
-  // In dev bypass mode, skip the login form and go straight to the app.
+  // Already signed in? Skip the form.
   React.useEffect(() => {
-    if (process.env.NODE_ENV !== 'development') return
     fetch('/api/auth/session')
       .then((r) => r.json())
       .then((data) => {
-        if (data?.user?.email) router.replace('/')
+        if (data?.user?.email) router.replace(safeNextPath())
       })
       .catch(() => {})
   }, [router])
@@ -47,7 +54,7 @@ export default function LoginPage() {
         description: `Signed in as ${email}`,
       })
       // Full navigation so the server picks up the new session cookie.
-      window.location.assign('/app')
+      window.location.assign(safeNextPath())
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sign in failed'
       toast({ title: 'Sign in failed', description: msg, variant: 'destructive' })
@@ -62,7 +69,7 @@ export default function LoginPage() {
       if (!supabase) throw new Error('Auth is not configured.')
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: `${window.location.origin}/auth/callback?next=/app` },
+        options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(safeNextPath())}` },
       })
       if (error) throw new Error(error.message)
     } catch (err: unknown) {

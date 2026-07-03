@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
 import { mapCredential } from '@/lib/mappers'
+import { encryptSecretMetaFields } from '@/lib/platform/vault'
 
 // GET /api/credentials — list the current user's credentials in the AI-auth vault.
 export async function GET(req: Request) {
@@ -61,19 +62,22 @@ export async function POST(req: Request) {
       typeof body.label === 'string' && body.label.trim()
         ? body.label.trim()
         : service
-    // metaJson: accept either a JSON string or an object; we store as a string.
-    let metaJson = '{}'
+    // metaJson: accept either a JSON string or an object. Secret-shaped
+    // fields (key/token/secret/…) are encrypted at rest before storage.
+    let meta: Record<string, unknown> = {}
     if (typeof body.metaJson === 'string') {
-      // Validate it parses; otherwise default to {}.
       try {
-        JSON.parse(body.metaJson)
-        metaJson = body.metaJson
+        const parsed = JSON.parse(body.metaJson) as unknown
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          meta = parsed as Record<string, unknown>
+        }
       } catch {
-        metaJson = '{}'
+        meta = {}
       }
     } else if (body.metaJson && typeof body.metaJson === 'object') {
-      metaJson = JSON.stringify(body.metaJson)
+      meta = body.metaJson as Record<string, unknown>
     }
+    const metaJson = JSON.stringify(encryptSecretMetaFields(meta))
     const agentProvisioned = body.agentProvisioned === true
     const canPay = body.canPay === true || kind === 'payment'
 

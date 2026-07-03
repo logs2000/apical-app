@@ -1,8 +1,8 @@
-// Apical — an AI you hire, not software you configure.
-// Data model: integrations (tools), workflows (steps), runs (execution),
-// execution patterns (self-optimization), credentials (AI-auth vault),
-// users + NextAuth (accounts, sessions via JWT, verification tokens),
-// and PersonalAccessTokens (PATs) for the MCP server + REST API.
+// Apical — chat-driven automation.
+// Data model: workspaces (the tenant) + members, integrations (tools),
+// workflows (steps), runs (execution), execution patterns (self-optimization),
+// credentials (AI-auth vault), users (Supabase-mirrored), and unified
+// workspace-scoped ApiKeys for the MCP server + REST API.
 
 generator client {
   provider = "prisma-client-js"
@@ -34,11 +34,11 @@ model User {
   updatedAt     DateTime @updatedAt
 
   accounts             Account[]
-  personalAccessTokens PersonalAccessToken[]
   workflows            Workflow[]
   conversations        Conversation[]
   profile              UserProfile?
   workspaces           Workspace[]
+  workspaceMemberships WorkspaceMember[]
   credentials          Credential[]
   subscription         Subscription?
   byokKeys             ByokKey[]
@@ -49,9 +49,6 @@ model User {
   dataConnections      DataConnection[]
   emailLogs            EmailLog[]
   desktopSessions      DesktopSession[]
-  agentRegistrations   AgentRegistration[]
-  agentConnections     AgentConnection[]
-  apiProviders         ApiProvider[]
   integrationSessions  IntegrationSession[]
   assets               UserAsset[]
 }
@@ -86,28 +83,22 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-/// Personal Access Tokens — replace the old DeveloperAccount/ApiKey model for
-/// authenticating the apical-mcp mini-service + the REST API. A user generates
-/// one from Settings → API tokens; the raw `ap_pat_...` value is shown once.
-/// We store only a SHA-256 hash + a display prefix.
-model PersonalAccessToken {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // A label the user picks (e.g. "Cursor", "CI", "Local dev").
-  label       String   @default("Default")
-  // SHA-256 hex of the raw `ap_pat_...` token. Never store the raw token.
-  tokenHash   String   @unique
-  // First 12 chars (ap_pat_xxxx) shown in the UI for identification.
-  tokenPrefix String
-  lastUsedAt  DateTime?
-  // "active" | "revoked"
-  status      String   @default("active")
-  createdAt   DateTime @default(now())
-}
+// (PersonalAccessToken was merged into the unified workspace-scoped ApiKey
+// model — see ApiKey below. Legacy ap_pat_ tokens keep working because their
+// SHA-256 hashes were migrated into ApiKey.keyHash by the backfill script.)
 
+/// A workspace's INSTANCE of a connector: its config + credential bindings.
+/// The global, shareable connector definitions live in ConnectorCatalogEntry
+/// (the registry). Rows with source="builtin"/"public" and workspaceId=null
+/// are legacy registry-style rows kept until the backfill copies them into
+/// the catalog; new instances are always workspace-scoped.
 model Integration {
   id          String   @id @default(cuid())
+  // Tenant. Required at the app layer for private instances; null only for
+  // legacy builtin/public template rows (treated as registry entries).
+  workspaceId String?
+  // Optional link back to the registry entry this instance was installed from.
+  registrySlug String?
   name        String
   kind        String   // "mcp" | "api" | "http"
   description String
@@ -126,6 +117,8 @@ model Integration {
   installs    Int      @default(0) // install count for public library entries
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId])
 }
 
 model Workflow {
@@ -141,12 +134,11 @@ model Workflow {
   trigger       String   @default("manual") // "manual" | "schedule"
   schedule      String?  // cron-like human string, e.g. "Every weekday at 9am"
   status        String   @default("active") // "draft" | "active" | "paused"
-  // Department is a free-form descriptive label the agent creates naturally
-  // (e.g. "Filing", "Inbox", "Billing"). Not a fixed enum — the workspace
-  // groups employees by this string dynamically.
-  department    String   @default("General")
-  title         String?  // role title e.g. "Sorter", "Bookkeeper", "Digest Writer"
-  workspaceId   String?  // which workspace this agent belongs to (null = default)
+  // (The old "employee" fields — department + title — were dropped in the
+  // terminology migration. Workflows are automations, not hires.)
+  // Tenant. Required at the app layer; nullable in the schema until the
+  // workspace backfill script has run against every environment.
+  workspaceId   String?
   // Where this agent runs: local (desktop app, fs/cli/net access) or hosted (Apical server).
   runtime       String   @default("hosted") // "local" | "hosted"
   // Parent agent id — if this is a subagent spawned by another agent's "spawn" step.
@@ -170,6 +162,12 @@ model Workflow {
   allowedToolsJson   String?
   // JSON array of credential ids this agent can access. Null = all.
   allowedCredentialsJson String?
+  // The currently-active revision (see WorkflowRevision). stepsJson is kept
+  // in sync as a denormalized copy of the active revision's steps.
+  activeRevisionId String?
+  // Inbound trigger secret: POST /v1/hooks/w/{id}/{secret} starts a run.
+  // Null = inbound trigger URL disabled. Minted/rotated via the API.
+  triggerSecret String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   runs          Run[]
@@ -177,6 +175,31 @@ model Workflow {
   agentMessages AgentMessage[]
   agentData     AgentData[]
   assets        UserAsset[]
+  revisions     WorkflowRevision[]
+}
+
+// Immutable snapshots of a workflow's steps. Every save (freeze, update,
+// improve, PATCH, import) creates a new revision; runs pin the revision they
+// executed so reports stay meaningful after later edits. Rollback = create a
+// new revision with an old revision's steps.
+model WorkflowRevision {
+  id            String   @id @default(cuid())
+  workflowId    String
+  workflow      Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  // Monotonic per-workflow revision number, starting at 1.
+  number        Int
+  // Immutable steps snapshot (serialized WorkflowJSON).
+  stepsJson     String
+  // WorkflowJSON schema version the snapshot conforms to.
+  schemaVersion Int      @default(1)
+  // Who/what created it: "user" | "agent" | "import" | "rollback" | "system".
+  author        String   @default("user")
+  // Optional note ("hardened step s3", "rollback to rev 4", ...).
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@unique([workflowId, number])
+  @@index([workflowId, createdAt])
 }
 
 // Per-agent chat messages (Phase 3 revamp). Persists the conversation thread
@@ -221,6 +244,8 @@ model AgentData {
 model UserAsset {
   id             String    @id @default(cuid())
   userId         String
+  // Tenant. Required at the app layer; nullable until the backfill has run.
+  workspaceId    String?
   agentId        String?
   conversationId String?
   messageId      String?
@@ -245,7 +270,17 @@ model Run {
   workflowId     String
   workflow       Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   status         String   @default("running") // "running" | "completed" | "failed" | "awaiting_gate" | "cancelled"
-  trigger        String   @default("manual")  // "manual" | "schedule"
+  trigger        String   @default("manual")  // "manual" | "schedule" | "hook" | "watch" | "rerun"
+  // Optional end-customer scope: when set, credential resolution prefers
+  // credentials bound to this ConnectedAccount (multi-tenant runs).
+  connectedAccountId String?
+  // The workflow revision this run executed (pinned at start).
+  revisionId     String?
+  // Client-supplied idempotency key: retried POSTs with the same key return
+  // the original run instead of creating a duplicate.
+  idempotencyKey String?
+  // For reruns: the failed run this one was re-executed from.
+  rerunOfRunId   String?
   itemsProcessed Int      @default(0)
   automaticCount Int      @default(0)
   flaggedCount   Int      @default(0)
@@ -256,6 +291,100 @@ model Run {
   startedAt      DateTime @default(now())
   finishedAt     DateTime?
   steps          RunStep[]
+
+  @@unique([workflowId, idempotencyKey])
+}
+
+// Async workflow-generation jobs: POST /v1/workflows/generate accepts a
+// natural-language spec, an LLM designs a WorkflowJSON, it passes the same
+// validate pipeline as POST /v1/workflows, and the result lands here.
+model GenerateJob {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String?
+  spec        String   // the natural-language description of the automation
+  name        String?
+  status      String   @default("pending") // "pending" | "running" | "completed" | "failed"
+  // On success: the created workflow id.
+  workflowId  String?
+  error       String?
+  // JSON array of validation issues from the last failed attempt, if any.
+  issuesJson  String?
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+
+  @@index([workspaceId])
+}
+
+// Folder roots the user granted the agent on their desktop (like Cursor
+// workspace folders). fs_* tools and the file browser are constrained to
+// paths inside a granted root. Per-user; the desktop app manages them.
+model GrantedFolder {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String?
+  path        String   // absolute path on the user's machine
+  label       String?
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, path])
+  @@index([userId])
+}
+
+// Watched-folder trigger: new files appearing under `path` start a run of
+// `workflowId` with { trigger: { newFiles, path } } as the run input.
+// Poll-based: the local desktop runtime diffs directory listings.
+model WatchedFolder {
+  id             String   @id @default(cuid())
+  userId         String
+  workspaceId    String?
+  workflowId     String
+  path           String
+  // Optional filename filter, e.g. "*.pdf" (simple glob: * matches any chars).
+  pattern        String?
+  status         String   @default("active") // "active" | "paused"
+  lastScanAt     DateTime?
+  // JSON array of filenames seen at the last scan.
+  knownFilesJson String   @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status])
+  @@index([userId])
+}
+
+// Outbound webhook endpoints, workspace-scoped. Apical POSTs run lifecycle
+// events (run.completed, run.failed, step.failed) to `url`, signed with HMAC
+// SHA-256 over `${timestamp}.${body}` using `secret`
+// (header: X-Apical-Signature: t=<unix>,v1=<hex>).
+model WebhookEndpoint {
+  id          String   @id @default(cuid())
+  workspaceId String
+  url         String
+  // HMAC signing secret (whsec_...). Shown once at creation.
+  secret      String
+  // JSON array of subscribed events; empty = all events.
+  eventsJson  String   @default("[]")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deliveries  WebhookDelivery[]
+}
+
+// Delivery log per webhook attempt. Failed deliveries are retried with
+// backoff up to a max attempt count, then dead-lettered (status "failed").
+model WebhookDelivery {
+  id             String   @id @default(cuid())
+  endpointId     String
+  endpoint       WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  event          String   // "run.completed" | "run.failed" | "step.failed"
+  payloadJson    String
+  status         String   @default("pending") // "pending" | "delivered" | "failed"
+  attempts       Int      @default(0)
+  responseStatus Int?
+  lastError      String?
+  createdAt      DateTime @default(now())
+  deliveredAt    DateTime?
 }
 
 // Dashboard widgets that agents build for themselves. Each agent can create
@@ -313,6 +442,11 @@ model Credential {
   // Owning user. Optional for backward compat with existing seed rows.
   userId      String?
   user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Tenant. Required at the app layer; nullable until the backfill has run.
+  workspaceId String?
+  // Optional link to a ConnectedAccount (external end-user of a SaaS builder).
+  // When set, credential resolution prefers this account's vault.
+  connectedAccountId String?
   service     String   // e.g. "gmail", "stripe", "quickbooks"
   label       String   // human label
   kind        String   // "oauth" | "apikey" | "payment" | "mcp_token"
@@ -378,18 +512,46 @@ model Conversation {
   updatedAt   DateTime @updatedAt
 }
 
-// A workspace is an isolated environment (e.g. "Main", "R&D Lab", "Client: Acme").
-// Each has its own agents (workflows) and conversations.
+// A workspace is THE core tenant of Apical. Every resource (workflows,
+// credentials, conversations, scheduled jobs, data tables/connections,
+// assets, API keys) belongs to a workspace. Users access workspaces through
+// WorkspaceMember rows. Billing (plan + prepaid balance) lives here too —
+// it absorbed the old DeveloperAccount model.
 model Workspace {
   id          String   @id @default(cuid())
-  // Owning user. Optional for backward compat with existing seed rows.
+  // Legacy owning user (pre-members). Kept while the backfill migrates
+  // ownership into WorkspaceMember rows; new code reads members.
   userId      String?
   user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   name        String
   description String   @default("")
   color       String   @default("emerald") // accent for the workspace switcher
+  // ---- Billing (absorbed from DeveloperAccount) ----
+  plan             String  @default("free") // "free" | "starter" | "pro" | "scale"
+  balanceCents     Int     @default(0)      // prepaid credits for run costs
+  billingEmail     String?
+  stripeCustomerId String?
+  status           String  @default("active") // "active" | "suspended" | "closed"
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  members  WorkspaceMember[]
+  apiKeys  ApiKey[]
+  auditLogs McpAuditLog[]
+}
+
+/// Membership join table: which users can act in which workspace, and as what.
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        String    @default("owner") // "owner" | "admin" | "member"
+  createdAt   DateTime  @default(now())
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
 }
 
 // A lightweight company/user profile the agent uses to tailor suggestions and
@@ -415,57 +577,53 @@ model UserProfile {
   updatedAt     DateTime @updatedAt
 }
 
-// ---------------- SaaS Developer platform ----------------
-// A developer account (separate from the end-user). SaaS builders who deploy
-// automations via the MCP server or REST API. Has its own auth (API keys),
-// plan, billing, and usage tracking.
-
-model DeveloperAccount {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  name          String   @default("")
-  // The workspace this developer's deployed agents land in by default.
-  workspaceId   String?
-  plan          String   @default("free") // "free" | "starter" | "pro" | "scale"
-  // Balance in cents — prepaid credits for run costs.
-  balanceCents  Int      @default(0)
-  // billingEmail for Stripe receipts.
-  billingEmail  String?
-  stripeCustomerId String?
-  status        String   @default("active") // "active" | "suspended" | "closed"
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  apiKeys       ApiKey[]
-  logs          McpAuditLog[]
-}
+// ---------------- Unified API keys ----------------
+// ONE key system for everything: the REST API (/v1), the apical-mcp server,
+// CI, scripts. Keys are workspace-scoped, SHA-256 hashed, carry scopes, and
+// can have per-key spend limits. This model absorbed both the old
+// DeveloperAccount ApiKey (ap_sk_) and PersonalAccessToken (ap_pat_) — legacy
+// raw tokens still authenticate because their hashes were migrated in.
 
 model ApiKey {
-  id            String   @id @default(cuid())
-  developerId   String
-  developer     DeveloperAccount @relation(fields: [developerId], references: [id], onDelete: Cascade)
-  // The label the developer gave the key (e.g. "Production", "Local dev").
-  label         String   @default("Default")
-  // keyHash: we store a SHA-256 hash, never the raw key. The raw key is shown
-  // once at creation (ap_sk_...) and never again.
-  keyHash       String   @unique
-  // keyPrefix: the first 10 chars (ap_sk_abc...) shown in the UI for identification.
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // The user who created the key (the "actor" for audit purposes).
+  createdById   String?
+  // The label the user gave the key (e.g. "Production", "Local dev", "Cursor").
+  label         String    @default("Default")
+  // SHA-256 hex of the raw key. Never store the raw key (shown once).
+  keyHash       String    @unique
+  // First 12 chars (ap_sk_xxxx / ap_pat_xxxx) shown in the UI.
   keyPrefix     String
-  // lastUsedAt: updated on each authenticated call.
+  // JSON array of scopes: ["workflows:read","workflows:write","runs:execute",
+  // "credentials:manage","registry:read","usage:read"]. Empty = all scopes
+  // (legacy migrated keys).
+  scopesJson    String    @default("[]")
+  // Per-key spend limit in cents (0 = no limit). Enforced on run execution.
+  spendLimitCents Int     @default(0)
+  spentCents      Int     @default(0)
   lastUsedAt    DateTime?
-  lastUsedFrom  String?  // IP or "mcp" / "rest"
-  status        String   @default("active") // "active" | "revoked"
-  createdAt     DateTime @default(now())
+  lastUsedFrom  String?   // IP or "mcp" / "rest"
+  status        String    @default("active") // "active" | "revoked"
+  createdAt     DateTime  @default(now())
   logs          McpAuditLog[]
+
+  @@index([workspaceId])
+  // Fresh table (the legacy "ApiKey" table had a developerId FK; mapping to a
+  // new name lets `db push` create this cleanly while the backfill script
+  // migrates legacy rows over).
+  @@map("WorkspaceApiKey")
 }
 
-// Append-only audit log of every MCP + REST API call a developer makes.
+// Append-only audit log of every MCP + REST API call made with a key.
 // Used for usage tracking, billing, and security forensics.
 model McpAuditLog {
-  id            String   @id @default(cuid())
-  developerId   String
-  developer     DeveloperAccount @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   apiKeyId      String?
-  apiKey        ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  apiKey        ApiKey?   @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
   // What was called: "mcp:deploy", "rest:run", etc.
   action        String
   // The target (workflow id, run id, etc.)
@@ -478,6 +636,11 @@ model McpAuditLog {
   detail        String?
   source        String   @default("rest") // "mcp" | "rest" | "web"
   createdAt     DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  // Fresh table for the same reason as WorkspaceApiKey (legacy McpAuditLog
+  // rows carried a developerId FK).
+  @@map("WorkspaceAuditLog")
 }
 
 // ============================================================================
@@ -620,6 +783,8 @@ model ScheduledJob {
   id            String   @id @default(cuid())
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Tenant. Required at the app layer; nullable until the backfill has run.
+  workspaceId   String?
   workflowId    String
   // Cron expression (6-field: sec min hour day month weekday) OR "fixed_rate:<seconds>".
   schedule      String
@@ -630,7 +795,7 @@ model ScheduledJob {
   // Next time the scheduler should fire this job (UTC).
   nextRunAt     DateTime
   lastRunAt     DateTime?
-  lastRunStatus String?  // "success" | "failed" | "timeout"
+  lastRunStatus String?  // "started" (run fired, not finished) | "success" | "failed" | "timeout"
   lastRunId     String?  // the Run id produced
   // How many times this job has fired + consecutive failures (for backoff).
   runCount      Int      @default(0)
@@ -650,6 +815,8 @@ model DataTable {
   id            String   @id @default(cuid())
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Tenant. Required at the app layer; nullable until the backfill has run.
+  workspaceId   String?
   name          String
   description   String   @default("")
   // columnsJson: [{ name, type ("string"|"number"|"boolean"|"date"|"json"), required }]
@@ -684,6 +851,8 @@ model DataConnection {
   id            String   @id @default(cuid())
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Tenant. Required at the app layer; nullable until the backfill has run.
+  workspaceId   String?
   // "supabase" | "airtable" | "postgres" | "mysql" | "sqlite_local" | "google_sheets" | "notion"
   kind          String
   name          String
@@ -752,6 +921,31 @@ model DesktopSession {
   @@index([userId, status])
 }
 
+// A pending device-authorization login (RFC 8628-style). The desktop app
+// starts one, opens the verification URL in the OS browser, and polls with
+// its device code until the signed-in user approves. Approval creates a
+// DesktopSession whose token the desktop stores in the OS keychain.
+model DeviceAuthRequest {
+  id               String   @id @default(cuid())
+  // SHA-256 of the device code the desktop polls with (never stored raw).
+  deviceCodeHash   String   @unique
+  // Short human-readable code shown in the browser ("XXXX-XXXX").
+  userCode         String   @unique
+  status           String   @default("pending") // pending | approved | denied | expired | consumed
+  label            String   @default("My Desktop")
+  platform         String?
+  arch             String?
+  appVersion       String?
+  // Set on approval.
+  userId           String?
+  desktopSessionId String?
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([status, expiresAt])
+}
+
 // ============================================================================
 // APICAL CONNECTOR CATALOG — internal database of MCP/API connectors
 // Learned as we crawl and add integrations for users.
@@ -812,148 +1006,33 @@ model ConnectorCatalogEntry {
   @@index([source])
 }
 
-// ============================================================================
-// APICAL PLATFORM FOR AI AGENTS — agent registration, API keys, provider listings
-// ============================================================================
-
-/// An AI agent or LLM that registers on the Apical platform. Agents sign up
-/// to retrieve API keys for platforms, authenticate on behalf of users, and
-/// access services through Apical's OAuth/payment infrastructure.
-model AgentRegistration {
-  id              String   @id @default(cuid())
-  // The developer or user who owns this agent
-  userId          String?
-  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  // Agent identity
-  name            String   // e.g. "Invoice Bot", "Lead Finder"
-  description     String   @default("")
-  // Agent type: "llm" | "workflow" | "mcp_server" | "custom"
-  type            String   @default("custom")
-  // Capabilities this agent claims to need: ["gmail.read", "stripe.invoices", ...]
-  capabilitiesJson String  @default("[]")
-  // The agent's homepage or documentation
-  homepageUrl     String?
-  // Callback URL for the agent (webhook endpoint)
-  callbackUrl     String?
-  // Status of this agent registration
-  status          String   @default("active") // "active" | "suspended" | "pending_review"
-  // Whether this agent is publicly listed in the marketplace
-  isPublic        Boolean  @default(false)
-  // Usage stats
-  totalApiCalls   Int      @default(0)
-  totalTokensUsed Int      @default(0)
-  lastActiveAt    DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  apiKeys         AgentApiKey[]
-  connections     AgentConnection[]
-
-  @@index([userId])
-  @@index([status])
-  @@index([isPublic])
-}
-
-/// API keys that registered agents generate to access the Apical platform.
-/// Agents use these keys to authenticate, retrieve credentials for connected
-/// services, and make API calls on behalf of users.
-model AgentApiKey {
-  id              String   @id @default(cuid())
-  agentId         String
-  agent           AgentRegistration @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  // A label the agent owner gave the key (e.g. "Production", "Development")
-  label           String   @default("Default")
-  // SHA-256 hash of the raw key (apk_...). Never store the raw key.
-  keyHash         String   @unique
-  // First 12 chars (apk_xxxx...) shown in the UI for identification
-  keyPrefix       String
-  // Scopes this key has access to: ["credentials.read", "credentials.use", "api.call", ...]
-  scopesJson      String   @default("[]")
-  // Rate limit for this key (requests per minute)
-  rateLimitRpm    Int      @default(60)
-  lastUsedAt      DateTime?
-  lastUsedFrom    String?  // IP or "mcp" / "rest"
-  status          String   @default("active") // "active" | "revoked"
-  expiresAt       DateTime?
-  createdAt       DateTime @default(now())
-
-  @@index([agentId])
-  @@index([keyHash])
-}
-
-/// Connections that agents have to user-approved services. When an agent needs
-/// to access a service (e.g., Gmail, Stripe), the user must approve the
-/// connection. This model tracks those approved connections.
-model AgentConnection {
-  id              String   @id @default(cuid())
-  agentId         String
-  agent           AgentRegistration @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  // The user who approved this connection
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // The service being connected (references ConnectorCatalogEntry.slug or OAuthProvider.key)
-  serviceKey      String
-  // The credential the agent can use for this service
-  credentialId    String?
-  // Scopes the agent is allowed to use for this service
-  approvedScopesJson String @default("[]")
-  // Whether this connection was approved by the user
-  approved        Boolean  @default(false)
-  approvedAt      DateTime?
-  // Status of this connection
-  status          String   @default("pending") // "pending" | "active" | "revoked"
-  lastUsedAt      DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@unique([agentId, userId, serviceKey])
-  @@index([userId])
-  @@index([agentId])
-}
+// (The dead "platform for AI agents" models — AgentRegistration, AgentApiKey,
+// AgentConnection — and the ApiProvider marketplace model were deleted in the
+// renovation: no live code path used them, and the unified ApiKey + upcoming
+// ConnectedAccount models replace their intended roles.)
 
 // ============================================================================
-// API PROVIDER MARKETPLACE — providers list their APIs, agents pay per-call
+// CONNECTED ACCOUNTS — external end-users of a SaaS builder's workspace.
+// Schema ready now (Phase 1 design); the hosted OAuth connect-session flow
+// that populates these ships later, gated on a design partner needing it.
 // ============================================================================
 
-/// An API provider who lists their service on the Apical marketplace.
-/// Providers set pricing, and agents/LLMs pay per-call through the platform.
-model ApiProvider {
-  id              String   @id @default(cuid())
-  // The user who owns this provider listing
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // Provider identity
-  name            String   // e.g. "Weather API", "Sentiment Analysis API"
-  description     String
-  // API details
-  apiBaseUrl      String   // The base URL for API calls
-  apiDocsUrl      String?  // Link to API documentation
-  // Authentication type: "api_key" | "oauth2" | "bearer" | "basic" | "none"
-  authType        String   @default("api_key")
-  // JSON schema of the API: { endpoints: [{ path, method, description, params, response }] }
-  apiSchemaJson   String   @default("{}")
-  // Pricing: cents per 1K calls
-  pricePer1kCalls Int      @default(0)
-  // Revenue share percentage for the provider (0-100)
-  revenueSharePct Int      @default(70)
-  // Category
-  category        String   @default("general")
-  // Status
-  status          String   @default("active") // "active" | "pending_review" | "suspended" | "delisted"
-  // Whether this provider is publicly visible in the marketplace
-  isPublic        Boolean  @default(true)
-  // Usage stats
-  totalCalls      Int      @default(0)
-  totalRevenueCents Int    @default(0)
-  // Stripe account for payouts
-  stripeAccountId String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+/// An external account (a SaaS builder's end-user) that credentials can be
+/// scoped to. Runs may pass `connectedAccountId` so credential resolution
+/// prefers that account's vault entries over workspace-level ones.
+model ConnectedAccount {
+  id          String   @id @default(cuid())
+  workspaceId String
+  // The builder's own reference for this end-user (their user id / email).
+  externalRef String
+  label       String   @default("")
+  status      String   @default("active") // "active" | "disabled"
+  metaJson    String   @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  @@index([userId])
-  @@index([category])
-  @@index([status])
-  @@index([isPublic])
+  @@unique([workspaceId, externalRef])
+  @@index([workspaceId])
 }
 
 // ============================================================================
@@ -997,4 +1076,14 @@ model IntegrationSession {
 
   @@index([userId, serviceSlug])
   @@index([status])
+}
+
+// ---------------- Platform settings ----------------
+// Key/value store for operator-configurable platform knobs (token limits, etc.).
+model PlatformSetting {
+  key       String   @id
+  value     String   // JSON-encoded payload
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 }

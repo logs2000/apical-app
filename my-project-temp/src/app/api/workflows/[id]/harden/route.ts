@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser } from '@/lib/auth-helpers'
 import { mapWorkflow, mapExecutionPattern } from '@/lib/mappers'
-import { parseWorkflowJSON, serializeWorkflowJSON } from '@/lib/apical-server'
+import { parseWorkflowJSON } from '@/lib/apical-server'
+import { saveWorkflowSteps } from '@/lib/platform/workflow-revisions'
 import type { WorkflowStep } from '@/lib/types'
 
 interface RouteCtx {
@@ -18,6 +20,10 @@ interface HardenBody {
 // and bumps the workflow's savings counters.
 export async function POST(req: Request, { params }: RouteCtx) {
   try {
+    const user = await getCurrentUser(req)
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { id } = await params
     const body = (await req.json()) as HardenBody
     const stepId = (body.stepId || '').trim()
@@ -30,7 +36,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
     }
 
     const existing = await db.workflow.findUnique({ where: { id } })
-    if (!existing) {
+    if (!existing || existing.userId !== user.id) {
       return NextResponse.json(
         { error: 'Workflow not found' },
         { status: 404 },
@@ -75,10 +81,13 @@ export async function POST(req: Request, { params }: RouteCtx) {
     }
     wfJson.steps[idx] = hardened
 
+    await saveWorkflowSteps(id, wfJson, {
+      author: 'user',
+      note: `Hardened step ${stepId} into a deterministic rule.`,
+    })
     const updated = await db.workflow.update({
       where: { id },
       data: {
-        stepsJson: serializeWorkflowJSON(wfJson),
         aiCallsSaved: { increment: 50 },
         estCostSavedCents: { increment: 500 },
       },

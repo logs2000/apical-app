@@ -1,0 +1,45 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "overdue",
+      "kind": "tool",
+      "label": "List overdue invoices from Xero",
+      "http": {
+        "method": "GET",
+        "url": "https://api.xero.com/api.xro/2.0/Invoices?where=Status==\"AUTHORISED\" AND DueDate<DateTime.Now",
+        "auth": { "type": "bearer", "ref": "cred_xero" }
+      }
+    },
+    {
+      "id": "pick_tone",
+      "kind": "reason",
+      "label": "Choose a chase tone per invoice",
+      "prompt": "For each invoice in {{overdue.body.Invoices}}, choose a chase tone based on days overdue and payment history: friendly (<14d), firm (14-45d), final-notice (>45d). Never send final-notice to accounts with an open support escalation.",
+      "outputShape": { "tone": "string", "confidence": "number 0-1" },
+      "confidenceThreshold": 0.8
+    },
+    {
+      "id": "hardened_cc",
+      "kind": "tool",
+      "label": "CC accounts@ on all final notices",
+      "tool": "rule.apply",
+      "inputs": { "rule": "if tone == 'final-notice' then cc 'accounts@example.com'" },
+      "hardened": true,
+      "rule": "if tone == 'final-notice' then cc 'accounts@example.com'",
+      "note": "Hardened from a reason step after 30 identical decisions."
+    },
+    {
+      "id": "send_chases",
+      "kind": "tool",
+      "label": "Send the chase emails",
+      "http": {
+        "method": "POST",
+        "url": "https://api.postmarkapp.com/email/batch",
+        "auth": { "type": "apikey_header", "ref": "cred_postmark", "headerName": "X-Postmark-Server-Token" },
+        "body": { "emails": "{{pick_tone.emails}}", "ccRules": "{{hardened_cc.applied}}" }
+      }
+    }
+  ]
+}

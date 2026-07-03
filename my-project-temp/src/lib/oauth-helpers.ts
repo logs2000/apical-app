@@ -55,19 +55,20 @@ export function getOAuthRedirectUri(): string {
 
 /**
  * Read an OAuth access token for a given service from the credential vault.
- * Looks for a Credential with `oauthProvider == service` (case-insensitive),
- * or one whose `service` matches (so existing pre-OAuth credentials still
- * resolve). Returns null if no usable token is found.
+ * Looks for a Credential OWNED BY `userId` with `oauthProvider == service`
+ * (case-insensitive), or one whose `service` matches (so existing pre-OAuth
+ * credentials still resolve). Returns null if no usable token is found.
  *
- * Used by the workflow runtime's `runHttpStep` to inject `Authorization:
- * Bearer <token>` when a step's auth ref points at an OAuth credential.
+ * SECURITY: the userId filter is mandatory — credentials must never resolve
+ * across tenants.
  */
-export async function getOAuthToken(service: string): Promise<string | null> {
+export async function getOAuthToken(service: string, userId: string): Promise<string | null> {
   const svc = service.trim()
-  if (!svc) return null
+  if (!svc || !userId) return null
   try {
     const row = await db.credential.findFirst({
       where: {
+        userId,
         OR: [
           { oauthProvider: svc.toLowerCase() },
           { service: { contains: svc } },

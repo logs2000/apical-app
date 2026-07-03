@@ -2,10 +2,10 @@
 // clientId/clientSecret/scopes.
 //
 // Lets operators set OAuth credentials via the API (so they don't need raw DB
-// access). Auth requirement: a signed-in user (admin-only in production, but
-// with AUTH_BYPASS_DEV=true the dev user satisfies the check). Returns the
-// updated provider (mapped through mapOAuthProvider so we never leak the
-// secret — only `hasClientId: true`).
+// access). Auth requirement: a signed-in user (admin-only in production; in dev
+// the DEV_AUTH_EMAIL auto-login user satisfies the check). Returns the updated
+// provider (mapped through mapOAuthProvider so we never leak the secret — only
+// `hasClientId: true`).
 //
 // Body (all optional, only provided fields are updated):
 //   {
@@ -20,7 +20,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { mapOAuthProvider } from '@/lib/mappers'
-import { getCurrentUser } from '@/lib/auth-helpers'
+import { getCurrentUser, isAdminUser } from '@/lib/auth-helpers'
 
 interface RouteCtx {
   params: Promise<{ id: string }>
@@ -40,6 +40,10 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
     const user = await getCurrentUser(req)
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    // Global provider credentials are platform-wide — operators only.
+    if (!isAdminUser(user)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const { id } = await ctx.params

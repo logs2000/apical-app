@@ -2,10 +2,11 @@
 // Keeping these in one place keeps route handlers thin.
 
 import { db } from './db'
+import { redactSecretMetaFields } from './platform/vault'
 import {
   integrationFromRow,
   parseConfig,
-  parseWorkflowJSON,
+  tryParseWorkflowJSON,
 } from './apical-server'
 import type {
   Credential,
@@ -27,8 +28,6 @@ export function mapWorkflow(row: {
   trigger: string
   schedule: string | null
   status: string
-  department?: string | null
-  title?: string | null
   workspaceId?: string | null
   runtime?: string | null
   parentAgentId?: string | null
@@ -51,13 +50,11 @@ export function mapWorkflow(row: {
     id: row.id,
     name: row.name,
     description: row.description,
-    steps: parseWorkflowJSON(row.stepsJson),
+    steps: tryParseWorkflowJSON(row.stepsJson),
     trigger: row.trigger as Workflow['trigger'],
     schedule: row.schedule,
     status: row.status as Workflow['status'],
     origin: row.origin as Workflow['origin'],
-    department: (row.department ?? 'General') as Workflow['department'],
-    title: row.title ?? null,
     workspaceId: row.workspaceId ?? null,
     runtime: (row.runtime ?? 'hosted') as Workflow['runtime'],
     parentAgentId: row.parentAgentId ?? null,
@@ -189,7 +186,10 @@ export function mapCredential(row: {
     label: row.label,
     kind: row.kind as Credential['kind'],
     status: row.status as Credential['status'],
-    meta: parseConfig<Record<string, unknown>>(row.metaJson, {}),
+    // Never ship secrets (plaintext or encrypted blobs) to the client.
+    meta: redactSecretMetaFields(
+      parseConfig<Record<string, unknown>>(row.metaJson, {}),
+    ),
     agentProvisioned: row.agentProvisioned,
     canPay: row.canPay,
     oauthProvider: row.oauthProvider ?? null,
@@ -244,7 +244,7 @@ export function mapIntegration(
 }
 
 export function mapWorkflowJSONFromString(raw: string): WorkflowJSON {
-  return parseWorkflowJSON(raw)
+  return tryParseWorkflowJSON(raw)
 }
 
 function safeParse(raw: string): unknown {
@@ -256,11 +256,16 @@ function safeParse(raw: string): unknown {
 }
 
 /**
- * Convenience: load all integrations with their tools, mapped to the API shape.
- * Used by the agent chat to build the tool catalog.
+ * Convenience: load integrations with their tools, mapped to the API shape.
+ * Used by the agent chat to build the tool catalog. When a workspaceId is
+ * given, returns that workspace's instances + global registry rows; without
+ * one, only global rows.
  */
-export async function loadIntegrations(): Promise<Integration[]> {
+export async function loadIntegrations(workspaceId?: string | null): Promise<Integration[]> {
   const rows = await db.integration.findMany({
+    where: workspaceId
+      ? { OR: [{ workspaceId }, { workspaceId: null }] }
+      : { workspaceId: null },
     orderBy: [{ category: 'asc' }, { name: 'asc' }],
   })
   return rows.map(mapIntegration)

@@ -86,11 +86,80 @@ export function useCreateIntegration() {
   })
 }
 
-// ---------------- Workflows ----------------
+// ---------------- Workflows (served by the public /v1 API) ----------------
+
+/** The /v1 workflow DTO — raw WorkflowJSON + metadata. */
+interface WorkflowV1Dto {
+  id: string
+  name: string
+  description: string
+  status: string
+  trigger: string
+  schedule: string | null
+  origin: string
+  runtime: string
+  workspaceId: string | null
+  parentAgentId: string | null
+  activeRevisionId: string | null
+  workflow: WorkflowJSON
+  stats: {
+    runsCount: number
+    itemsProcessed: number
+    automaticCount: number
+    flaggedCount: number
+    aiCallsSaved: number
+    estCostSavedCents: number
+  }
+  config: {
+    modelPreference: string | null
+    confidenceThreshold: number | null
+    autoHardenAfter: number | null
+    allowedTools: string[] | null
+    allowedCredentials: string[] | null
+  }
+  createdAt: string
+  updatedAt: string
+}
+
+/** Adapt the /v1 DTO to the UI's flat Workflow shape. */
+function fromV1(dto: WorkflowV1Dto): Workflow {
+  return {
+    id: dto.id,
+    name: dto.name,
+    description: dto.description,
+    steps: dto.workflow,
+    trigger: dto.trigger as Workflow['trigger'],
+    schedule: dto.schedule,
+    status: dto.status as Workflow['status'],
+    origin: dto.origin as Workflow['origin'],
+    workspaceId: dto.workspaceId,
+    runtime: dto.runtime as Workflow['runtime'],
+    parentAgentId: dto.parentAgentId,
+    runsCount: dto.stats.runsCount,
+    itemsProcessed: dto.stats.itemsProcessed,
+    automaticCount: dto.stats.automaticCount,
+    flaggedCount: dto.stats.flaggedCount,
+    aiCallsSaved: dto.stats.aiCallsSaved,
+    estCostSavedCents: dto.stats.estCostSavedCents,
+    modelPreference: dto.config.modelPreference,
+    confidenceThreshold: dto.config.confidenceThreshold,
+    autoHardenAfter: dto.config.autoHardenAfter,
+    allowedTools: dto.config.allowedTools,
+    allowedCredentials: dto.config.allowedCredentials,
+    createdAt: dto.createdAt,
+    updatedAt: dto.updatedAt,
+  }
+}
+
 export function useWorkflows() {
   return useQuery<Workflow[]>({
     queryKey: ['workflows'],
-    queryFn: () => j(fetch('/api/workflows').then((r) => r)),
+    queryFn: async () => {
+      const res = await j<{ workflows: WorkflowV1Dto[] }>(
+        fetch('/v1/workflows?limit=200').then((r) => r),
+      )
+      return res.workflows.map(fromV1)
+    },
   })
 }
 
@@ -105,23 +174,30 @@ export function useWorkflow(id: string | null) {
 export function useCreateWorkflow() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: {
+    mutationFn: async (input: {
       name: string
       description: string
       steps: WorkflowJSON
       trigger?: 'manual' | 'schedule'
       schedule?: string
-      department?: string
-      title?: string
       origin?: 'agent' | 'manual' | 'chat'
-    }) =>
-      j<Workflow>(
-        fetch('/api/workflows', {
+    }) => {
+      const res = await j<{ workflow: WorkflowV1Dto }>(
+        fetch('/v1/workflows', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(input),
+          body: JSON.stringify({
+            name: input.name,
+            description: input.description,
+            trigger: input.trigger,
+            schedule: input.schedule ?? null,
+            origin: input.origin,
+            workflow: input.steps,
+          }),
         }).then((r) => r),
-      ),
+      )
+      return fromV1(res.workflow)
+    },
     onSuccess: (created) => {
       qc.setQueryData<Workflow[]>(['workflows'], (old) => {
         const list = old ?? []
@@ -137,20 +213,23 @@ export function useCreateWorkflow() {
 export function useUpdateWorkflow() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       id,
       patch,
     }: {
       id: string
-      patch: Partial<Pick<Workflow, 'name' | 'description' | 'trigger' | 'schedule' | 'status' | 'department' | 'title' | 'origin' | 'workspaceId' | 'runtime' | 'modelPreference' | 'confidenceThreshold' | 'autoHardenAfter' | 'allowedTools' | 'allowedCredentials'>> & { steps?: import('./types').WorkflowJSON }
-    }) =>
-      j<Workflow>(
-        fetch(`/api/workflows/${id}`, {
+      patch: Partial<Pick<Workflow, 'name' | 'description' | 'trigger' | 'schedule' | 'status' | 'runtime' | 'modelPreference' | 'confidenceThreshold' | 'autoHardenAfter' | 'allowedTools' | 'allowedCredentials'>> & { steps?: import('./types').WorkflowJSON }
+    }) => {
+      const { steps, ...rest } = patch
+      const res = await j<{ workflow: WorkflowV1Dto }>(
+        fetch(`/v1/workflows/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch),
+          body: JSON.stringify({ ...rest, ...(steps ? { workflow: steps } : {}) }),
         }).then((r) => r),
-      ),
+      )
+      return fromV1(res.workflow)
+    },
     onSuccess: (wf) => {
       qc.invalidateQueries({ queryKey: ['workflows'] })
       qc.invalidateQueries({ queryKey: ['workflow', wf.id] })
@@ -163,8 +242,8 @@ export function useDeleteWorkflow() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      j<{ ok: true; id: string }>(
-        fetch(`/api/workflows/${id}`, { method: 'DELETE' }).then((r) => r),
+      j<{ deleted: true }>(
+        fetch(`/v1/workflows/${id}`, { method: 'DELETE' }).then((r) => r),
       ),
     // Optimistically remove the agent from the list so it disappears instantly,
     // before the server round-trip. Roll back if the delete fails.
@@ -213,12 +292,12 @@ export function useHardenStep() {
 export function useRunWorkflow() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, trigger }: { id: string; trigger?: 'manual' | 'schedule' }) =>
+    mutationFn: ({ id }: { id: string; trigger?: 'manual' | 'schedule' }) =>
       j<{ runId: string }>(
-        fetch(`/api/workflows/${id}/run`, {
+        fetch(`/v1/workflows/${id}/run`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trigger: trigger ?? 'manual' }),
+          body: '{}',
         }).then((r) => r),
       ),
     onSuccess: () => {
@@ -528,20 +607,6 @@ export function useAnalyzeScript() {
   })
 }
 
-// ---------------- Deep research (autonomous web crawling + workflow generation) ----------------
-export function useDeepResearch() {
-  return useMutation({
-    mutationFn: (input: { goal: string; context?: string }) =>
-      j<import('./types').ResearchPlan>(
-        fetch('/api/agent/research', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(input),
-        }).then((r) => r),
-      ),
-  })
-}
-
 // ---------------- SaaS Developer platform ----------------
 export interface DeveloperAccount {
   id: string
@@ -775,17 +840,17 @@ export function useDevDocs() {
     staleTime: Infinity,
   })
 }
-// ---------------- Employee import (drag-and-drop JSON) ----------------
-export function useImportEmployee() {
+// ---------------- Workflow import (drag-and-drop AutomationFile JSON) ----------------
+export function useImportWorkflow() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: { json: string }) =>
       j<{
-        employee: Workflow
+        workflow: Workflow
         integrationsCreated: number
         credentialsCreated: number
       }>(
-        fetch('/api/employees/import', {
+        fetch('/api/workflows/import', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(input),
@@ -796,33 +861,6 @@ export function useImportEmployee() {
       qc.invalidateQueries({ queryKey: ['stats'] })
       qc.invalidateQueries({ queryKey: ['integrations'] })
       qc.invalidateQueries({ queryKey: ['credentials'] })
-    },
-  })
-}
-
-// ---------------- Employee edit (apply a chat-proposed change) ----------------
-export function useEditEmployee() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (input: {
-      id: string
-      description?: string
-      steps?: WorkflowJSON
-      name?: string
-      title?: string
-      department?: string
-    }) =>
-      j<Workflow>(
-        fetch(`/api/employees/${input.id}/edit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(input),
-        }).then((r) => r),
-      ),
-    onSuccess: (wf) => {
-      qc.invalidateQueries({ queryKey: ['workflows'] })
-      qc.invalidateQueries({ queryKey: ['workflow', wf.id] })
-      qc.invalidateQueries({ queryKey: ['stats'] })
     },
   })
 }

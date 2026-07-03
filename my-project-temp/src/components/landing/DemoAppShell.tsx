@@ -50,12 +50,12 @@ const DEMO_TABS = [
 type DemoTab = (typeof DEMO_TABS)[number]["key"];
 
 const DEMO_AGENTS = [
-  { id: "a1", name: "Compass", department: "Filing", status: "active", flagged: 2, color: "bg-foreground", runtime: "local" as const },
-  { id: "a2", name: "Atlas", department: "Client", status: "active", flagged: 0, color: "bg-foreground", runtime: "hosted" as const },
-  { id: "a3", name: "Sentinel", department: "Dispatch", status: "active", flagged: 12, color: "bg-gate", runtime: "hosted" as const },
-  { id: "a4", name: "Tally", department: "Finance", status: "active", flagged: 5, color: "bg-gate", runtime: "hosted" as const },
-  { id: "a5", name: "Beacon", department: "Dispatch", status: "active", flagged: 0, color: "bg-foreground", runtime: "hosted" as const },
-  { id: "a6", name: "Scout", department: "Client", status: "paused", flagged: 0, color: "bg-muted-foreground", runtime: "hosted" as const },
+  { id: "a1", name: "Compass", subtitle: "Files scanned documents", status: "active", flagged: 2, color: "bg-foreground", runtime: "local" as const },
+  { id: "a2", name: "Atlas", subtitle: "Drafts client onboarding", status: "active", flagged: 0, color: "bg-foreground", runtime: "hosted" as const },
+  { id: "a3", name: "Sentinel", subtitle: "Watches order feeds", status: "active", flagged: 12, color: "bg-gate", runtime: "hosted" as const },
+  { id: "a4", name: "Tally", subtitle: "Reconciles invoices", status: "active", flagged: 5, color: "bg-gate", runtime: "hosted" as const },
+  { id: "a5", name: "Beacon", subtitle: "Sends daily reminders", status: "active", flagged: 0, color: "bg-foreground", runtime: "hosted" as const },
+  { id: "a6", name: "Scout", subtitle: "Researches prospects", status: "paused", flagged: 0, color: "bg-muted-foreground", runtime: "hosted" as const },
 ];
 
 const DEMO_CHAT: Array<{ role: "user" | "agent"; content: string }> = [
@@ -204,7 +204,7 @@ export function DemoAppShell() {
                               <span className="shrink-0 rounded border border-gate/40 bg-gate/10 px-1 text-[8px] font-semibold text-gate">{a.flagged}</span>
                             )}
                           </div>
-                          <div className="truncate text-[9px] text-muted-foreground">{a.department}</div>
+                          <div className="truncate text-[9px] text-muted-foreground">{a.subtitle}</div>
                         </div>
                       </button>
                     ))}
@@ -244,7 +244,7 @@ export function DemoAppShell() {
                           {selectedAgent.runtime === "local" ? "Local" : "Hosted"}
                         </span>
                       </div>
-                      <div className="text-[10px] text-muted-foreground">{selectedAgent.department}</div>
+                      <div className="text-[10px] text-muted-foreground">{selectedAgent.subtitle}</div>
                     </div>
                   </div>
                 )}
@@ -354,7 +354,7 @@ export function DemoAppShell() {
                         {selectedAgent.runtime === "local" ? "Local" : "Hosted"}
                       </span>
                     </div>
-                    <div className="text-[10px] text-muted-foreground">every 15 min · {selectedAgent.department}</div>
+                    <div className="text-[10px] text-muted-foreground">every 15 min · {selectedAgent.subtitle}</div>
                     <div className="mt-1 text-[10px] text-muted-foreground">1,284 runs · 8,472 items</div>
                   </div>
                   {selectedAgent.flagged > 0 && (

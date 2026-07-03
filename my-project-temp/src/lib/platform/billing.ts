@@ -29,6 +29,7 @@ import {
   type PlanDefinition,
 } from '@/lib/platform/pricing'
 import type { Subscription } from '@prisma/client'
+import { resolveEffectiveAllowance } from '@/lib/platform/token-allowance-config'
 
 // ---------------- Mode detection ----------------
 
@@ -350,14 +351,15 @@ export interface BillingStatus {
 export async function getBillingStatus(userId: string): Promise<BillingStatus> {
   const subscription = await getOrCreateSubscription(userId)
   const plan = getPlan(subscription.plan)
+  const allowance = await resolveEffectiveAllowance(subscription)
 
   return {
     subscription,
     plan,
     usage: {
       used: subscription.tokenUsedMonthly,
-      allowance: subscription.tokenAllowanceMonthly,
-      overage: subscription.tokenOverageMonthly,
+      allowance,
+      overage: Math.max(0, subscription.tokenUsedMonthly - allowance),
       overrunEnabled: subscription.overrunEnabled,
       periodEnd: subscription.currentPeriodEnd,
     },

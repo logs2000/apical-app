@@ -1,7 +1,7 @@
 // Apical — shared Automation File deployment logic.
 //
 // Used by both:
-//   - POST /api/employees/import  (the in-app "hire from JSON" flow)
+//   - POST /api/workflows/import  (the in-app import-from-JSON flow)
 //   - POST /api/dev/deploy        (the authenticated MCP/REST deploy endpoint)
 //
 // Both accept an AutomationFile and install its inline integrations + credentials
@@ -11,6 +11,7 @@
 import { db } from './db'
 import { serializeWorkflowJSON } from './apical-server'
 import { mapWorkflow } from './mappers'
+import { saveWorkflowSteps } from './platform/workflow-revisions'
 import type {
   AutomationFile,
   HttpCallSpec,
@@ -22,11 +23,6 @@ import type {
 } from './types'
 
 // ---------------- Coercion helpers ----------------
-
-export function coerceDepartment(raw: unknown): string {
-  if (typeof raw === 'string' && raw.trim()) return raw.trim()
-  return 'General'
-}
 
 function coerceKind(raw: unknown): IntegrationKind {
   if (raw === 'mcp' || raw === 'api' || raw === 'http') return raw
@@ -77,7 +73,7 @@ export function validateAutomationFile(file: Partial<AutomationFile>): string | 
 // ---------------- Step normalization ----------------
 
 /** Normalize a parsed AutomationFile's steps into well-formed WorkflowSteps.
- *  Same logic as /api/employees/import — accepts inline `http` specs on tool steps. */
+ *  Accepts inline `http` specs on tool steps. */
 export function normalizeSteps(raw: unknown[]): WorkflowStep[] {
   return raw
     .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
@@ -189,6 +185,8 @@ export function normalizeSteps(raw: unknown[]): WorkflowStep[] {
 export interface DeployOptions {
   /** Scope the workflow to this workspace (the developer's). */
   workspaceId?: string | null
+  /** The acting user (session imports) — stamped on workflow + credentials. */
+  userId?: string | null
   /** 'agent' (default — the agent builder created this) or 'manual'. */
   origin?: 'agent' | 'manual'
 }
@@ -213,9 +211,6 @@ export async function deployAutomationFile(
 
   const name = (file.name as string).trim()
   const description = typeof file.description === 'string' ? file.description : ''
-  const department = coerceDepartment(file.department)
-  const title =
-    typeof file.title === 'string' && file.title.trim() ? file.title.trim() : null
   const steps = normalizeSteps((file.steps as unknown[]) || [])
   const origin = options.origin ?? 'agent'
 
@@ -238,6 +233,7 @@ export async function deployAutomationFile(
     }
     const created = await db.integration.create({
       data: {
+        workspaceId: options.workspaceId ?? null,
         name: mcp.name,
         kind: 'mcp',
         description: `MCP server (${transport}) declared in automation file.`,
@@ -266,6 +262,7 @@ export async function deployAutomationFile(
       if (!it || typeof it !== 'object' || !it.name) continue
       const created = await db.integration.create({
         data: {
+          workspaceId: options.workspaceId ?? null,
           name: it.name,
           kind: coerceKind(it.kind),
           description: it.description || `Imported from automation file: ${it.name}`,
@@ -319,6 +316,8 @@ export async function deployAutomationFile(
           : 'active'
       await db.credential.create({
         data: {
+          userId: options.userId ?? null,
+          workspaceId: options.workspaceId ?? null,
           service: c.service,
           label: c.label || c.service,
           kind: coerceCredentialKind(c.kind),
@@ -337,6 +336,7 @@ export async function deployAutomationFile(
 
   const created = await db.workflow.create({
     data: {
+      userId: options.userId ?? null,
       name,
       description,
       stepsJson: serializeWorkflowJSON({ version: 1, steps }),
@@ -344,10 +344,12 @@ export async function deployAutomationFile(
       schedule: schedule ?? null,
       status: 'active',
       origin,
-      department,
-      title,
       workspaceId: options.workspaceId ?? null,
     },
+  })
+  await saveWorkflowSteps(created.id, { version: 1, steps }, {
+    author: 'import',
+    note: 'Imported from AutomationFile.',
   })
 
   return {

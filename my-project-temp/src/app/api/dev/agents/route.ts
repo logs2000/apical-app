@@ -4,14 +4,11 @@ import { mapWorkflow } from '@/lib/mappers'
 import { withDevAuth } from '@/lib/dev-auth'
 
 // GET /api/dev/agents — authenticated via bearer API key.
-// Lists the developer's workflows (by workspaceId). Returns Workflow[] (mapped).
-export const GET = withDevAuth(async (_req, { developer, apiKey }) => {
+// Lists the workspace's workflows. Returns Workflow[] (mapped).
+export const GET = withDevAuth(async (_req, { workspace, apiKey }) => {
   try {
-    if (!developer.workspaceId) {
-      return NextResponse.json([])
-    }
     const rows = await db.workflow.findMany({
-      where: { workspaceId: developer.workspaceId },
+      where: { workspaceId: workspace.id },
       orderBy: { updatedAt: 'desc' },
     })
 
@@ -19,10 +16,10 @@ export const GET = withDevAuth(async (_req, { developer, apiKey }) => {
     void db.mcpAuditLog
       .create({
         data: {
-          developerId: developer.id,
+          workspaceId: workspace.id,
           apiKeyId: apiKey.id,
           action: 'mcp:list_agents',
-          target: developer.workspaceId,
+          target: workspace.id,
           success: true,
           costCents: 0,
           detail: `Listed ${rows.length} agent(s).`,

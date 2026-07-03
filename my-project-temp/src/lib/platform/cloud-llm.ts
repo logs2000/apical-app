@@ -2,11 +2,7 @@
 // provider keys are configured locally. Auth: the user's ap_pat_... token.
 
 import { getApicalCloudUrl, getCloudPat } from '@/lib/platform/cloud-pat'
-
-export interface CloudChatMessage {
-  role: 'system' | 'user' | 'assistant'
-  content: string
-}
+import type { AssistantToolCall, GatewayMessage, StopReason, ToolSpec } from '@/lib/platform/llm-gateway'
 
 export interface CloudChatUsage {
   promptTokens: number
@@ -23,18 +19,23 @@ export interface CloudChatResponse {
 }
 
 export interface CloudStreamEvent {
-  type: 'delta' | 'done'
+  type: 'delta' | 'thinking_delta' | 'tool_call' | 'done'
   content?: string
+  toolCall?: AssistantToolCall
   usage?: CloudChatUsage
+  stopReason?: StopReason
+  thinkingBlocks?: unknown[]
 }
 
 interface CloudChatRequest {
   modelId: string
-  messages: CloudChatMessage[]
+  messages: GatewayMessage[]
   maxTokens?: number
   temperature?: number
   source?: string
   refId?: string
+  tools?: ToolSpec[]
+  thinking?: boolean
 }
 
 function authHeaders(pat: string): HeadersInit {
@@ -108,6 +109,8 @@ export async function cloudChat(
       temperature: req.temperature,
       source: req.source,
       refId: req.refId,
+      tools: req.tools,
+      thinking: req.thinking,
     }),
   })
 
@@ -137,6 +140,8 @@ export async function* cloudChatStream(
       temperature: req.temperature,
       source: req.source,
       refId: req.refId,
+      tools: req.tools,
+      thinking: req.thinking,
     }),
   })
 
@@ -167,13 +172,25 @@ export async function* cloudChatStream(
           const ev = JSON.parse(payload) as {
             type?: string
             content?: string
+            toolCall?: AssistantToolCall
             usage?: CloudChatUsage
+            stopReason?: StopReason
+            thinkingBlocks?: unknown[]
             error?: string
           }
           if (ev.type === 'delta' && typeof ev.content === 'string') {
             yield { type: 'delta', content: ev.content }
-          } else if (ev.type === 'done' && ev.usage) {
-            yield { type: 'done', usage: ev.usage }
+          } else if (ev.type === 'thinking_delta' && typeof ev.content === 'string') {
+            yield { type: 'thinking_delta', content: ev.content }
+          } else if (ev.type === 'tool_call' && ev.toolCall) {
+            yield { type: 'tool_call', toolCall: ev.toolCall }
+          } else if (ev.type === 'done') {
+            yield {
+              type: 'done',
+              usage: ev.usage,
+              stopReason: ev.stopReason,
+              thinkingBlocks: ev.thinkingBlocks,
+            }
           } else if (ev.type === 'error') {
             throw new Error(ev.error || 'Cloud stream error')
           }

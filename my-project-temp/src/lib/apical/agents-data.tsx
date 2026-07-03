@@ -74,7 +74,6 @@ export function AgentsDataProvider({ children }: { children: React.ReactNode }) 
         name: fallbackName,
         description: 'A conversation with Apical — ask anything or describe work to automate.',
         steps: { version: 1, steps: [] },
-        department: 'General',
         origin: 'agent',
       })
 
@@ -90,7 +89,7 @@ export function AgentsDataProvider({ children }: { children: React.ReactNode }) 
             name: string
             description: string
           }
-          await fetch(`/api/workflows/${created.id}`, {
+          await fetch(`/v1/workflows/${created.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, description }),

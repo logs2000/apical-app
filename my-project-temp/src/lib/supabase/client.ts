@@ -1,6 +1,6 @@
 // Browser-side Supabase client (for use in Client Components).
-// Returns null when Supabase env vars are absent (e.g. local dev with the
-// auth bypass), so callers can fall back gracefully.
+// Returns null when Supabase env vars are absent (e.g. local dev without
+// Supabase configured), so callers can fall back gracefully.
 
 import { createBrowserClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'

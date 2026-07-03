@@ -27,17 +27,20 @@ import {
   chatStream,
   checkAllowance,
   resolveModel,
-  type ChatMessage,
+  type GatewayMessage,
+  type ToolSpec,
 } from '@/lib/platform/llm-gateway'
 
 interface ChatBody {
   modelId: string
-  messages: ChatMessage[]
+  messages: GatewayMessage[]
   stream?: boolean
   maxTokens?: number
   temperature?: number
   source?: 'chat' | 'agent' | 'workflow' | 'reason' | 'research'
   refId?: string
+  tools?: ToolSpec[]
+  thinking?: boolean
 }
 
 export const POST = withUser(async (req, { user }) => {
@@ -66,13 +69,45 @@ export const POST = withUser(async (req, { user }) => {
     return NextResponse.json({ error: 'messages must be a non-empty array' }, { status: 400 })
   }
   // Reject malformed messages early so the LLM call doesn't fail mid-flight.
-  for (const m of messages) {
-    if (!m || typeof m.content !== 'string' ||
-        !['system', 'user', 'assistant'].includes(m.role)) {
+  // Accepts: system/user (string content), assistant (string content, optional
+  // toolCalls), and tool results ({ toolCallId, content }).
+  for (const m of messages as Array<Record<string, unknown>>) {
+    if (!m || typeof m.role !== 'string') {
+      return NextResponse.json({ error: 'Each message needs a role' }, { status: 400 })
+    }
+    if (m.role === 'tool') {
+      if (typeof m.toolCallId !== 'string' || typeof m.content !== 'string') {
+        return NextResponse.json(
+          { error: 'Tool messages need { role: "tool", toolCallId: string, content: string }' },
+          { status: 400 },
+        )
+      }
+    } else if (['system', 'user', 'assistant'].includes(m.role)) {
+      if (typeof m.content !== 'string') {
+        return NextResponse.json(
+          { error: 'system/user/assistant messages need a string content' },
+          { status: 400 },
+        )
+      }
+    } else {
       return NextResponse.json(
-        { error: 'Each message needs { role: "system"|"user"|"assistant", content: string }' },
+        { error: 'role must be one of system | user | assistant | tool' },
         { status: 400 },
       )
+    }
+  }
+  if (body.tools !== undefined) {
+    if (!Array.isArray(body.tools) || body.tools.length > 64) {
+      return NextResponse.json({ error: 'tools must be an array of at most 64 entries' }, { status: 400 })
+    }
+    for (const t of body.tools as unknown as Array<Record<string, unknown>>) {
+      if (!t || typeof t.name !== 'string' || typeof t.description !== 'string' ||
+          typeof t.parameters !== 'object' || t.parameters === null) {
+        return NextResponse.json(
+          { error: 'Each tool needs { name: string, description: string, parameters: object }' },
+          { status: 400 },
+        )
+      }
     }
   }
   if (body.maxTokens !== undefined && (typeof body.maxTokens !== 'number' || body.maxTokens <= 0)) {
@@ -117,6 +152,8 @@ export const POST = withUser(async (req, { user }) => {
     userId: user.id,
     source: body.source,
     refId: body.refId,
+    tools: body.tools,
+    thinking: body.thinking,
   }
 
   // Non-streaming path.
@@ -147,9 +184,24 @@ export const POST = withUser(async (req, { user }) => {
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ type: 'delta', content: ev.content })}\n\n`),
             )
-          } else if (ev.type === 'done' && ev.usage) {
+          } else if (ev.type === 'thinking_delta' && typeof ev.content === 'string') {
             controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ type: 'done', usage: ev.usage })}\n\n`),
+              encoder.encode(`data: ${JSON.stringify({ type: 'thinking_delta', content: ev.content })}\n\n`),
+            )
+          } else if (ev.type === 'tool_call' && ev.toolCall) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: 'tool_call', toolCall: ev.toolCall })}\n\n`),
+            )
+          } else if (ev.type === 'done') {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: 'done',
+                  usage: ev.usage,
+                  stopReason: ev.stopReason,
+                  thinkingBlocks: ev.thinkingBlocks,
+                })}\n\n`,
+              ),
             )
           }
         }

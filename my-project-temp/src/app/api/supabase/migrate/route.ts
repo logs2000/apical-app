@@ -32,8 +32,6 @@ const TABLE_SQL: Record<string, string> = {
       trigger TEXT DEFAULT 'manual',
       schedule TEXT,
       status TEXT DEFAULT 'active',
-      department TEXT DEFAULT 'General',
-      title TEXT,
       workspace_id TEXT,
       runtime TEXT DEFAULT 'hosted',
       parent_agent_id TEXT,

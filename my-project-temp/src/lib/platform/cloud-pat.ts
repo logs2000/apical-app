@@ -29,8 +29,9 @@ function ensureRuntimeEnvLoaded(): void {
 }
 
 ensureRuntimeEnvLoaded()
-import { PAT_PREFIX } from '@/lib/auth-helpers'
 import { decrypt, encrypt } from '@/lib/platform/vault'
+
+const PAT_PREFIX = 'ap_pat_'
 
 export const CLOUD_PAT_SERVICE = 'apical-cloud'
 

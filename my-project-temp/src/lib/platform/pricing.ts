@@ -48,7 +48,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     tagline: 'Try it out. No credit card.',
     priceMonthly: 0,
     priceYearly: 0,
-    tokenAllowanceMonthly: 50_000,
+    tokenAllowanceMonthly: 150_000,
     maxAgents: 3,
     overrunAvailable: false,
     overrunRateCentsPer1M: 0,
@@ -59,7 +59,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     featured: false,
     features: [
       '3 agents',
-      '50,000 tokens included / month',
+      '150,000 tokens included / month',
       'Bring your own API keys',
       'Runs on your computer',
       'Community support',
@@ -71,7 +71,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     tagline: 'For one person getting real work done.',
     priceMonthly: 16,
     priceYearly: 160, // ~2 months free
-    tokenAllowanceMonthly: 2_000_000,
+    tokenAllowanceMonthly: 6_000_000,
     maxAgents: 25,
     overrunAvailable: true,
     overrunRateCentsPer1M: 400, // $4 / 1M tokens
@@ -82,7 +82,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     featured: true,
     features: [
       '25 agents',
-      '2,000,000 tokens / month',
+      '6,000,000 tokens / month',
       'Pay-as-you-go after that ($4 / 1M)',
       'Bring your own keys',
       'Runs on your computer',
@@ -96,7 +96,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     tagline: 'A few people sharing the same agents.',
     priceMonthly: 12, // per seat / month
     priceYearly: 120, // per seat / year
-    tokenAllowanceMonthly: 5_000_000, // shared pool
+    tokenAllowanceMonthly: 15_000_000, // shared pool
     maxAgents: 100,
     overrunAvailable: true,
     overrunRateCentsPer1M: 300, // $3 / 1M tokens
@@ -108,7 +108,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     features: [
       '5 seats included (add more anytime)',
       '100 agents, shared across the team',
-      '5,000,000 tokens / month, shared',
+      '15,000,000 tokens / month, shared',
       'Shared workspace + roles',
       'Pay-as-you-go after that ($3 / 1M)',
       'Team usage dashboard',

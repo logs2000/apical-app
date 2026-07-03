@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser } from '@/lib/auth-helpers'
+import { workspaceIdForUser } from '@/lib/integration-scope'
 import { integrationFromRow } from '@/lib/apical-server'
 
 interface RouteCtx {
@@ -19,6 +21,10 @@ interface PublishBody {
 // Like adding a custom food to the MyFitnessPal community library.
 export async function POST(req: Request, { params }: RouteCtx) {
   try {
+    const user = await getCurrentUser(req)
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { id } = await params
     let body: PublishBody = {}
     try {
@@ -31,16 +37,23 @@ export async function POST(req: Request, { params }: RouteCtx) {
         ? body.authorLabel.trim()
         : 'community'
 
-    const original = await db.integration.findUnique({ where: { id } })
+    // You can only publish an instance that belongs to YOUR workspace.
+    const wsId = await workspaceIdForUser(user)
+    const original = await db.integration.findFirst({
+      where: { id, workspaceId: wsId },
+    })
     if (!original) {
       return NextResponse.json(
-        { error: 'Integration not found' },
+        { error: 'Integration not found in your workspace' },
         { status: 404 },
       )
     }
 
+    // The published copy is a global registry row (workspaceId null).
     const published = await db.integration.create({
       data: {
+        workspaceId: null,
+        registrySlug: original.registrySlug,
         name: original.name,
         kind: original.kind,
         description: original.description,

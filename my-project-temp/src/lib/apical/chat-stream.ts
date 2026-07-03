@@ -1,7 +1,7 @@
 'use client'
 
 import type { AgentEvent, WorkflowJSON } from '@/lib/types'
-import type { ChatMessage, ExecutionStep, CredentialRequestInfo, RunAnalysis, ChatRun, ChatRunStatus, PlanItem, ClarificationRequestInfo } from './index'
+import type { ChatMessage, ExecutionStep, CredentialRequestInfo, CredentialRequestState, RunAnalysis, ChatRun, ChatRunStatus, PlanItem, ClarificationRequestInfo } from './index'
 import { traceStepLabel, sanitizeTraceInput } from '@/lib/platform/workflow-trace'
 import {
   sandboxItemFromObservation,
@@ -77,15 +77,43 @@ function normalizeMessagesResponse(data: unknown): Array<{
 export function mapPersistedMessages(
   rows: ReturnType<typeof normalizeMessagesResponse>,
 ): ChatMessage[] {
-  return rows.map((m) => ({
-    id: m.id,
-    role: m.role === 'user' ? 'user' : 'agent',
-    content: m.content,
-    events: m.events,
-    executionTrace: executionTraceFromEvents(m.events),
-    runAnalysis: runAnalysisFromEvents(m.events),
-    createdAt: m.createdAt,
-  }))
+  return rows.map((m) => {
+    const cards = interactiveCardsFromEvents(m.events)
+    return {
+      id: m.id,
+      serverId: m.id,
+      role: (m.role === 'user' ? 'user' : 'agent') as ChatMessage['role'],
+      content: m.content,
+      events: m.events,
+      executionTrace: executionTraceFromEvents(m.events),
+      runAnalysis: runAnalysisFromEvents(m.events),
+      ...cards,
+      createdAt: m.createdAt,
+    }
+  })
+}
+
+/** Restore interactive cards (credential boxes, checklist, clarification) from
+ *  persisted events so they survive page reloads until resolved. */
+export function interactiveCardsFromEvents(events?: AgentEvent[]): Partial<ChatMessage> {
+  if (!events?.length) return {}
+  const out: Partial<ChatMessage> = {}
+  const creds: CredentialRequestState[] = []
+  for (const e of events) {
+    if (e.type === 'credential_request' && e.request) {
+      creds.push({
+        ...(e.request as CredentialRequestInfo),
+        status: e.status ?? 'pending',
+      })
+    } else if (e.type === 'plan' && Array.isArray(e.items) && e.items.length > 0) {
+      out.checklist = e.items as PlanItem[]
+    } else if (e.type === 'clarification' && e.request) {
+      out.clarificationRequest = e.request as ClarificationRequestInfo
+      out.clarificationAnswered = !!e.answered
+    }
+  }
+  if (creds.length > 0) out.credentialRequests = creds
+  return out
 }
 
 /** Rebuild full execution trace from persisted events (reasoning + tool calls). */
@@ -210,7 +238,7 @@ export interface ThinkStreamResult {
   workflowSavedToAgentId?: string
   createdAgentId?: string
   createdAgentName?: string
-  credentialRequest?: CredentialRequestInfo
+  credentialRequests?: CredentialRequestInfo[]
   checklist?: PlanItem[]
   clarificationRequest?: ClarificationRequestInfo
   trace: ExecutionStep[]
@@ -366,6 +394,8 @@ export async function streamAgentThink(
   opts: {
     context?: string
     history?: Array<{ role: 'user' | 'agent'; content: string }>
+    /** An unfinished checklist from an earlier turn to resume instead of restart. */
+    priorPlan?: PlanItem[]
     agentId?: string | null
     attachments?: Array<{
       id: string
@@ -376,8 +406,6 @@ export async function streamAgentThink(
       localPath?: string | null
     }>
     script?: { language: 'javascript' | 'python' | 'shell'; code: string }
-    allowCli?: boolean
-    isDesktop?: boolean
     maxIterations?: number
     signal?: AbortSignal
     onTraceUpdate: (trace: ExecutionStep[]) => void
@@ -401,7 +429,7 @@ export async function streamAgentThink(
   let workflowSavedToAgentId: string | undefined
   let createdAgentId: string | undefined
   let createdAgentName: string | undefined
-  let credentialRequest: CredentialRequestInfo | undefined
+  let credentialRequests: CredentialRequestInfo[] | undefined
   let checklist: PlanItem[] | undefined
   let clarificationRequest: ClarificationRequestInfo | undefined
   let attachments: ThinkStreamResult['attachments']
@@ -414,11 +442,10 @@ export async function streamAgentThink(
       goal,
       context: opts.context,
       history: opts.history,
+      priorPlan: opts.priorPlan,
       agentId: opts.agentId,
       attachments: opts.attachments,
       script: opts.script,
-      allowCli: opts.allowCli,
-      isDesktop: opts.isDesktop,
       maxIterations: opts.maxIterations ?? 64,
     }),
   })
@@ -482,7 +509,8 @@ export async function streamAgentThink(
       workflowSavedToAgentId = (event as { workflowSavedToAgentId?: string }).workflowSavedToAgentId
       createdAgentId = (event as { createdAgentId?: string }).createdAgentId
       createdAgentName = (event as { createdAgentName?: string }).createdAgentName
-      credentialRequest = (event as { credentialRequest?: CredentialRequestInfo }).credentialRequest
+      const creds = (event as { credentialRequests?: CredentialRequestInfo[] }).credentialRequests
+      if (creds && creds.length > 0) credentialRequests = creds
       attachments = (event as { attachments?: ThinkStreamResult['attachments'] }).attachments
       const finalPlan = (event as { plan?: PlanItem[] }).plan
       if (finalPlan) checklist = finalPlan
@@ -497,7 +525,7 @@ export async function streamAgentThink(
     workflowSavedToAgentId,
     createdAgentId,
     createdAgentName,
-    credentialRequest,
+    credentialRequests,
     checklist,
     clarificationRequest,
     trace,
@@ -568,7 +596,23 @@ export function eventsForPersistedMessage(msg: ChatMessage): AgentEvent[] {
         workflowSuggestions: msg.runAnalysis.workflowSuggestions,
       }]
     : []
-  return [...traceEvents, ...analysisEvents]
+  // Interactive cards — persisted so they survive reloads until resolved.
+  const cardEvents: AgentEvent[] = []
+  for (const cr of msg.credentialRequests ?? []) {
+    const { status, ...request } = cr
+    cardEvents.push({ type: 'credential_request', request, status: status ?? 'pending' })
+  }
+  if (msg.checklist && msg.checklist.length > 0) {
+    cardEvents.push({ type: 'plan', items: msg.checklist })
+  }
+  if (msg.clarificationRequest) {
+    cardEvents.push({
+      type: 'clarification',
+      request: msg.clarificationRequest,
+      answered: !!msg.clarificationAnswered,
+    })
+  }
+  return [...traceEvents, ...analysisEvents, ...cardEvents]
 }
 
 export async function analyzeRun(input: {

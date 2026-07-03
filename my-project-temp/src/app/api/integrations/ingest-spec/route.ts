@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
+import { workspaceIdForUser } from '@/lib/integration-scope'
 import { integrationFromRow } from '@/lib/apical-server'
 import { ingestOpenApiSpec, filterTools, type ToolFilter } from '@/lib/openapi-parser'
 import type { ToolDef } from '@/lib/types'
@@ -166,8 +167,10 @@ export async function POST(req: Request) {
     }
 
     // Create the integration with empty tools first (we need the id).
+    const wsId = await workspaceIdForUser(user)
     const created = await db.integration.create({
       data: {
+        workspaceId: wsId,
         name,
         kind: 'api',
         description,

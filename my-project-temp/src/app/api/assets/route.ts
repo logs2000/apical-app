@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth-helpers'
-import { listUserAssets, saveAsset, saveFolderRef, toAssetRecord } from '@/lib/platform/assets'
+import { listUserAssets, saveAsset, saveFileRef, saveFolderRef, toAssetRecord } from '@/lib/platform/assets'
+import { checkPathsGranted } from '@/lib/platform/granted-folders'
 
 // GET /api/assets — list user assets
 export async function GET(req: Request) {
@@ -61,6 +62,23 @@ export async function POST(req: Request) {
       userId: user.id,
       name: body.name || pathBasename(body.localPath),
       localPath: body.localPath,
+      agentId: body.agentId ?? null,
+    })
+    return NextResponse.json({ asset })
+  }
+
+  // Desktop file reference (no byte upload) — must live in a granted root so
+  // the agent's fs_read of the localPath will actually succeed.
+  if (body.type === 'file' && body.localPath) {
+    const granted = await checkPathsGranted(user.id, [body.localPath])
+    if (!granted.ok) {
+      return NextResponse.json({ error: granted.error }, { status: 403 })
+    }
+    const asset = await saveFileRef({
+      userId: user.id,
+      name: body.name || pathBasename(body.localPath),
+      localPath: body.localPath,
+      mimeType: body.mimeType,
       agentId: body.agentId ?? null,
     })
     return NextResponse.json({ asset })

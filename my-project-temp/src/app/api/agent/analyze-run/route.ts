@@ -1,16 +1,8 @@
 import { withUser } from '@/lib/auth-helpers'
 import { rateLimit } from '@/lib/rate-limit'
 import { db } from '@/lib/db'
-import { parseWorkflowJSON } from '@/lib/apical-server'
 import { generateRunReview, stepsFromChatTrace } from '@/lib/platform/run-review'
-import { persistAgentWorkflowFromChatTrace, WORKFLOW_META_TOOLS } from '@/lib/platform/agent-tools'
-import { buildStepsForFreeze } from '@/lib/platform/workflow-distill'
-import { workflowStepsFromExecutionTrace, savedWorkflowHasExecutableSteps, type EngineTraceStep } from '@/lib/platform/workflow-trace'
 import type { ExecutionStep } from '@/lib/apical/index'
-
-function hasSubstantiveSteps(stepsJson?: string): boolean {
-  return savedWorkflowHasExecutableSteps(stepsJson)
-}
 
 interface AnalyzeBody {
   goal: string
@@ -20,6 +12,11 @@ interface AnalyzeBody {
 }
 
 // POST /api/agent/analyze-run — LLM review of a completed agent chat run.
+//
+// Review only: the old "safety net" that auto-saved a workflow from the
+// client-supplied trace was removed (client data is unverifiable, and silent
+// saves violate the explicit-freeze rule). Workflows persist only via
+// workflow_freeze / workflow_update.
 export const POST = withUser(async (req, { user }) => {
   const rl = rateLimit(`analyze-run:${user.id}`, 30, 60_000)
   if (!rl.ok) {
@@ -41,16 +38,14 @@ export const POST = withUser(async (req, { user }) => {
   let agentName = 'Agent'
   let workflowStepsJson: string | undefined
   let modelPreference: string | null | undefined
-  let agentDescription = ''
 
   if (body.agentId) {
     const wf = await db.workflow.findFirst({
       where: { id: body.agentId, userId: user.id },
-      select: { name: true, description: true, stepsJson: true, modelPreference: true },
+      select: { name: true, stepsJson: true, modelPreference: true },
     })
     if (wf) {
       agentName = wf.name
-      agentDescription = wf.description
       workflowStepsJson = wf.stepsJson
       modelPreference = wf.modelPreference
     }
@@ -70,32 +65,5 @@ export const POST = withUser(async (req, { user }) => {
     finalAnswer,
   })
 
-  const reviewFailed = !review.success || review.outcomeAchieved === false
-
-  // Safety net: if the agent succeeded but never saved an owned workflow, persist
-  // the proven trace so future runs can follow it.
-  let workflowAutoSaved = false
-  if (
-    body.agentId &&
-    !reviewFailed &&
-    !stepFailed
-  ) {
-    let existingSteps = 0
-    try {
-      existingSteps = workflowStepsJson ? parseWorkflowJSON(workflowStepsJson).steps.length : 0
-    } catch {
-      existingSteps = 0
-    }
-    if (existingSteps === 0 || !hasSubstantiveSteps(workflowStepsJson)) {
-      const saved = await persistAgentWorkflowFromChatTrace(
-        body.agentId,
-        user.id,
-        trace,
-        agentDescription || `${agentName} workflow`,
-      )
-      workflowAutoSaved = saved.ok
-    }
-  }
-
-  return Response.json({ ...review, workflowAutoSaved })
+  return Response.json({ ...review, workflowAutoSaved: false })
 })

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { refreshExpiringCredentials } from '@/lib/oauth-helpers'
+import { isSchedulerRequest } from '@/lib/scheduler-auth'
 
 // POST /api/oauth/refresh-all — cron endpoint. Finds every active OAuth
 // credential whose access token expires within the next hour (or has already
@@ -14,15 +15,10 @@ import { refreshExpiringCredentials } from '@/lib/oauth-helpers'
 // Idempotent: safe to call every few minutes. Credentials that fail to refresh
 // are surfaced in `details` so the cron operator can alert on repeat failures.
 
-const SCHEDULER_SECRET =
-  process.env.APICAL_SCHEDULER_SECRET || 'apical-scheduler-dev'
-
 export async function POST(req: Request) {
-  // Verify the scheduler secret. Any cron caller must include the matching
-  // header. In dev the default secret is documented; in production it MUST be
-  // overridden via env.
-  const provided = req.headers.get('x-scheduler-secret') || ''
-  if (provided !== SCHEDULER_SECRET) {
+  // Verify the scheduler secret. APICAL_SCHEDULER_SECRET must be set — when
+  // it's missing, scheduler auth fails closed (no dev fallback).
+  if (!isSchedulerRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

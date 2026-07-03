@@ -28,6 +28,8 @@ import {
   Lock,
   ScrollText,
   Monitor,
+  Trash2,
+  SlidersHorizontal,
 } from "lucide-react";
 import { RunLog } from "./workflow-runs-console";
 import { IS_TAURI } from "@/lib/desktop/tauri-bridge";
@@ -145,7 +147,7 @@ export function SettingsView() {
         {/* Agent naming */}
         <Section icon={Palette} title="Agent naming">
           <p className="mb-3 text-[11px] text-muted-foreground">
-            How Apical names new agents when it hires them.
+            How Apical names new agents when it creates them.
           </p>
           <div className="grid grid-cols-2 gap-2">
             {(["evocative", "descriptive"] as const).map((s) => (
@@ -177,6 +179,8 @@ export function SettingsView() {
             <Toggle label="Errors only" desc="Only when an agent fails a run." checked={emailErrors} onChange={setEmailErrors} />
           </div>
         </Section>
+
+        <AdminTokenLimitsSection />
 
         {/* Security */}
         <Section icon={ShieldCheck} title="Security">
@@ -221,6 +225,7 @@ function DesktopAccessSection() {
         <p className="text-[11px] text-muted-foreground">
           Install the Apical desktop app to let agents read and write files on your computer.
         </p>
+        <GrantedFoldersManager />
       </Section>
     );
   }
@@ -233,10 +238,299 @@ function DesktopAccessSection() {
           Desktop access enabled
         </div>
         <p className="mt-1.5 text-[11px] text-muted-foreground">
-          Agents can list, read, write, and move files on this Mac, and run shell commands when you ask them to.
+          Agents can read, write, and move files inside the folders you grant below, and run shell commands when you ask them to.
         </p>
       </div>
+      <GrantedFoldersManager />
+      <WatchedFoldersManager />
+      <CloudDeviceLink />
     </Section>
+  );
+}
+
+// ─── Granted folder roots (the desktop sandbox) ──────────────────────────────
+
+interface GrantedFolderRow {
+  id: string;
+  path: string;
+  label: string | null;
+}
+
+function GrantedFoldersManager() {
+  const [folders, setFolders] = React.useState<GrantedFolderRow[]>([]);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const refresh = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/desktop/folders");
+      if (!res.ok) return;
+      const data = (await res.json()) as { folders?: GrantedFolderRow[] };
+      setFolders(data.folders ?? []);
+    } catch {
+      /* offline — keep whatever we have */
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function grant() {
+    setBusy(true);
+    setError(null);
+    try {
+      let path: string | null = null;
+      if (IS_TAURI) {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const picked = await open({ directory: true, multiple: false });
+        if (picked) path = String(picked);
+      } else {
+        path = window.prompt("Absolute folder path to grant (e.g. ~/Documents/Clients):");
+      }
+      if (path?.trim()) {
+        const res = await fetch("/api/desktop/folders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: path.trim() }),
+        });
+        if (!res.ok) {
+          const err = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        await refresh();
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke(id: string) {
+    await fetch(`/api/desktop/folders/${id}`, { method: "DELETE" });
+    await refresh();
+  }
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-foreground">Granted folders</p>
+        <Button variant="outline" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void grant()}>
+          {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}
+          Grant folder
+        </Button>
+      </div>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Agents and workflows can only touch files inside these folders. Revoking a folder also disables its watches.
+      </p>
+      {error && <p className="mt-1.5 text-[11px] text-destructive">{error}</p>}
+      {folders.length === 0 ? (
+        <p className="mt-2 rounded-md border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+          No folders granted — filesystem tools are disabled until you grant one.
+        </p>
+      ) : (
+        <ul className="mt-2 divide-y divide-border rounded-md border border-border">
+          {folders.map((f) => (
+            <li key={f.id} className="flex items-center gap-2 px-2.5 py-1.5">
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">{f.path}</span>
+              <button
+                type="button"
+                title="Revoke access"
+                className="rounded p-1 text-muted-foreground transition hover:bg-accent hover:text-destructive"
+                onClick={() => void revoke(f.id)}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── Watched-folder triggers ──────────────────────────────────────────────────
+
+interface WatchedFolderRow {
+  id: string;
+  workflowId: string;
+  path: string;
+  pattern: string | null;
+  status: string;
+  lastScanAt: string | null;
+}
+
+function WatchedFoldersManager() {
+  const [watches, setWatches] = React.useState<WatchedFolderRow[]>([]);
+
+  const refresh = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/desktop/watches");
+      if (!res.ok) return;
+      const data = (await res.json()) as { watches?: WatchedFolderRow[] };
+      setWatches(data.watches ?? []);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function toggle(w: WatchedFolderRow) {
+    await fetch(`/api/desktop/watches/${w.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: w.status === "active" ? "paused" : "active" }),
+    });
+    await refresh();
+  }
+
+  async function remove(id: string) {
+    await fetch(`/api/desktop/watches/${id}`, { method: "DELETE" });
+    await refresh();
+  }
+
+  if (watches.length === 0) return null;
+
+  return (
+    <div className="mt-4">
+      <p className="text-xs font-medium text-foreground">Watched folders</p>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        New files in these folders automatically start the linked workflow.
+      </p>
+      <ul className="mt-2 divide-y divide-border rounded-md border border-border">
+        {watches.map((w) => (
+          <li key={w.id} className="flex items-center gap-2 px-2.5 py-1.5">
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
+              {w.path}
+              {w.pattern ? <span className="text-muted-foreground"> · {w.pattern}</span> : null}
+            </span>
+            <Badge variant={w.status === "active" ? "default" : "secondary"} className="text-[10px]">
+              {w.status}
+            </Badge>
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              onClick={() => void toggle(w)}
+            >
+              {w.status === "active" ? "Pause" : "Resume"}
+            </button>
+            <button
+              type="button"
+              title="Delete watch"
+              className="rounded p-1 text-muted-foreground transition hover:bg-accent hover:text-destructive"
+              onClick={() => void remove(w.id)}
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ─── Cloud device link (device-authorization login) ──────────────────────────
+
+function CloudDeviceLink() {
+  const [linked, setLinked] = React.useState<boolean | null>(null);
+  const [userCode, setUserCode] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    void import("@/lib/desktop/device-flow")
+      .then((m) => m.getStoredDeviceToken())
+      .then((t) => setLinked(Boolean(t)))
+      .catch(() => setLinked(false));
+  }, []);
+
+  async function link() {
+    setBusy(true);
+    setError(null);
+    setUserCode(null);
+    try {
+      const { linkDesktopToCloud } = await import("@/lib/desktop/device-flow");
+      const cloudUrl =
+        process.env.NEXT_PUBLIC_APICAL_CLOUD_URL?.trim() || "https://api.apic.al";
+      await linkDesktopToCloud(
+        cloudUrl,
+        {
+          label: "Apical Desktop",
+          platform: navigator.platform || undefined,
+        },
+        { onCode: (code) => setUserCode(code) },
+      );
+      setLinked(true);
+      setUserCode(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Linking failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unlink() {
+    setBusy(true);
+    setError(null);
+    try {
+      const m = await import("@/lib/desktop/device-flow");
+      await m.clearStoredDeviceToken();
+      setLinked(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to disconnect.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-muted/20 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-xs font-semibold">Apical cloud account</h4>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Link this desktop to your apic.al account. Sign-in happens in your browser; the
+            device token is stored in the OS keychain.
+          </p>
+        </div>
+        {linked === null ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : linked ? (
+          <Badge variant="secondary" className="shrink-0 gap-1 text-[10px]">
+            <Check className="h-3 w-3" /> Linked
+          </Badge>
+        ) : null}
+      </div>
+
+      {userCode && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Confirm this code in your browser:{" "}
+          <span className="font-mono text-sm font-semibold text-foreground">{userCode}</span>
+        </p>
+      )}
+
+      {error && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-destructive">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
+        </div>
+      )}
+
+      <div className="mt-3">
+        {linked ? (
+          <Button variant="outline" size="sm" disabled={busy} onClick={unlink}>
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Disconnect"}
+          </Button>
+        ) : (
+          <Button size="sm" disabled={busy || linked === null} onClick={link}>
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Link to Apical Cloud"}
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -784,6 +1078,176 @@ function ByokKeysManager({ keys, onChanged }: { keys: ByokKey[]; onChanged: () =
         </Button>
       </div>
     </div>
+  );
+}
+
+// ─── Admin: token limits ────────────────────────────────────────────────────
+
+type TokenLimitsPayload = {
+  config: {
+    globalMultiplier: number;
+    planAllowances: Partial<Record<string, number>>;
+  };
+  catalog: Record<string, number>;
+  effectiveByPlan: Record<string, number>;
+};
+
+function AdminTokenLimitsSection() {
+  const [visible, setVisible] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [saved, setSaved] = React.useState(false);
+  const [data, setData] = React.useState<TokenLimitsPayload | null>(null);
+  const [multiplier, setMultiplier] = React.useState("1");
+  const [planOverrides, setPlanOverrides] = React.useState<Record<string, string>>({});
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/admin/token-limits");
+        if (res.status === 403) {
+          if (!cancelled) setVisible(false);
+          return;
+        }
+        if (!res.ok) throw new Error("Failed to load token limits");
+        const json = (await res.json()) as TokenLimitsPayload;
+        if (cancelled) return;
+        setVisible(true);
+        setData(json);
+        setMultiplier(String(json.config.globalMultiplier ?? 1));
+        setPlanOverrides(
+          Object.fromEntries(
+            Object.entries(json.config.planAllowances ?? {}).map(([k, v]) => [k, String(v)]),
+          ),
+        );
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!visible) return null;
+
+  const plans = [
+    { id: "free", label: "Free" },
+    { id: "personal", label: "Personal" },
+    { id: "team", label: "Team" },
+    { id: "enterprise", label: "Enterprise" },
+  ];
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const globalMultiplier = Number(multiplier);
+      if (!Number.isFinite(globalMultiplier) || globalMultiplier <= 0) {
+        throw new Error("Multiplier must be a positive number");
+      }
+      const planAllowances: Record<string, number | null> = {};
+      for (const p of plans) {
+        const raw = planOverrides[p.id]?.trim();
+        if (!raw) {
+          planAllowances[p.id] = null;
+          continue;
+        }
+        const n = Number(raw.replace(/,/g, ""));
+        if (!Number.isFinite(n) || n < 0) throw new Error(`Invalid limit for ${p.label}`);
+        planAllowances[p.id] = Math.round(n);
+      }
+      const res = await fetch("/api/admin/token-limits", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ globalMultiplier, planAllowances }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || "Save failed");
+      }
+      const json = (await res.json()) as TokenLimitsPayload;
+      setData(json);
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section icon={SlidersHorizontal} title="Admin · Token limits">
+      <p className="mb-3 text-[11px] text-muted-foreground">
+        Platform-wide monthly token allowances. Plan catalog values are multiplied unless you set a per-plan override (0 = unlimited).
+      </p>
+      {loading ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Global multiplier</Label>
+            <Input
+              value={multiplier}
+              onChange={(e) => setMultiplier(e.target.value)}
+              className="h-9 max-w-[140px] text-sm tabular-nums"
+              inputMode="decimal"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Applied to each plan&apos;s catalog allowance when no override is set.
+            </p>
+          </div>
+          <div className="space-y-2">
+            {plans.map((p) => (
+              <div key={p.id} className="grid gap-1.5 sm:grid-cols-[120px_1fr_auto] sm:items-center">
+                <Label className="text-xs">{p.label}</Label>
+                <Input
+                  value={planOverrides[p.id] ?? ""}
+                  onChange={(e) =>
+                    setPlanOverrides((prev) => ({ ...prev, [p.id]: e.target.value }))
+                  }
+                  placeholder={
+                    data?.catalog[p.id]
+                      ? `Default ${data.catalog[p.id].toLocaleString()} × multiplier`
+                      : "Override (optional)"
+                  }
+                  className="h-8 text-sm tabular-nums"
+                />
+                <span className="text-[10px] text-muted-foreground sm:text-right">
+                  Effective:{" "}
+                  {(data?.effectiveByPlan[p.id] ?? 0) <= 0
+                    ? "Unlimited"
+                    : (data?.effectiveByPlan[p.id] ?? 0).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+          {error && (
+            <div className="flex items-center gap-1.5 text-[11px] text-destructive">
+              <AlertCircle className="h-3.5 w-3.5" /> {error}
+            </div>
+          )}
+          {saved && (
+            <div className="flex items-center gap-1.5 text-[11px] text-emerald-600">
+              <Check className="h-3.5 w-3.5" /> Saved
+            </div>
+          )}
+          <Button size="sm" onClick={save} disabled={saving} className="gap-1.5">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Save token limits
+          </Button>
+        </div>
+      )}
+    </Section>
   );
 }
 

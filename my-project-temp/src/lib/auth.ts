@@ -9,9 +9,8 @@
 //   • Credentials — email + password (bcrypt-hashed). Used by the signup +
 //                 login pages. Looks up User by email, verifies the hash.
 //
-// Dev bypass: on by default in development (set AUTH_BYPASS_DEV=false to disable).
-// The app pretends you're logged in as dev@apical.local. Middleware skips
-// protection and getCurrentUser() returns the dev user without NextAuth login.
+// There is NO dev bypass — sign in with a real account (the seed script
+// creates dev@apical.local with a password for local development).
 //
 // Export `authOptions` for use in:
 //   - src/app/api/auth/[...nextauth]/route.ts (the NextAuth route handlers)
@@ -22,36 +21,7 @@ import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { db } from './db'
-import {
-  DEV_USER_EMAIL,
-  DEV_USER_NAME,
-  isDevBypass,
-  isDesktopLocalWithoutDb,
-} from './dev-bypass'
 import { sessionCookieName, useSecureSessionCookies } from '@/lib/desktop/session-cookie'
-
-export { DEV_USER_EMAIL, DEV_USER_NAME, isDevBypass }
-
-/**
- * Get-or-create the dev user. Used by getCurrentUser() when dev bypass is on,
- * so routes that hit `requireUser()` still get a real User row with a real id
- * (and any seed data linked to that id shows up).
- */
-export async function getOrCreateDevUser() {
-  let user = await db.user.findUnique({ where: { email: DEV_USER_EMAIL } })
-  if (!user) {
-    user = await db.user.create({
-      data: {
-        email: DEV_USER_EMAIL,
-        name: DEV_USER_NAME,
-        provider: 'credentials',
-        // Dev user has no password — they don't log in, they're auto-attached.
-        passwordHash: null,
-      },
-    })
-  }
-  return user
-}
 
 // ---------------- Provider list (built dynamically) ----------------
 
@@ -140,25 +110,6 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user?.id) {
         token.userId = user.id
-      }
-      // Dev bypass: synthesize a token for the dev user so getServerSession
-      // returns something sensible even when the user never actually signed in.
-      if (!token.userId && isDevBypass()) {
-      // Desktop local without Postgres: synthesize a dev session without Prisma.
-      if (isDesktopLocalWithoutDb()) {
-        token.userId = 'desktop-local-dev'
-        token.email = DEV_USER_EMAIL
-        token.name = DEV_USER_NAME
-        return token
-      }
-      try {
-        const dev = await getOrCreateDevUser()
-          token.userId = dev.id
-          token.email = dev.email
-          token.name = dev.name ?? undefined
-        } catch (err) {
-          console.error('[auth] dev-bypass jwt setup failed:', err)
-        }
       }
       return token
     },

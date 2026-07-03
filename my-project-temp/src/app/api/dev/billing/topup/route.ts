@@ -24,7 +24,7 @@ import { withDevAuth } from '@/lib/dev-auth'
 // `checkout.session.completed`, verifies the signature, reads the metadata,
 // and finally credits balanceCents + writes the audit log. The audit log should
 // only be written ONCE (idempotent — key on the Stripe session id).
-export const POST = withDevAuth(async (req, { developer }) => {
+export const POST = withDevAuth(async (req, { workspace }) => {
   try {
     const body = (await req.json().catch(() => ({}))) as { amountCents?: number }
     const amount = Number(body.amountCents)
@@ -37,8 +37,8 @@ export const POST = withDevAuth(async (req, { developer }) => {
     const amountCents = Math.round(amount)
 
     // Credit the balance.
-    const updated = await db.developerAccount.update({
-      where: { id: developer.id },
+    const updated = await db.workspace.update({
+      where: { id: workspace.id },
       data: { balanceCents: { increment: amountCents } },
     })
 
@@ -49,10 +49,10 @@ export const POST = withDevAuth(async (req, { developer }) => {
     })
     await db.mcpAuditLog.create({
       data: {
-        developerId: developer.id,
+        workspaceId: workspace.id,
         apiKeyId: null,
         action: 'billing:topup',
-        target: developer.id,
+        target: workspace.id,
         success: true,
         costCents: -amountCents,
         detail: `Topped up ${dollars}.`,

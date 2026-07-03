@@ -21,8 +21,8 @@ Always act within these capabilities. Do not claim you lack local access — you
   }
 
   if (platform === 'web' && allowCli) {
-    return `RUNTIME ENVIRONMENT: Web browser (development mode with desktop bridge enabled).
-CLI and filesystem tools are enabled for this session only. In a normal production web session they would be unavailable.
+    return `RUNTIME ENVIRONMENT: Web browser with a connected desktop.
+The user's Apical desktop app is online, so CLI and filesystem tools are available — they execute on the user's desktop via the secure bridge.
 AVAILABLE: cli_run, fs_*, script_run (all languages), plus all standard web/cloud tools.
 Treat this as a temporary elevated session — prefer portable approaches when possible.`
   }

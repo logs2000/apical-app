@@ -1,17 +1,41 @@
 // Apical vault — encryption-at-rest for BYOK API keys and data-connection
 // configs. Uses AES-256-GCM with a key derived from APICAL_VAULT_KEY.
 //
-// In dev the env var is set to a placeholder; in production it MUST be a
-// 32-byte random secret (openssl rand -base64 32). The plaintext is never
-// persisted — only the ciphertext + IV + auth tag.
+// SECURITY: in production APICAL_VAULT_KEY is REQUIRED — the vault fails
+// closed (throws at first use) rather than silently encrypting everything
+// with a publicly-known fallback key. In local dev, a dev-only fallback is
+// allowed so the app boots without setup, but a warning is logged.
 
 import { createCipheriv, createDecipheriv, randomBytes, pbkdf2Sync } from 'crypto'
 
-const VAULT_KEY_ENV = process.env.APICAL_VAULT_KEY ?? 'apical-dev-vault-key-change-in-production-32b!'
 const SALT = 'apical-vault-salt-v1' // stable; the env secret is the real secret
 
-// Derive a 32-byte key from the env secret via PBKDF2 (stable across restarts).
-const KEY = pbkdf2Sync(VAULT_KEY_ENV, SALT, 100_000, 32, 'sha256')
+function resolveVaultKeyMaterial(): string {
+  const fromEnv = process.env.APICAL_VAULT_KEY
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim()
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(
+      '[vault] APICAL_VAULT_KEY is not set — using the DEV-ONLY fallback key. ' +
+        'Set a random 32+ char secret before storing real credentials.',
+    )
+    return 'apical-dev-vault-key-change-in-production-32b!'
+  }
+  throw new Error(
+    'APICAL_VAULT_KEY must be set in production. Generate one with ' +
+      '`openssl rand -base64 32` and set it in the environment.',
+  )
+}
+
+// Derive a 32-byte key from the env secret via PBKDF2 (stable across
+// restarts). Lazy so a missing key in production fails at first vault use
+// with a clear error instead of crashing every module that imports this file.
+let KEY: Buffer | null = null
+function getKey(): Buffer {
+  if (!KEY) {
+    KEY = pbkdf2Sync(resolveVaultKeyMaterial(), SALT, 100_000, 32, 'sha256')
+  }
+  return KEY
+}
 
 export interface EncryptedBlob {
   // "<iv>:<authTag>:<ciphertext>" — all base64.
@@ -20,7 +44,7 @@ export interface EncryptedBlob {
 
 export function encrypt(plaintext: string): string {
   const iv = randomBytes(12)
-  const cipher = createCipheriv('aes-256-gcm', KEY, iv)
+  const cipher = createCipheriv('aes-256-gcm', getKey(), iv)
   const ct = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
   const tag = cipher.getAuthTag()
   return [iv.toString('base64'), tag.toString('base64'), ct.toString('base64')].join(':')
@@ -32,10 +56,78 @@ export function decrypt(serialized: string): string {
   const iv = Buffer.from(ivB64, 'base64')
   const tag = Buffer.from(tagB64, 'base64')
   const ct = Buffer.from(ctB64, 'base64')
-  const decipher = createDecipheriv('aes-256-gcm', KEY, iv)
+  const decipher = createDecipheriv('aes-256-gcm', getKey(), iv)
   decipher.setAuthTag(tag)
   const pt = Buffer.concat([decipher.update(ct), decipher.final()])
   return pt.toString('utf8')
+}
+
+// ---------------- Secret meta-field helpers ----------------
+
+/** metaJson keys that hold secret values and must be encrypted at rest. */
+export const SECRET_META_FIELDS = new Set([
+  'key',
+  'token',
+  'apikey',
+  'api_key',
+  'secret',
+  'accesstoken',
+  'access_token',
+  'refreshtoken',
+  'refresh_token',
+  'bearer',
+  'password',
+  'clientsecret',
+  'client_secret',
+  'customclientsecret',
+  'privatekey',
+  'private_key',
+])
+
+/** True when a string already looks like a vault blob (`iv:tag:ct`, base64). */
+export function looksEncrypted(value: string): boolean {
+  return value.split(':').length === 3
+}
+
+/**
+ * Encrypt every secret-shaped string field in a credential meta object.
+ * Non-secret fields and already-encrypted values pass through unchanged.
+ */
+export function encryptSecretMetaFields(
+  meta: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(meta)) {
+    if (
+      SECRET_META_FIELDS.has(k.toLowerCase()) &&
+      typeof v === 'string' &&
+      v.trim() &&
+      !looksEncrypted(v)
+    ) {
+      out[k] = encrypt(v)
+    } else {
+      out[k] = v
+    }
+  }
+  return out
+}
+
+/**
+ * Redact secret-shaped fields for display (API responses / UI). Encrypted
+ * blobs and plaintext secrets are both replaced with a mask.
+ */
+export function redactSecretMetaFields(
+  meta: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(meta)) {
+    if (SECRET_META_FIELDS.has(k.toLowerCase()) && typeof v === 'string' && v) {
+      out[k] = '••••••••'
+    } else {
+      out[k] = v
+    }
+  }
+  return out
 }
 
 // Mask a key for display: show the first `head` and last `tail` chars.

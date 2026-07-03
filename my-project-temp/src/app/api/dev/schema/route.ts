@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 // GET /api/dev/schema — the Apical Automation File JSON schema, with field
-// descriptions and a complete worked example (the scanner PDF sorter hire).
+// descriptions and a complete worked example (the scanner PDF sorter agent).
 // Powers the developer-mode "JSON schema" reference page.
 export async function GET() {
   try {
@@ -19,7 +19,14 @@ const SCHEMA_DOC = {
   format: 'apical-automation-file',
   version: 1,
   description:
-    'A single JSON file you can drop onto the chat (or POST to /api/employees/import) to hire an employee complete with their tools, credentials, and a tool/reason/gate workflow. Inline integrations are installed as private integrations; inline credentials land in the AI-auth vault. Department + title place the hire in the right room.',
+    'A single JSON file you can drop onto the chat (or POST to /api/workflows/import) to create an agent complete with its tools, credentials, and a tool/reason/gate workflow. Inline integrations are installed as private integrations; inline credentials land in the AI-auth vault.',
+  // Machine-validatable JSON Schemas (generated from the Zod source of truth):
+  jsonSchemas: {
+    workflow: '/schemas/workflow/v2.json',
+    automationFile: '/schemas/automation-file/v1.json',
+    examples: '/schemas/workflow/examples/index.json',
+    llmsTxt: '/llms.txt',
+  },
   fields: {
     $schema: {
       type: 'string (optional)',
@@ -27,26 +34,16 @@ const SCHEMA_DOC = {
     },
     name: {
       type: 'string (required)',
-      description:
-        "The employee's first name — friendly, like 'Pat' or 'Sam'. Required.",
+      description: "The agent's name, e.g. 'Scanner Filing'. Required.",
     },
     description: {
       type: 'string (optional)',
-      description: 'One-sentence description of what this hire does.',
-    },
-    department: {
-      type:
-        "'reception' | 'filing' | 'mailroom' | 'finance' | 'dispatch' (optional, default 'reception')",
-      description: 'Which room this hire works in.',
-    },
-    title: {
-      type: 'string (optional)',
-      description: "Plain role title, e.g. 'Filing Clerk', 'Bookkeeper'.",
+      description: 'One-sentence description of what this agent does.',
     },
     trigger: {
       type: 'object (optional)',
       description:
-        "How the hire is triggered. { type: 'manual' | 'schedule', cron?: string, label?: string }.",
+        "How the agent is triggered. { type: 'manual' | 'schedule', cron?: string, label?: string }.",
       fields: {
         type: "'manual' | 'schedule' (default 'manual')",
         cron: 'string (optional) — cron expression for schedule triggers',
@@ -133,9 +130,7 @@ const SCHEMA_DOC = {
   },
   example: {
     $schema: 'https://apic.al/schemas/automation-file.json',
-    name: 'Pat',
-    title: 'Filing Clerk',
-    department: 'filing',
+    name: 'Scanner Filing',
     description:
       'Watches the scanner inbox, figures out which client each PDF belongs to, and files it. Asks before moving anything uncertain.',
     trigger: { type: 'schedule', label: 'Every 30 minutes' },
@@ -212,7 +207,7 @@ const SCHEMA_DOC = {
           method: 'POST',
           url: 'https://hooks.example.com/filing-complete',
           headers: { 'Content-Type': 'application/json', 'X-Api-Key': '{{cred:example-com.api_key}}' },
-          body: { batchCount: '{{s1.files}}', flaggedCount: '{{s4.flagged}}', agent: 'Pat' },
+          body: { batchCount: '{{s1.files}}', flaggedCount: '{{s4.flagged}}', agent: 'Scanner Filing' },
           auth: { type: 'apikey_header', ref: 'cred_example-com', headerName: 'X-Api-Key' },
           description: 'Notify an external webhook that the filing batch completed.',
         },

@@ -1,7 +1,15 @@
 // Distill exploratory agent traces into short, hardcoded production workflows.
+//
+// Grounding guarantee: distilled steps must be traceable to the PROVEN trace.
+// The LLM may reorganize and label, but every executable payload (script
+// source, HTTP URL, CLI command, MCP tool) must have appeared in the trace —
+// LLM-invented steps are rejected and we fall back to the trace-derived
+// steps. Nothing job-specific is hardcoded here; labels derive from the
+// actual tools and inputs used.
 
 import { normalizeSteps } from '@/lib/deploy'
 import { chat, resolveModelPreferenceForUser } from '@/lib/platform/llm-gateway'
+import { validateWorkflowJSON } from '@/lib/workflow-schema'
 import {
   agentToolName,
   isSubstantiveTraceStep,
@@ -22,6 +30,14 @@ function shortPath(p: string): string {
   return home.length > 60 ? `…${home.slice(-57)}` : home
 }
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url.slice(0, 40)
+  }
+}
+
 function summarizeTraceForPrompt(trace: EngineTraceStep[]): string {
   return trace
     .filter(isSubstantiveTraceStep)
@@ -35,9 +51,27 @@ function summarizeTraceForPrompt(trace: EngineTraceStep[]): string {
     .join('\n')
 }
 
+/** A step that embeds a large inline content literal — a one-run snapshot
+ *  (e.g. asset_save with a full HTML/JSON document) that should be distilled so
+ *  the LLM can regenerate/parameterize it instead of freezing a copy. */
+function hasLargeInlineLiteral(trace: EngineTraceStep[]): boolean {
+  const CONTENT_KEYS = ['content', 'body', 'text', 'html', 'data', 'markdown']
+  return trace.filter(isSubstantiveTraceStep).some((s) => {
+    const input = s.input ?? {}
+    return CONTENT_KEYS.some((k) => {
+      const v = (input as Record<string, unknown>)[k]
+      return typeof v === 'string' && v.length > 1500
+    })
+  })
+}
+
 /** True when the trace looks like exploratory work that should be distilled. */
 export function shouldDistillTrace(trace: EngineTraceStep[]): boolean {
   const substantive = trace.filter(isSubstantiveTraceStep)
+  if (substantive.length === 0) return false
+  // Always distill when a step froze a big one-run content blob, even for short
+  // traces — otherwise the workflow is just a snapshot of a single run.
+  if (hasLargeInlineLiteral(trace)) return true
   if (substantive.length <= 3) return false
   const counts = new Map<string, number>()
   for (const s of substantive) {
@@ -64,7 +98,7 @@ function parseStepsJson(raw: string): WorkflowStep[] | null {
 }
 
 function validateDistilledSteps(steps: WorkflowStep[]): WorkflowStep[] {
-  return steps.filter((s) => {
+  const executable = steps.filter((s) => {
     if (s.kind !== 'tool') return true
     const fake: EngineTraceStep = {
       stepId: s.id,
@@ -75,146 +109,246 @@ function validateDistilledSteps(steps: WorkflowStep[]): WorkflowStep[] {
       status: 'done',
     }
     if (s.http?.url) return true
+    if (s.code?.source) return true
+    if (s.mcp?.tool) return true
     return traceStepHasExecutableParams(fake)
+  })
+  // Must also pass the same schema the /v1 save path enforces.
+  const check = validateWorkflowJSON({ version: 1, steps: executable })
+  return check.ok ? executable : []
+}
+
+// ---------------- Trace grounding ----------------
+
+/** The distinctive executable payloads observed in the real trace. */
+function traceEvidence(trace: EngineTraceStep[]): {
+  codes: string[]
+  urls: string[]
+  commands: string[]
+  mcpTools: string[]
+  paths: string[]
+} {
+  const codes: string[] = []
+  const urls: string[] = []
+  const commands: string[] = []
+  const mcpTools: string[] = []
+  const paths: string[] = []
+  for (const s of trace.filter(isSubstantiveTraceStep)) {
+    const input = s.input ?? {}
+    const code = str(input.code, 20_000)
+    if (code) codes.push(code)
+    const url = str(input.url, 2000)
+    if (url) urls.push(url)
+    const command = str(input.command, 2000)
+    if (command) commands.push(command)
+    const mcpTool = str(input.tool, 200)
+    if (mcpTool) mcpTools.push(mcpTool)
+    for (const key of ['path', 'from', 'to'] as const) {
+      const p = str(input[key], 2000)
+      if (p) paths.push(p)
+    }
+  }
+  return { codes, urls, commands, mcpTools, paths }
+}
+
+/** Normalized containment check (whitespace-insensitive for code). */
+function evidenceContains(haystack: string[], needle: string): boolean {
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
+  const n = norm(needle)
+  if (!n) return false
+  // Template-aware grounding: a parameterized payload ({{trigger.x}},
+  // {{stepId.field}}, {{cred:...}}) is grounded when its literal (non-template)
+  // fragments all appear in a real trace payload. This lets the distiller hoist
+  // per-run values into refs without being rejected as "not in the trace".
+  if (/\{\{[^}]+\}\}/.test(n)) {
+    const fragments = n
+      .split(/\{\{[^}]+\}\}/)
+      .map((f) => f.trim())
+      .filter((f) => f.length >= 4)
+    if (fragments.length === 0) return true
+    return haystack.some((h) => {
+      const hn = norm(h)
+      return fragments.every((f) => hn.includes(f))
+    })
+  }
+  return haystack.some((h) => {
+    const hn = norm(h)
+    return hn === n || hn.includes(n) || n.includes(hn)
   })
 }
 
-/** Heuristic distill — no LLM. Prefer scripts + unique paths over repeated listings. */
+/**
+ * True when every executable payload in `steps` is grounded in the trace.
+ * Grounded = the script source / URL / command / MCP tool appeared in a real
+ * (proven) tool call. Labels and step order may differ; payloads may not.
+ */
+export function stepsGroundedInTrace(
+  steps: WorkflowStep[],
+  trace: EngineTraceStep[],
+): { ok: boolean; ungrounded: string[] } {
+  const evidence = traceEvidence(trace)
+  const ungrounded: string[] = []
+  for (const s of steps) {
+    if (s.kind !== 'tool') continue // reason/gate steps carry no external payload
+    if (s.code?.source && !evidenceContains(evidence.codes, s.code.source)) {
+      ungrounded.push(`${s.id}: script source not in trace`)
+      continue
+    }
+    if (s.http?.url && !evidenceContains(evidence.urls, s.http.url)) {
+      ungrounded.push(`${s.id}: URL ${s.http.url} not in trace`)
+      continue
+    }
+    if (s.mcp?.tool && !evidenceContains(evidence.mcpTools, s.mcp.tool)) {
+      ungrounded.push(`${s.id}: MCP tool ${s.mcp.tool} not in trace`)
+      continue
+    }
+    const cmd = str((s.inputs ?? {}).command, 2000)
+    if (cmd && !evidenceContains(evidence.commands, cmd)) {
+      ungrounded.push(`${s.id}: command not in trace`)
+    }
+  }
+  return { ok: ungrounded.length === 0, ungrounded }
+}
+
+// ---------------- Heuristic distill (generic, no job assumptions) ----------------
+
+/**
+ * Heuristic distill — no LLM, no job-specific assumptions. Keeps each UNIQUE
+ * executable operation from the trace (scripts, CLI commands, HTTP calls,
+ * MCP calls, file moves) in order, dropping repeated exploration (multiple
+ * fs_list of the same tree, web_search, credential_list). Labels derive from
+ * the actual tool + inputs.
+ */
 export function heuristicDistillTrace(
   trace: EngineTraceStep[],
-  jobDescription: string,
+  _jobDescription: string,
 ): WorkflowStep[] {
   const substantive = trace.filter(isSubstantiveTraceStep)
   const steps: WorkflowStep[] = []
   let idx = 1
+  const seen = new Set<string>()
 
-  const scripts = substantive.filter(
-    (s) => agentToolName(s.tool ?? '') === 'script_run' && str(s.input?.code),
-  )
-  const seenCode = new Set<string>()
-  const uniqueScripts = scripts.filter((s) => {
-    const code = str(s.input?.code)
-    if (!code || seenCode.has(code)) return false
-    seenCode.add(code)
-    return true
-  })
+  const push = (step: WorkflowStep, dedupeKey: string) => {
+    if (seen.has(dedupeKey) || steps.length >= MAX_DISTILLED_STEPS) return
+    seen.add(dedupeKey)
+    steps.push(step)
+  }
 
-  const listPaths: string[] = []
-  const moveDests: string[] = []
-  const cliCommands: EngineTraceStep[] = []
-
+  let listedOnce = false
   for (const s of substantive) {
     const t = agentToolName(s.tool ?? '')
-    const path = str(s.input?.path)
-    if (t === 'fs_list' && path && !listPaths.includes(path)) listPaths.push(path)
-    if (t === 'fs_move' && str(s.input?.to) && !moveDests.includes(str(s.input?.to))) {
-      moveDests.push(str(s.input?.to))
-    }
-    if (t === 'cli_run' && str(s.input?.command)) cliCommands.push(s)
-  }
+    const input = s.input ?? {}
 
-  const scanPath = listPaths[0]
-  const clientRoot = moveDests[0] || listPaths.find((p) => /client|document|sorted|output/i.test(p)) || listPaths[1]
-
-  if (scanPath) {
-    steps.push({
-      id: `s${idx++}`,
-      kind: 'tool',
-      label: `Scan inbox folder for new PDFs (${shortPath(scanPath)})`,
-      tool: 'fs_list',
-      inputs: { path: scanPath },
-      hardened: true,
-    })
-  }
-
-  if (uniqueScripts.length > 0) {
-    const best = uniqueScripts.reduce((a, b) =>
-      str(a.input?.code).length >= str(b.input?.code).length ? a : b,
-    )
-    steps.push({
-      id: `s${idx++}`,
-      kind: 'tool',
-      label:
-        jobDescription.toLowerCase().includes('sort') || jobDescription.toLowerCase().includes('client')
-          ? 'Sort scans into client folders (automation script)'
-          : 'Run proven automation script',
-      tool: 'script_run',
-      code: {
-        language: (best.input?.language === 'python' ? 'python' : best.input?.language === 'javascript' ? 'javascript' : 'shell') as 'shell',
-        source: str(best.input?.code, 20_000),
-      },
-      inputs: {
-        language: best.input?.language ?? 'shell',
-        code: best.input?.code,
-      },
-      hardened: true,
-    })
-  } else if (cliCommands.length > 0) {
-    const mkdir = cliCommands.find((s) => /mkdir/.test(str(s.input?.command)))
-    const main = cliCommands[cliCommands.length - 1]
-    if (mkdir) {
-      steps.push({
-        id: `s${idx++}`,
-        kind: 'tool',
-        label: 'Ensure client output folders exist',
-        tool: 'cli_run',
-        inputs: {
-          command: mkdir.input?.command,
-          args: mkdir.input?.args,
-          cwd: mkdir.input?.cwd,
+    if (t === 'script_run' && str(input.code)) {
+      const code = str(input.code, 20_000)
+      const language = (
+        input.language === 'python' || input.language === 'javascript'
+          ? input.language
+          : 'shell'
+      ) as 'python' | 'javascript' | 'shell'
+      const packages = Array.isArray(input.packages)
+        ? input.packages.map(String).filter(Boolean)
+        : undefined
+      push(
+        {
+          id: `s${idx++}`,
+          kind: 'tool',
+          label: `Run proven ${language} script`,
+          tool: 'script_run',
+          code: { language, source: code, ...(packages?.length ? { packages } : {}) },
+          inputs: { language, code, ...(packages?.length ? { packages } : {}) },
+          hardened: true,
         },
-        hardened: true,
-      })
-    }
-    steps.push({
-      id: `s${idx++}`,
-      kind: 'tool',
-      label: 'Move or organize files by client name',
-      tool: 'cli_run',
-      inputs: {
-        command: main.input?.command,
-        args: main.input?.args,
-        cwd: main.input?.cwd,
-      },
-      hardened: true,
-    })
-  } else {
-    const reads = substantive.filter((s) => agentToolName(s.tool ?? '') === 'fs_read')
-    const moves = substantive.filter((s) => agentToolName(s.tool ?? '') === 'fs_move')
-    if (reads.length > 0) {
-      steps.push({
-        id: `s${idx++}`,
-        kind: 'tool',
-        label: 'Read each scan and determine the client name',
-        tool: 'fs_read',
-        inputs: { path: str(reads[0].input?.path) || scanPath || '' },
-        note: 'Parameterize with {{s1.files}} or a glob when the runtime supports it',
-      })
-    }
-    if (moves.length > 0) {
-      steps.push({
-        id: `s${idx++}`,
-        kind: 'tool',
-        label: `File each scan into the correct client folder under ${clientRoot ? shortPath(clientRoot) : 'the output directory'}`,
-        tool: 'fs_move',
-        inputs: {
-          from: str(moves[0].input?.from),
-          to: str(moves[0].input?.to),
+        `script:${code.slice(0, 200)}`,
+      )
+    } else if (t === 'cli_run' && str(input.command)) {
+      const command = str(input.command, 2000)
+      push(
+        {
+          id: `s${idx++}`,
+          kind: 'tool',
+          label: `Run command: ${command.slice(0, 60)}`,
+          tool: 'cli_run',
+          inputs: { command, args: input.args, cwd: input.cwd },
+          hardened: true,
         },
-        hardened: true,
-      })
+        `cli:${command}`,
+      )
+    } else if (t === 'http_request' && str(input.url)) {
+      const url = str(input.url, 2000)
+      const method = (str(input.method, 10) || 'GET').toUpperCase()
+      push(
+        {
+          id: `s${idx++}`,
+          kind: 'tool',
+          label: `${method} ${hostOf(url)}`,
+          tool: 'http',
+          http: {
+            method: (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
+              ? method
+              : 'GET') as 'GET',
+            url,
+            ...(str(input.credentialId)
+              ? { auth: { type: 'bearer' as const, ref: str(input.credentialId) } }
+              : {}),
+          },
+          inputs: { url, method },
+          hardened: true,
+        },
+        `http:${method}:${url}`,
+      )
+    } else if (t === 'mcp_call_tool' && str(input.tool)) {
+      const tool = str(input.tool, 200)
+      push(
+        {
+          id: `s${idx++}`,
+          kind: 'tool',
+          label: `Call ${tool}`,
+          tool: 'mcp_call_tool',
+          inputs: { ...input },
+          hardened: true,
+        },
+        `mcp:${tool}:${JSON.stringify(input.args ?? {}).slice(0, 200)}`,
+      )
+    } else if (t === 'fs_move' && str(input.from) && str(input.to)) {
+      push(
+        {
+          id: `s${idx++}`,
+          kind: 'tool',
+          label: `Move ${shortPath(str(input.from))} → ${shortPath(str(input.to))}`,
+          tool: 'fs_move',
+          inputs: { from: str(input.from), to: str(input.to) },
+          hardened: true,
+        },
+        `move:${str(input.from)}:${str(input.to)}`,
+      )
+    } else if (t === 'fs_write' && str(input.path)) {
+      push(
+        {
+          id: `s${idx++}`,
+          kind: 'tool',
+          label: `Write ${shortPath(str(input.path))}`,
+          tool: 'fs_write',
+          inputs: { path: str(input.path), content: input.content },
+          hardened: true,
+        },
+        `write:${str(input.path)}`,
+      )
+    } else if (t === 'fs_list' && str(input.path) && !listedOnce) {
+      // Keep at most ONE listing step (the first) — repeated listings are
+      // exploration, not automation.
+      listedOnce = true
+      push(
+        {
+          id: `s${idx++}`,
+          kind: 'tool',
+          label: `List ${shortPath(str(input.path))}`,
+          tool: 'fs_list',
+          inputs: { path: str(input.path) },
+        },
+        `list:${str(input.path)}`,
+      )
     }
-  }
-
-  const verifyPath = clientRoot || listPaths[listPaths.length - 1]
-  if (verifyPath && steps.length > 0 && steps.length < MAX_DISTILLED_STEPS) {
-    steps.push({
-      id: `s${idx++}`,
-      kind: 'tool',
-      label: `Verify sorted files in ${shortPath(verifyPath)}`,
-      tool: 'fs_list',
-      inputs: { path: verifyPath },
-    })
   }
 
   const valid = validateDistilledSteps(steps)
@@ -237,13 +371,13 @@ export async function llmDistillTrace(opts: {
 Job: ${opts.jobDescription}
 ${opts.goal ? `User goal: ${opts.goal}` : ''}
 
-Exploratory trace (learning only — DO NOT copy verbatim):
+Exploratory trace (the ONLY source of truth — every payload you output must come from it):
 ${summarizeTraceForPrompt(opts.trace)}
 
 This workflow runs deterministically on schedule — NO agent, NO web_search, NO discovery loops.
 
 Output 2-${MAX_DISTILLED_STEPS} automation nodes using ONLY:
-- "code": { "language": "javascript"|"shell"|"python", "source": "..." } for scripts (PREFERRED when a working script exists)
+- "code": { "language": "javascript"|"shell"|"python", "source": "...", "packages": ["axios"] } for scripts (PREFERRED when a working script exists; include the same packages the working script used — they auto-install at runtime)
 - "http": { "method", "url", "headers", "body", "auth" } for API calls
 - "mcp": { "integrationId", "tool", "args" } for MCP integrations
 - "integrationId" + "tool" + "inputs" for frozen OpenAPI integrations
@@ -251,11 +385,12 @@ Output 2-${MAX_DISTILLED_STEPS} automation nodes using ONLY:
 - "kind": "gate" for human approval before destructive actions (optional)
 
 Rules:
-1. Human "label" on every step — plain English for the Workflow tab (e.g. "Sort scans into client folders").
-2. Hardcode paths, URLs, commands, script source from the trace — no placeholders.
-3. NEVER include web_search, web_read, credential_list, or repeated fs_list exploration.
-4. Prefer ONE code/script node over many file operations.
-5. Set "hardened": true on deterministic nodes.
+1. Human "label" on every step — plain English for the Workflow tab.
+2. Keep the working LOGIC from the trace (script structure, real endpoint URLs, real fixed paths, commands, MCP tools) — do NOT invent APIs or rewrite proven logic. The distinctive parts of every payload must trace back to a real observed tool call, or the step is REJECTED.
+3. PARAMETERIZE what varies per run instead of hardcoding one run's values. Replace values that came from the user's request or that change each run (names, IDs, search terms, dates, recipients) with references: "{{trigger.field}}" for webhook/watch-triggered jobs, or "{{sN.field}}" to use an earlier step's output. Bake in ONLY truly-fixed values (your own file paths, endpoint URLs, credential refs). A workflow that hardcodes a single run's input is NOT reusable.
+4. GENERATE output at runtime — never freeze a large one-run literal. If a run produced a document (asset_save/fs_write with a big inline content blob), do NOT paste that content; instead keep the code/script node that BUILDS it and have the save step reference the builder's result ("{{sN.output}}"). Drop steps that only store a finished snapshot of one run.
+5. NEVER include web_search, web_read, credential_list, or repeated fs_list exploration.
+6. Prefer ONE code/script node over many file operations. Set "hardened": true on deterministic nodes.
 
 Respond JSON only:
 {"steps":[{"id":"s1","kind":"tool","label":"...","code":{"language":"shell","source":"..."},"hardened":true},...]}`
@@ -271,7 +406,7 @@ Respond JSON only:
         {
           role: 'system',
           content:
-            'You build n8n-style automations: deterministic nodes (code, HTTP, MCP, integrations) that run without an agent. Distill exploration into minimal hardened steps with human-readable labels.',
+            'You build n8n-style automations: deterministic nodes (code, HTTP, MCP, integrations) that run without an agent. Distill exploration into minimal hardened steps with human-readable labels. Keep the proven logic (script structure, real URLs/paths/commands) grounded in the trace, but parameterize per-run values with {{trigger.*}} / {{stepId.*}} refs and regenerate output at runtime rather than embedding a single run\'s finished document. The goal is a reusable workflow, not a snapshot of one run.',
         },
         { role: 'user', content: prompt },
       ],
@@ -279,7 +414,18 @@ Respond JSON only:
     const steps = parseStepsJson(res.content)
     if (!steps || steps.length < 2) return null
     const valid = validateDistilledSteps(steps)
-    return valid.length >= 2 ? valid : null
+    if (valid.length < 2) return null
+
+    // NEVER silently replace a proven trace with LLM-invented steps: every
+    // executable payload must be grounded in the real trace.
+    const grounding = stepsGroundedInTrace(valid, opts.trace)
+    if (!grounding.ok) {
+      console.warn(
+        `[workflow-distill] rejected LLM distill — ungrounded steps: ${grounding.ungrounded.join('; ')}`,
+      )
+      return null
+    }
+    return valid
   } catch {
     return null
   }

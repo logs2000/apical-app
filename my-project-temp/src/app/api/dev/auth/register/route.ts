@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
-import { generateApiKey, hashApiKey, DEV_KEY_COOKIE } from '@/lib/dev-auth'
+import { generateApiKey, DEV_KEY_COOKIE } from '@/lib/dev-auth'
 
-// POST /api/dev/auth/register — create a developer account + an initial API key.
+// POST /api/dev/auth/register — create a developer workspace + an initial API key.
 //
 // Solves the chicken/egg: the dashboard's "log in with API key" flow needs a
 // key, but creating a key needs to be logged in. This endpoint creates both
 // at once, returns the raw key (shown ONCE), and sets the console cookie.
+//
+// A "developer account" is now simply a Workspace (plan/balance/billing live
+// on the workspace).
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -24,35 +27,24 @@ export async function POST(req: Request) {
     }
 
     // Refuse duplicate emails — they should log in instead.
-    const existing = await db.developerAccount.findUnique({ where: { email } })
+    const existing = await db.workspace.findFirst({ where: { billingEmail: email } })
     if (existing) {
       return NextResponse.json(
         {
           error:
-            'An account with that email already exists. Log in with your API key instead.',
+            'A workspace with that billing email already exists. Log in with your API key instead.',
         },
         { status: 409 },
       )
     }
 
-    // Default new developers to the main workspace so their deployed agents
-    // show up alongside the seeded ones in the demo.
-    let workspaceId: string | null = 'ws_main'
-    const main = await db.workspace.findUnique({ where: { id: 'ws_main' } })
-    if (!main) {
-      // Fall back to the first workspace, or null.
-      const first = await db.workspace.findFirst()
-      workspaceId = first?.id ?? null
-    }
-
-    const dev = await db.developerAccount.create({
+    const workspace = await db.workspace.create({
       data: {
-        email,
         name: name || email.split('@')[0],
+        description: 'Developer workspace',
         plan: 'free',
         balanceCents: 500, // $5.00 starting credit for new developers.
         billingEmail: email,
-        workspaceId,
         status: 'active',
       },
     })
@@ -60,7 +52,7 @@ export async function POST(req: Request) {
     const { raw, hash, prefix } = generateApiKey()
     const apiKey = await db.apiKey.create({
       data: {
-        developerId: dev.id,
+        workspaceId: workspace.id,
         label: 'Default',
         keyHash: hash,
         keyPrefix: prefix,
@@ -73,13 +65,13 @@ export async function POST(req: Request) {
     // Welcome log.
     await db.mcpAuditLog.create({
       data: {
-        developerId: dev.id,
+        workspaceId: workspace.id,
         apiKeyId: apiKey.id,
         action: 'account:register',
-        target: dev.id,
+        target: workspace.id,
         success: true,
         costCents: 0,
-        detail: `Account created (${email}). Initial plan: free, $5.00 starting credit.`,
+        detail: `Workspace created (${email}). Initial plan: free, $5.00 starting credit.`,
         source: 'web',
       },
     })
@@ -95,12 +87,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       developer: {
-        id: dev.id,
-        email: dev.email,
-        name: dev.name,
-        plan: dev.plan,
-        balanceCents: dev.balanceCents,
-        workspaceId: dev.workspaceId,
+        id: workspace.id,
+        email: workspace.billingEmail,
+        name: workspace.name,
+        plan: workspace.plan,
+        balanceCents: workspace.balanceCents,
+        workspaceId: workspace.id,
       },
       apiKey: {
         id: apiKey.id,
@@ -113,7 +105,7 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error('[api/dev/auth/register] failed:', err)
     return NextResponse.json(
-      { error: 'Failed to create developer account.' },
+      { error: 'Failed to create developer workspace.' },
       { status: 500 },
     )
   }

@@ -4,6 +4,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import {
   FolderOpen,
+  HardDrive,
   Paperclip,
   X,
   FileCode2,
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { IS_TAURI } from "@/lib/desktop/tauri-bridge";
 import { pickFiles, formatBytes } from "@/lib/apical/attachments";
 import type { ChatAttachment } from "@/lib/apical";
+import { FileBrowser } from "./file-browser";
 import { SendFailureNotice } from "./send-failure-notice";
 import { isRetryableSendError } from "@/lib/apical/send-error";
 
@@ -40,10 +42,12 @@ function AttachMenu({
   disabled,
   onUpload,
   onFolder,
+  onBrowse,
 }: {
   disabled?: boolean;
   onUpload: () => void;
   onFolder: () => void;
+  onBrowse: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
   const anchorRef = React.useRef<HTMLDivElement>(null);
@@ -107,6 +111,18 @@ function AttachMenu({
           <FolderOpen className="h-3.5 w-3.5 shrink-0" />
           {IS_TAURI ? "Select folder" : "Select folder"}
         </button>
+        <button
+          type="button"
+          role="menuitem"
+          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+          onClick={() => {
+            setOpen(false);
+            onBrowse();
+          }}
+        >
+          <HardDrive className="h-3.5 w-3.5 shrink-0" />
+          Browse files
+        </button>
       </div>,
       document.body,
     );
@@ -147,6 +163,7 @@ export function ChatComposer({
   onRetrySend,
 }: ChatComposerProps) {
   const [busy, setBusy] = React.useState(false);
+  const [browserOpen, setBrowserOpen] = React.useState(false);
 
   async function attachFiles(directory = false) {
     setBusy(true);
@@ -246,6 +263,7 @@ export function ChatComposer({
             disabled={disabled || working}
             onUpload={() => void attachFiles(false)}
             onFolder={() => void attachFiles(true)}
+            onBrowse={() => setBrowserOpen(true)}
           />
           {working ? (
             <button
@@ -268,6 +286,12 @@ export function ChatComposer({
           )}
         </div>
       </div>
+
+      <FileBrowser
+        open={browserOpen}
+        onOpenChange={setBrowserOpen}
+        onAttach={(picked) => onAttachmentsChange([...attachments, ...picked])}
+      />
     </form>
   );
 }

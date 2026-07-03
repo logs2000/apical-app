@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { executeRun, parseSteps } from '@/lib/runtime'
-import { broadcastRun } from '@/lib/relay-client'
 import { withDevAuth } from '@/lib/dev-auth'
+import { startWorkflowRun, StartRunError } from '@/lib/platform/start-run'
 
 // The flat per-run cost charged to developer balances. Same for every run for now.
 const RUN_COST_CENTS = 3
@@ -10,9 +9,9 @@ const RUN_COST_CENTS = 3
 // POST /api/dev/run — authenticated via bearer API key (NOT cookie).
 // Body: { agentId: string }. Triggers a run on the agent (same mechanics as
 // /api/workflows/[id]/run: create Run + RunSteps, fire-and-forget executeRun).
-// Deducts RUN_COST_CENTS from the developer's balanceCents; if balance < 0,
+// Deducts RUN_COST_CENTS from the workspace's balanceCents; if balance < 0,
 // returns 402. Logs to McpAuditLog with action 'mcp:run', costCents=3, source='mcp'.
-export const POST = withDevAuth(async (req, { developer, apiKey }) => {
+export const POST = withDevAuth(async (req, { workspace, apiKey }) => {
   try {
     const body = (await req.json().catch(() => ({}))) as { agentId?: string }
     const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : ''
@@ -23,33 +22,48 @@ export const POST = withDevAuth(async (req, { developer, apiKey }) => {
       )
     }
 
-    // Verify the workflow exists AND belongs to the developer's workspace.
+    // Verify the workflow exists AND belongs to the workspace.
     const workflow = await db.workflow.findUnique({ where: { id: agentId } })
-    if (!workflow || workflow.workspaceId !== developer.workspaceId) {
+    if (!workflow || workflow.workspaceId !== workspace.id) {
       return NextResponse.json(
         { error: 'Agent not found in your workspace.' },
         { status: 404 },
       )
     }
-    const steps = parseSteps(workflow.stepsJson)
-    if (steps.length === 0) {
-      return NextResponse.json(
-        { error: 'Agent has no steps to run.' },
-        { status: 400 },
-      )
-    }
-
-    // Balance check — 402 if already negative.
-    if (developer.balanceCents < 0) {
+    // Per-key spend limit check.
+    if (
+      apiKey.spendLimitCents != null &&
+      apiKey.spentCents + RUN_COST_CENTS > apiKey.spendLimitCents
+    ) {
       await db.mcpAuditLog.create({
         data: {
-          developerId: developer.id,
+          workspaceId: workspace.id,
           apiKeyId: apiKey.id,
           action: 'mcp:run',
           target: agentId,
           success: false,
           costCents: 0,
-          detail: `Insufficient balance (${developer.balanceCents}¢) — run refused.`,
+          detail: `Key spend limit reached (${apiKey.spentCents}/${apiKey.spendLimitCents}¢) — run refused.`,
+          source: 'mcp',
+        },
+      })
+      return NextResponse.json(
+        { error: 'API key spend limit reached' },
+        { status: 402 },
+      )
+    }
+
+    // Balance check — 402 if already negative.
+    if (workspace.balanceCents < 0) {
+      await db.mcpAuditLog.create({
+        data: {
+          workspaceId: workspace.id,
+          apiKeyId: apiKey.id,
+          action: 'mcp:run',
+          target: agentId,
+          success: false,
+          costCents: 0,
+          detail: `Insufficient balance (${workspace.balanceCents}¢) — run refused.`,
           source: 'mcp',
         },
       })
@@ -59,53 +73,36 @@ export const POST = withDevAuth(async (req, { developer, apiKey }) => {
       )
     }
 
-    // Deduct the run cost.
-    await db.developerAccount.update({
-      where: { id: developer.id },
+    // Create + start the run (pinned to the active revision). Only charge
+    // once the run actually started.
+    let runId: string
+    try {
+      const started = await startWorkflowRun(workflow, { trigger: 'manual' })
+      runId = started.runId
+    } catch (e) {
+      if (e instanceof StartRunError) {
+        return NextResponse.json({ error: e.message }, { status: e.status })
+      }
+      throw e
+    }
+
+    // Deduct the run cost (workspace balance + per-key spent counter).
+    await db.workspace.update({
+      where: { id: workspace.id },
       data: { balanceCents: { decrement: RUN_COST_CENTS } },
     })
-
-    // Create the run record.
-    const run = await db.run.create({
-      data: {
-        workflowId: agentId,
-        status: 'running',
-        trigger: 'manual',
-        startedAt: new Date(),
-      },
-    })
-    await db.runStep.createMany({
-      data: steps.map((s, i) => ({
-        runId: run.id,
-        stepId: s.id,
-        kind: s.kind,
-        label: s.label,
-        status: 'pending',
-        order: i,
-      })),
-    })
-
-    // Make sure the relay is warm — pre-broadcast a no-op so the socket
-    // connects before the first real event.
-    broadcastRun(run.id, 'run:started', { runId: run.id, workflowId: agentId })
-
-    // Fire and forget — the runtime streams progress over the relay.
-    void executeRun(
-      run.id,
-      { ...workflow, userId: workflow.userId ?? developer.id },
-      steps,
-      'manual',
-    ).catch((err) => {
-      console.error('[api/dev/run] executeRun crashed:', err)
+    await db.apiKey.update({
+      where: { id: apiKey.id },
+      data: { spentCents: { increment: RUN_COST_CENTS } },
     })
 
     // Audit log.
     await db.mcpAuditLog.create({
       data: {
-        developerId: developer.id,
+        workspaceId: workspace.id,
         apiKeyId: apiKey.id,
         action: 'mcp:run',
-        target: run.id,
+        target: runId,
         success: true,
         costCents: RUN_COST_CENTS,
         detail: `Triggered run on agent "${workflow.name}" (${agentId}).`,
@@ -113,7 +110,7 @@ export const POST = withDevAuth(async (req, { developer, apiKey }) => {
       },
     })
 
-    return NextResponse.json({ runId: run.id, status: 'running' })
+    return NextResponse.json({ runId, status: 'running' })
   } catch (err) {
     console.error('[api/dev/run] POST failed:', err)
     return NextResponse.json(

@@ -16,6 +16,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
 import { getPlan } from '@/lib/platform/pricing'
+import { resolveEffectiveAllowance } from '@/lib/platform/token-allowance-config'
 
 async function getOrCreateSubscription(userId: string) {
   let sub = await db.subscription.findUnique({ where: { userId } })
@@ -48,7 +49,7 @@ function periodStart(sub: { currentPeriodEnd: Date | null; createdAt: Date }): D
 export const GET = withUser(async (_req, { user }) => {
   const sub = await getOrCreateSubscription(user.id)
   const plan = getPlan(sub.plan)
-  const allowance = sub.tokenAllowanceMonthly || plan.tokenAllowanceMonthly
+  const allowance = await resolveEffectiveAllowance(sub)
   const used = sub.tokenUsedMonthly
   const overage = Math.max(0, used - allowance)
 

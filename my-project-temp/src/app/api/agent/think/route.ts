@@ -1,11 +1,15 @@
 import { withUser } from '@/lib/auth-helpers'
+import { deriveDesktopContext } from '@/lib/desktop/device-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { runAgent, type AgentEvent } from '@/lib/platform/agent-engine'
+import type { PlanItem } from '@/lib/platform/agent-tools'
 
 interface ThinkBody {
   goal: string
   context?: string
   history?: Array<{ role: 'user' | 'agent' | 'assistant'; content: string }>
+  /** An unfinished checklist from an earlier turn to resume instead of restart. */
+  priorPlan?: PlanItem[]
   agentId?: string | null
   attachments?: Array<{
     id: string
@@ -18,8 +22,6 @@ interface ThinkBody {
   script?: { language: 'javascript' | 'python' | 'shell'; code: string }
   modelId?: string
   maxIterations?: number
-  allowCli?: boolean
-  isDesktop?: boolean
 }
 
 // POST /api/agent/think — run the autonomous agent loop.
@@ -27,7 +29,10 @@ interface ThinkBody {
 // Streams Server-Sent Events: each event is `data: <json>\n\n` where <json>
 // is an AgentEvent (status | thought | tool_call | observation | final | error).
 //
-// Body: { goal, context?, modelId?, maxIterations?, allowCli? }
+// Body: { goal, context?, modelId?, maxIterations? }
+//
+// Desktop capabilities (CLI/FS tools) are derived server-side from the
+// authenticated session — never from client-declared flags.
 //
 // The route is `withUser`-protected so we get the userId for the LLM gateway
 // (token metering + BYOK routing). The SSE stream is the response body.
@@ -46,11 +51,17 @@ export const POST = withUser(async (req, { user }) => {
     return Response.json({ error: 'goal is required' }, { status: 400 })
   }
 
+  const desktop = await deriveDesktopContext(req, user.id)
+
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: AgentEvent) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        } catch {
+          // Stream already closed (client disconnected) — drop the event.
+        }
       }
       send({ type: 'status', status: 'started' })
       try {
@@ -66,11 +77,15 @@ export const POST = withUser(async (req, { user }) => {
               role: m.role === 'user' ? 'user' : 'agent',
               content: m.content,
             })),
+            priorPlan: Array.isArray(body.priorPlan) ? body.priorPlan : undefined,
             modelId: body.modelId,
             maxIterations: body.maxIterations,
-            allowCli: body.allowCli ?? false,
-            isDesktop: body.isDesktop ?? false,
+            allowCli: desktop.allowCli,
+            isDesktop: desktop.isDesktop,
             source: 'agent',
+            // When the client disconnects, stop the loop instead of letting
+            // the LLM keep burning tokens against a dead stream.
+            signal: req.signal,
           },
           send,
         )

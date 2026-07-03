@@ -5,7 +5,7 @@
 
 export type StepKind = 'tool' | 'reason' | 'gate' | 'spawn'
 
-export type TriggerKind = 'manual' | 'schedule'
+export type TriggerKind = 'manual' | 'schedule' | 'hook' | 'watch' | 'rerun'
 
 export type IntegrationKind = 'mcp' | 'api' | 'http'
 
@@ -151,6 +151,20 @@ export interface WorkflowStep {
   mcp?: McpCallSpec
   /** Deterministic code/script — production runs execute without an agent. */
   code?: CodeCallSpec
+  /** v2: per-step retry policy for retryable tool failures. */
+  retry?: RetryPolicy
+  /** v2: hard per-step timeout in ms. */
+  timeoutMs?: number
+}
+
+/** v2: per-step retry policy. */
+export interface RetryPolicy {
+  /** Total attempts including the first (1-5). */
+  maxAttempts: number
+  /** Base delay between attempts, ms. */
+  backoffMs?: number
+  /** Exponential multiplier applied per retry. */
+  backoffMultiplier?: number
 }
 
 /** MCP node in a production workflow (n8n-like). */
@@ -166,6 +180,8 @@ export interface CodeCallSpec {
   source: string
   /** Optional JSON passed as `data` to JS scripts. */
   data?: unknown
+  /** npm (JS) / PyPI (Python) packages auto-installed before the script runs. */
+  packages?: string[]
 }
 
 /** An inline custom HTTP API call. Lets any tool step call any REST endpoint. */
@@ -188,18 +204,11 @@ export interface HttpCallSpec {
   description?: string
 }
 
-/** The full workflow as JSON. */
+/** The full workflow as JSON. v1 documents are valid v2 documents. */
 export interface WorkflowJSON {
-  version: 1
+  version: 1 | 2
   steps: WorkflowStep[]
 }
-
-/**
- * Department is a free-form descriptive label the agent creates naturally
- * (e.g. "Filing", "Inbox", "Billing"). Not a fixed enum — the workspace
- * groups agents by this string dynamically.
- */
-export type Department = string
 
 export interface Workflow {
   id: string
@@ -210,10 +219,6 @@ export interface Workflow {
   schedule?: string | null
   status: WorkflowStatus
   origin: 'agent' | 'manual' | 'chat'
-  /** Descriptive department label, created naturally by the agent. */
-  department: Department
-  /** Role title, e.g. "Sorter", "Bookkeeper". */
-  title?: string | null
   /** Which workspace this agent belongs to (null = default workspace). */
   workspaceId?: string | null
   /** Where this agent runs: local (desktop, fs/cli/net access) or hosted (Apical server). */
@@ -441,20 +446,12 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'agent'
   content: string
-  /** When the agent proposes a new hire, it's attached here for rendering. */
+  /** When the agent proposes a new automation, it's attached here for rendering. */
   workflowProposal?: {
     name: string
     description: string
-    department: Department
-    title?: string
     steps: WorkflowJSON
   }
-  /** When the agent is editing an existing employee, the id it's editing. */
-  editingEmployeeId?: string
-  /** When the agent suggests switching to an existing employee. */
-  switchToEmployeeId?: string
-  /** When a JSON file was imported, the resulting employee. */
-  importedEmployee?: { id: string; name: string; title?: string | null; department: Department }
   /** A structured clarification question (multi-option card). */
   clarification?: ClarificationQuestion
   /** APIs the agent researched and wants to add, with credential requests. */
@@ -512,6 +509,33 @@ export type AgentEvent =
   | { type: 'error'; message: string }
   | { type: 'status'; status: 'thinking' | 'acting' | 'observing' | 'waiting_for_input' | 'done' }
   | { type: 'run_analysis'; success: boolean; outcomeAchieved?: boolean; summary: string; efficiencyNotes?: string; workflowSuggestions?: string[] }
+  // Persisted interactive cards — restored on reload so they survive page close.
+  | {
+      type: 'credential_request'
+      request: {
+        service: string
+        label: string
+        instructions?: string
+        docsUrl?: string
+        headerName?: string
+        headerPrefix?: string
+        fields: Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean }>
+      }
+      /** pending = box still shown; saved/dismissed = resolved. */
+      status?: 'pending' | 'saved' | 'dismissed'
+    }
+  | { type: 'plan'; items: Array<{ id: string; label: string; status: 'pending' | 'in_progress' | 'done' }> }
+  | {
+      type: 'clarification'
+      request: {
+        id: string
+        question: string
+        options: Array<{ key: string; label: string; description?: string }>
+        multiple?: boolean
+        kind?: 'clarification' | 'review'
+      }
+      answered?: boolean
+    }
 
 /** A message in an agent's conversation thread (per-agent chat, not the main assistant). */
 export interface AgentMessage {
@@ -647,16 +671,14 @@ export interface UserProfile {
 
 /**
  * The Apical Automation File format — a single JSON you can drop onto the chat
- * (or POST to the deploy API) to hire an employee complete with their tools
- * and credentials. Everything in `integrations` and `credentials` is installed
- * inline; `department` and `title` place the hire in the right room.
+ * (or POST to the deploy API) to create an agent complete with its tools
+ * and credentials. Everything in `integrations` and `credentials` is
+ * installed inline.
  */
 export interface AutomationFile {
   $schema?: string
   name: string
   description?: string
-  department?: Department
-  title?: string
   trigger?: { type: 'manual' | 'schedule'; cron?: string; label?: string }
   /** Inline integration definitions to install (private by default). */
   integrations?: Array<{
@@ -698,7 +720,7 @@ export interface AutomationFile {
 /** Socket events for live run streaming. */
 export interface RunSocketEvents {
   // client -> server
-  'run:subscribe': (payload: { runId: string }) => void
+  'run:subscribe': (payload: { runId: string; token: string }) => void
   'run:unsubscribe': (payload: { runId: string }) => void
   'relay': (payload: { room: string; event: string; data: unknown }) => void
   // server -> client (broadcast to room run:<runId>)

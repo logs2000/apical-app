@@ -74,6 +74,27 @@ export function fmtShortcut(key: string): string {
   return `${MOD_LABEL}${key === "," ? "," : key.toUpperCase()}`;
 }
 
+/**
+ * Hydration-safe modifier label. `MOD_LABEL` is "Ctrl" during SSR (no
+ * `navigator`) but "⌘" on a Mac client, which mismatches on hydration. Return
+ * "Ctrl" for the first client render (matching the server) and swap to the
+ * real label after mount so the markup stays consistent.
+ */
+export function useModLabel(): string {
+  const [label, setLabel] = React.useState("Ctrl");
+  React.useEffect(() => setLabel(MOD_LABEL), []);
+  return label;
+}
+
+/** Hydration-safe {@link fmtShortcut} — see {@link useModLabel}. */
+export function useFmtShortcut(): (key: string) => string {
+  const mod = useModLabel();
+  return React.useCallback(
+    (key: string) => `${mod}${key === "," ? "," : key.toUpperCase()}`,
+    [mod],
+  );
+}
+
 // ─── Command palette ────────────────────────────────────────────────────────
 
 export function CommandMenu({

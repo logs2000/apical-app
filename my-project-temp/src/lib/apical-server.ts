@@ -1,12 +1,12 @@
 // Apical domain helpers — parsing workflow JSON, step-kind metadata, examples.
 
+import { validateWorkflowJSON } from './workflow-schema'
 import type {
   WorkflowJSON,
   WorkflowStep,
   StepKind,
   Integration,
   ToolDef,
-  Department,
 } from './types'
 
 // ---------------- Agent naming ----------------
@@ -163,10 +163,55 @@ export const STEP_KIND_META: Record<
   },
 }
 
+/** Thrown when a stored workflow document is corrupt or fails the schema. */
+export class WorkflowParseError extends Error {
+  issues: Array<{ path: string; message: string }>
+  constructor(message: string, issues: Array<{ path: string; message: string }> = []) {
+    super(message)
+    this.name = 'WorkflowParseError'
+    this.issues = issues
+  }
+}
+
+/**
+ * STRICT parse: validates against the Zod WorkflowJSON schema and THROWS
+ * `WorkflowParseError` on corrupt JSON or schema violations. Use this on
+ * execution paths — corruption must fail loudly, not run an empty workflow.
+ * For display-only paths that must tolerate bad rows, use
+ * `tryParseWorkflowJSON`.
+ */
 export function parseWorkflowJSON(raw: string): WorkflowJSON {
+  let parsed: unknown
   try {
-    const parsed = JSON.parse(raw)
-    return { version: 1, steps: Array.isArray(parsed?.steps) ? parsed.steps : [] }
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new WorkflowParseError('Workflow steps are not valid JSON.')
+  }
+  const result = validateWorkflowJSON(parsed)
+  if (!result.ok) {
+    throw new WorkflowParseError(
+      `Workflow document failed schema validation: ${result.issues
+        .slice(0, 3)
+        .map((i) => `${i.path}: ${i.message}`)
+        .join('; ')}`,
+      result.issues,
+    )
+  }
+  return result.workflow as WorkflowJSON
+}
+
+/**
+ * LENIENT parse for display paths (lists, briefings, mappers): returns the
+ * steps if structurally present, or an empty workflow on corruption — but
+ * never throws. Do NOT use this on execution paths.
+ */
+export function tryParseWorkflowJSON(raw: string): WorkflowJSON {
+  try {
+    const parsed = JSON.parse(raw) as { version?: number; steps?: unknown }
+    return {
+      version: 1,
+      steps: Array.isArray(parsed?.steps) ? (parsed.steps as WorkflowJSON['steps']) : [],
+    }
   } catch {
     return { version: 1, steps: [] }
   }
@@ -301,50 +346,6 @@ export function integrationFromRow(row: {
   }
 }
 
-// ---------------- Departments (dynamic) ----------------
-// Departments are NOT a fixed enum — the agent creates them naturally. We just
-// pick a lucide icon for a department name based on keywords, defaulting to a
-// generic box. The workspace groups agents by their `department` string.
-
-export interface DepartmentMeta {
-  name: string
-  icon: string // lucide icon name
-  blurb: string
-}
-
-const DEPARTMENT_ICON_RULES: Array<{ match: RegExp; icon: string; blurb: string }> = [
-  { match: /fil|sort|archive|record|document|scan/i, icon: 'FolderArchive', blurb: 'Sorting & records.' },
-  { match: /mail|inbox|email|messag|chat|comms/i, icon: 'Mail', blurb: 'Messages & email.' },
-  { match: /financ|invoic|bill|payment|expense|book|account|payroll/i, icon: 'Banknote', blurb: 'Money & books.' },
-  { match: /dispatch|monitor|watch|alert|patrol|schedule/i, icon: 'Radio', blurb: 'Scheduled monitoring.' },
-  { match: /report|digest|summ|analytics|insight/i, icon: 'BarChart3', blurb: 'Reporting & analysis.' },
-  { match: /client|customer|crm|contact|sales/i, icon: 'Users', blurb: 'Client-facing.' },
-  { match: /hr|people|staff|onboard/i, icon: 'UserCog', blurb: 'People ops.' },
-  { match: /legal|contract|compliance|audit/i, icon: 'Scale', blurb: 'Legal & compliance.' },
-  { match: /intake|reception|front|triage/i, icon: 'ConciergeBell', blurb: 'Intake & triage.' },
-  { match: /deploy|dev|api|build|ship/i, icon: 'Code2', blurb: 'Build & ship.' },
-]
-
-export function departmentMeta(name: string): DepartmentMeta {
-  const rule = DEPARTMENT_ICON_RULES.find((r) => r.match.test(name))
-  return { name, icon: rule?.icon ?? 'Boxes', blurb: rule?.blurb ?? 'A group of agents.' }
-}
-
-/** Group workflows into departments dynamically (by their `department` string). */
-export function groupByDepartment<T extends { department: string }>(
-  items: T[],
-): Array<{ department: string; meta: DepartmentMeta; items: T[] }> {
-  const map = new Map<string, T[]>()
-  for (const it of items) {
-    const key = it.department || 'General'
-    if (!map.has(key)) map.set(key, [])
-    map.get(key)!.push(it)
-  }
-  return Array.from(map.entries())
-    .map(([department, items]) => ({ department, meta: departmentMeta(department), items }))
-    .sort((a, b) => a.department.localeCompare(b.department))
-}
-
 // ---------------- Agent avatars ----------------
 export function agentInitials(name: string): string {
   const n = name.trim()
@@ -360,12 +361,6 @@ export function agentAvatarLightness(name: string): number {
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
   // vary lightness between 0.45 and 0.72 along the primary hue — monotone
   return 0.45 + (h % 100) / 380
-}
-
-// Keep the old names as aliases for backward compat with existing components.
-export const employeeInitials = agentInitials
-export function employeeAvatarColor(_name: string): string {
-  return 'emerald'
 }
 
 // ---------------- Suggestions ----------------

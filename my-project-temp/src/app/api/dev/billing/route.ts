@@ -4,11 +4,11 @@ import { withDevAuth } from '@/lib/dev-auth'
 
 // GET /api/dev/billing — billing summary.
 // { plan, balanceCents, stripeCustomerId, recentCharges: McpAuditLog[] (costCents>0, last 10) }
-export const GET = withDevAuth(async (_req, { developer }) => {
+export const GET = withDevAuth(async (_req, { workspace }) => {
   try {
     const recentCharges = await db.mcpAuditLog.findMany({
       where: {
-        developerId: developer.id,
+        workspaceId: workspace.id,
         costCents: { gt: 0 },
       },
       orderBy: { createdAt: 'desc' },
@@ -16,9 +16,9 @@ export const GET = withDevAuth(async (_req, { developer }) => {
     })
 
     return NextResponse.json({
-      plan: developer.plan,
-      balanceCents: developer.balanceCents,
-      stripeCustomerId: developer.stripeCustomerId,
+      plan: workspace.plan,
+      balanceCents: workspace.balanceCents,
+      stripeCustomerId: workspace.stripeCustomerId,
       recentCharges: recentCharges.map((l) => ({
         id: l.id,
         action: l.action,

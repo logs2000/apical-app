@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
 import { mapWorkflow, mapExecutionPattern } from '@/lib/mappers'
-import { serializeWorkflowJSON } from '@/lib/apical-server'
-import type { WorkflowJSON, Department } from '@/lib/types'
+import { saveWorkflowSteps } from '@/lib/platform/workflow-revisions'
+import type { WorkflowJSON } from '@/lib/types'
 
 interface RouteCtx {
   params: Promise<{ id: string }>
@@ -46,8 +46,6 @@ interface PatchBody {
   trigger?: 'manual' | 'schedule'
   schedule?: string | null
   status?: 'draft' | 'active' | 'paused'
-  department?: Department
-  title?: string | null
   origin?: 'agent' | 'manual' | 'chat'
   workspaceId?: string | null
   runtime?: 'local' | 'hosted'
@@ -85,15 +83,6 @@ export async function PATCH(req: Request, { params }: RouteCtx) {
     if (body.status === 'draft' || body.status === 'active' || body.status === 'paused') {
       data.status = body.status
     }
-    if (body.steps && Array.isArray(body.steps.steps)) {
-      data.stepsJson = serializeWorkflowJSON({ version: 1, steps: body.steps.steps })
-    }
-    if (typeof body.department === 'string' && body.department.trim()) {
-      data.department = body.department.trim()
-    }
-    if (typeof body.title === 'string') {
-      data.title = body.title.trim() || null
-    }
     if (body.origin === 'agent' || body.origin === 'manual' || body.origin === 'chat') {
       data.origin = body.origin
     }
@@ -130,7 +119,18 @@ export async function PATCH(req: Request, { params }: RouteCtx) {
         : null
     }
 
-    const updated = await db.workflow.update({ where: { id }, data })
+    let updated = await db.workflow.update({ where: { id }, data })
+
+    // Step changes go through the revisions pipeline (immutable snapshot +
+    // activeRevisionId bump), never as a raw stepsJson overwrite.
+    if (body.steps && Array.isArray(body.steps.steps)) {
+      await saveWorkflowSteps(
+        id,
+        { version: 1, steps: body.steps.steps },
+        { author: 'user', note: 'Updated via PATCH /api/workflows.' },
+      )
+      updated = (await db.workflow.findUnique({ where: { id } }))!
+    }
     return NextResponse.json(mapWorkflow(updated))
   } catch (err) {
     console.error('[api/workflows/[id]] PATCH failed:', err)

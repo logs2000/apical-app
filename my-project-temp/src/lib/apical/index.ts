@@ -19,7 +19,7 @@ export interface WorkflowStep {
 }
 
 export interface WorkflowJSON {
-  version: 1;
+  version: 1 | 2;
   steps: WorkflowStep[];
 }
 
@@ -32,8 +32,6 @@ export interface Workflow {
   schedule?: string | null;
   status: WorkflowStatus;
   origin?: "agent" | "manual" | "chat";
-  department: string;
-  title?: string | null;
   runtime: AgentRuntime;
   modelPreference?: string | null;
   runsCount: number;
@@ -113,8 +111,11 @@ export interface ChatMessage {
   workflowSaved?: { agentName: string };
   /** When an agent created a sibling agent — UI opens it automatically. */
   createdAgent?: { agentId: string; agentName: string };
-  /** When the agent needs an API key — renders an inline, secure vault box. */
-  credentialRequest?: CredentialRequestInfo;
+  /** When the agent needs API keys — renders one inline, secure vault box per request.
+   *  Persisted with the message; each box stays until saved or dismissed. */
+  credentialRequests?: CredentialRequestState[];
+  /** The server row id once persisted — used to PATCH interactive-card state. */
+  serverId?: string;
   /** The agent's live checklist (from update_plan) — rendered above the answer. */
   checklist?: PlanItem[];
   /** A multiple-choice question the user answers by clicking (from ask_clarification). */
@@ -144,6 +145,11 @@ export interface ClarificationRequestInfo {
   multiple?: boolean;
   /** 'clarification' = disambiguate; 'review' = approval gate. */
   kind?: "clarification" | "review";
+}
+
+/** A credential request + its lifecycle state (persists until saved/dismissed). */
+export interface CredentialRequestState extends CredentialRequestInfo {
+  status?: "pending" | "saved" | "dismissed";
 }
 
 /** A request from an agent for the user to save an API key / token to the vault. */
@@ -368,8 +374,6 @@ export const DEMO_WORKFLOWS: Workflow[] = [
     trigger: "schedule",
     schedule: "every 15 min",
     status: "active",
-    department: "Filing",
-    title: "Sorter",
     runtime: "local",
     runsCount: 1284,
     itemsProcessed: 8472,
@@ -396,8 +400,6 @@ export const DEMO_WORKFLOWS: Workflow[] = [
     trigger: "schedule",
     schedule: "daily 9am",
     status: "active",
-    department: "Client",
-    title: "Onboarding Writer",
     runtime: "hosted",
     runsCount: 47,
     itemsProcessed: 312,
@@ -423,8 +425,6 @@ export const DEMO_WORKFLOWS: Workflow[] = [
     trigger: "schedule",
     schedule: "every 6h",
     status: "active",
-    department: "Dispatch",
-    title: "Watcher",
     runtime: "hosted",
     runsCount: 89,
     itemsProcessed: 534,
@@ -451,8 +451,6 @@ export const DEMO_WORKFLOWS: Workflow[] = [
     trigger: "manual",
     schedule: null,
     status: "active",
-    department: "Finance",
-    title: "Auditor",
     runtime: "hosted",
     runsCount: 23,
     itemsProcessed: 487,
@@ -478,8 +476,6 @@ export const DEMO_WORKFLOWS: Workflow[] = [
     trigger: "schedule",
     schedule: "daily 8am",
     status: "active",
-    department: "Dispatch",
-    title: "Reminder",
     runtime: "hosted",
     runsCount: 30,
     itemsProcessed: 18,
@@ -506,8 +502,6 @@ export const DEMO_WORKFLOWS: Workflow[] = [
     trigger: "schedule",
     schedule: "weekly Mon",
     status: "paused",
-    department: "Client",
-    title: "Prospector",
     runtime: "hosted",
     runsCount: 4,
     itemsProcessed: 80,
@@ -542,7 +536,6 @@ export const DEMO_MESSAGES: ChatMessage[] = [
     workflowProposal: {
       name: "Compass",
       description: "Sort scans + invoices into client folders. Auto-creates new client folders.",
-      title: "Sorter",
       steps: {
         version: 1,
         steps: [
@@ -671,7 +664,7 @@ export function messagesForAgent(agent: Workflow): ChatMessage[] {
     {
       id: 'dm1',
       role: 'agent' as const,
-      content: `Hi Jordan — I'm ${agent.name}, your ${agent.title ?? 'agent'}. I've been running ${agent.runsCount} times and processed ${agent.itemsProcessed.toLocaleString()} items. ${agent.flaggedCount > 0 ? `${agent.flaggedCount} items need your review.` : 'Nothing flagged right now.'} What do you need?`,
+      content: `Hi Jordan — I'm ${agent.name}. I've been running ${agent.runsCount} times and processed ${agent.itemsProcessed.toLocaleString()} items. ${agent.flaggedCount > 0 ? `${agent.flaggedCount} items need your review.` : 'Nothing flagged right now.'} What do you need?`,
       createdAt: ago(1),
     },
   ]
@@ -684,7 +677,7 @@ export function agentWelcomeMessage(
 ): ChatMessage {
   const firstName = user?.name?.trim().split(/\s+/)[0] || 'there'
   const lines: string[] = []
-  lines.push(`Hi ${firstName} — I'm **${agent.name}**${agent.title ? `, your ${agent.title.toLowerCase()}` : ''}.`)
+  lines.push(`Hi ${firstName} — I'm **${agent.name}**.`)
 
   const desc = agent.description?.trim()
   if (desc && !/^tell apical what repetitive job/i.test(desc)) {

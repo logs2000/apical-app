@@ -3,9 +3,9 @@ import { NextResponse } from 'next/server'
 // GET /api/dev/docs — static JSON: MCP quickstart + reference content for the
 // in-app docs page. Includes:
 //   - The MCP server install (npx apical-mcp + Cursor + Claude Desktop config)
-//   - The 5 tools (deploy, list_agents, get_agent, run_agent, get_report) with
-//     input/output schemas
-//   - The REST API endpoints (deploy, run, agents, reports) with curl examples
+//   - The 11 full-loop tools (search registry, schema, validate, deploy,
+//     generate, list/get workflows, run, run status, rerun, usage)
+//   - The /v1 REST API endpoints with curl examples
 //   - The AutomationFile format summary + a link to /api/dev/schema
 //   - Pricing/plans summary
 export async function GET() {
@@ -29,7 +29,7 @@ const DOCS = {
     name: 'apical-mcp',
     install: 'npx apical-mcp',
     description:
-      'The Apical MCP server exposes your developer account as 5 tools you can call from any MCP-aware client. Authenticate with an API key (create one in the console).',
+      'The Apical MCP server exposes your workspace as 11 tools covering the full loop — search the registry, fetch the schema, validate, deploy, generate, run (+wait), tail status, rerun, and check usage. Authenticate with a workspace API key.',
     configs: {
       cursor: {
         label: 'Cursor',
@@ -64,90 +64,108 @@ const DOCS = {
     },
     tools: [
       {
-        name: 'deploy',
+        name: 'apical_search_registry',
         description:
-          'Deploy an Automation File (a JSON description of an agent + its tools + credentials). Creates inline integrations + credentials + the workflow in one shot.',
+          'Search the connector registry + installed integrations. Returns integration ids to reference in workflow steps.',
         inputSchema: {
           type: 'object',
-          required: ['automationFile'],
-          properties: {
-            automationFile: {
-              type: 'object',
-              description: 'The AutomationFile JSON. See /api/dev/schema for the full schema.',
-              required: ['name', 'steps'],
-              properties: {
-                name: { type: 'string' },
-                description: { type: 'string' },
-                department: { type: 'string' },
-                title: { type: 'string' },
-                integrations: { type: 'array' },
-                credentials: { type: 'array' },
-                mcpServers: { type: 'array' },
-                steps: { type: 'array' },
-              },
-            },
-          },
-        },
-        outputSchema: {
-          type: 'object',
-          properties: {
-            agent: { type: 'object', description: 'The created Workflow.' },
-            integrationsCreated: { type: 'number' },
-            credentialsCreated: { type: 'number' },
-          },
+          properties: { query: { type: 'string' } },
         },
       },
       {
-        name: 'list_agents',
-        description: 'List the agents (workflows) in your workspace.',
+        name: 'apical_get_schema',
+        description:
+          'Fetch the WorkflowJSON v2 JSON Schema (the contract every workflow document must satisfy).',
         inputSchema: { type: 'object', properties: {} },
-        outputSchema: {
-          type: 'array',
-          items: { type: 'object', description: 'A Workflow.' },
-        },
       },
       {
-        name: 'get_agent',
-        description: 'Get one agent (workflow) by id, with its execution patterns.',
-        inputSchema: {
-          type: 'object',
-          required: ['agentId'],
-          properties: { agentId: { type: 'string' } },
-        },
-        outputSchema: {
-          type: 'object',
-          description: 'The Workflow + a patterns array.',
-        },
-      },
-      {
-        name: 'run_agent',
+        name: 'apical_validate',
         description:
-          'Trigger a run on an agent. Costs 3¢ from your balance. Returns a runId immediately; the run streams progress over the relay (subscribe via socket.io).',
+          'Validate a WorkflowJSON document without saving: schema, step ids, {{stepId.field}} refs, integration + credential refs.',
         inputSchema: {
           type: 'object',
-          required: ['agentId'],
-          properties: { agentId: { type: 'string' } },
+          required: ['workflow'],
+          properties: { workflow: { type: 'object' } },
         },
-        outputSchema: {
+      },
+      {
+        name: 'apical_deploy',
+        description:
+          'Create a workflow from a WorkflowJSON v2 document. Validated first — fails with the issue list if invalid.',
+        inputSchema: {
           type: 'object',
+          required: ['name', 'workflow'],
           properties: {
-            runId: { type: 'string' },
-            status: { type: 'string', enum: ['running'] },
+            name: { type: 'string' },
+            workflow: { type: 'object' },
+            description: { type: 'string' },
           },
         },
       },
       {
-        name: 'get_report',
+        name: 'apical_generate',
         description:
-          'Get the full run report: status, items processed, flagged items, step outputs.',
+          'Natural-language spec → Apical designs, validates, and saves a draft workflow. Blocks until the job finishes.',
+        inputSchema: {
+          type: 'object',
+          required: ['spec'],
+          properties: { spec: { type: 'string' }, name: { type: 'string' } },
+        },
+      },
+      {
+        name: 'apical_list_workflows',
+        description: 'List the workspace\'s workflows (name, status, run count, id).',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'apical_get_workflow',
+        description: 'One workflow\'s detail — steps, schedule, run stats.',
+        inputSchema: {
+          type: 'object',
+          required: ['workflowId'],
+          properties: { workflowId: { type: 'string' } },
+        },
+      },
+      {
+        name: 'apical_run',
+        description:
+          'Trigger a run. wait=true (default) blocks up to 60s and returns the report. Costs 3¢. Supports idempotencyKey.',
+        inputSchema: {
+          type: 'object',
+          required: ['workflowId'],
+          properties: {
+            workflowId: { type: 'string' },
+            wait: { type: 'boolean' },
+            idempotencyKey: { type: 'string' },
+          },
+        },
+      },
+      {
+        name: 'apical_run_status',
+        description:
+          'Tail a run: status, per-step progress + errors, and the report once finished.',
         inputSchema: {
           type: 'object',
           required: ['runId'],
           properties: { runId: { type: 'string' } },
         },
-        outputSchema: {
+      },
+      {
+        name: 'apical_rerun',
+        description:
+          'Re-execute a failed run as a new run from the failed step (or an explicit fromStepId).',
+        inputSchema: {
           type: 'object',
-          properties: { run: { type: 'object', description: 'The Run.' } },
+          required: ['runId'],
+          properties: { runId: { type: 'string' }, fromStepId: { type: 'string' } },
+        },
+      },
+      {
+        name: 'apical_usage',
+        description: 'Workspace balance, plan, run counts, per-key spend vs limits.',
+        inputSchema: {
+          type: 'object',
+          properties: { days: { type: 'number' } },
         },
       },
     ],
@@ -155,72 +173,82 @@ const DOCS = {
 
   // ─────────────────────────── REST API ───────────────────────────
   rest: {
-    baseUrl: '/api/dev',
+    baseUrl: '/v1',
     auth: {
       type: 'bearer',
       header: 'Authorization: Bearer ap_sk_...',
       altHeader: 'x-apical-key: ap_sk_...',
-      note: 'Authenticate every request with your API key in the Authorization header (or x-apical-key). Never commit your key.',
+      note: 'Authenticate every request with your workspace API key in the Authorization header (or x-apical-key). Keys carry scopes and optional spend limits. Never commit your key. Legacy /api/dev endpoints still work but /v1 is the supported surface.',
     },
     endpoints: [
       {
-        method: 'POST',
-        path: '/api/dev/deploy',
-        description: 'Deploy an Automation File.',
-        curl: `curl -X POST https://your-app.example.com/api/dev/deploy \\
-  -H "Authorization: Bearer ap_sk_..." \\
-  -H "Content-Type: application/json" \\
-  -d '{"name":"Pat","title":"Filing Clerk","steps":[{"id":"s1","kind":"tool","label":"List files","tool":"files.list"}]}'`,
+        method: 'GET',
+        path: '/v1/registry/integrations?q=slack',
+        description: 'Search the connector registry + installed integrations.',
+        curl: `curl "https://your-app.example.com/v1/registry/integrations?q=slack" \\
+  -H "Authorization: Bearer ap_sk_..."`,
       },
       {
         method: 'POST',
-        path: '/api/dev/run',
-        description: 'Trigger a run on an agent. Costs 3¢.',
-        curl: `curl -X POST https://your-app.example.com/api/dev/run \\
+        path: '/v1/workflows/validate',
+        description: 'Validate a WorkflowJSON document without saving.',
+        curl: `curl -X POST https://your-app.example.com/v1/workflows/validate \\
   -H "Authorization: Bearer ap_sk_..." \\
   -H "Content-Type: application/json" \\
-  -d '{"agentId":"wf_sorter"}'`,
+  -d '{"workflow":{"version":2,"steps":[...]}}'`,
+      },
+      {
+        method: 'POST',
+        path: '/v1/workflows',
+        description: 'Create a workflow from a WorkflowJSON v2 document (validated first).',
+        curl: `curl -X POST https://your-app.example.com/v1/workflows \\
+  -H "Authorization: Bearer ap_sk_..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"name":"Scan filing","workflow":{"version":2,"steps":[...]}}'`,
+      },
+      {
+        method: 'POST',
+        path: '/v1/workflows/generate',
+        description: 'Natural-language spec → draft workflow (async; poll the returned jobId).',
+        curl: `curl -X POST https://your-app.example.com/v1/workflows/generate \\
+  -H "Authorization: Bearer ap_sk_..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"spec":"Every morning, list new PDFs in the scans folder and file them by client"}'`,
       },
       {
         method: 'GET',
-        path: '/api/dev/agents',
-        description: 'List your agents.',
-        curl: `curl https://your-app.example.com/api/dev/agents \\
+        path: '/v1/workflows',
+        description: 'List your workflows.',
+        curl: `curl https://your-app.example.com/v1/workflows \\
+  -H "Authorization: Bearer ap_sk_..."`,
+      },
+      {
+        method: 'POST',
+        path: '/v1/workflows/{id}/run?wait=true',
+        description: 'Trigger a run (3¢). wait=true blocks up to 60s and returns the report. Supports Idempotency-Key header.',
+        curl: `curl -X POST "https://your-app.example.com/v1/workflows/wf_sorter/run?wait=true" \\
+  -H "Authorization: Bearer ap_sk_..." \\
+  -H "Idempotency-Key: my-key-123"`,
+      },
+      {
+        method: 'GET',
+        path: '/v1/runs/{id}',
+        description: 'Run status, per-step progress + errors, and the report.',
+        curl: `curl https://your-app.example.com/v1/runs/run_1 \\
+  -H "Authorization: Bearer ap_sk_..."`,
+      },
+      {
+        method: 'POST',
+        path: '/v1/runs/{id}/rerun',
+        description: 'Re-execute a failed run from the failed step (optional fromStepId).',
+        curl: `curl -X POST https://your-app.example.com/v1/runs/run_1/rerun \\
   -H "Authorization: Bearer ap_sk_..."`,
       },
       {
         method: 'GET',
-        path: '/api/dev/agents/{id}',
-        description: 'Get one agent (with patterns).',
-        curl: `curl https://your-app.example.com/api/dev/agents/wf_sorter \\
-  -H "Authorization: Bearer ap_sk_..."`,
-      },
-      {
-        method: 'GET',
-        path: '/api/dev/reports/{runId}',
-        description: 'Get the run report + steps.',
-        curl: `curl https://your-app.example.com/api/dev/reports/run_1 \\
-  -H "Authorization: Bearer ap_sk_..."`,
-      },
-      {
-        method: 'GET',
-        path: '/api/dev/account',
-        description: 'Your account (plan, balance).',
-        curl: `curl https://your-app.example.com/api/dev/account \\
-  -H "Authorization: Bearer ap_sk_..."`,
-      },
-      {
-        method: 'GET',
-        path: '/api/dev/usage?days=30',
-        description: 'Usage stats for the dashboard.',
-        curl: `curl "https://your-app.example.com/api/dev/usage?days=30" \\
-  -H "Authorization: Bearer ap_sk_..."`,
-      },
-      {
-        method: 'GET',
-        path: '/api/dev/logs?limit=50',
-        description: 'Audit log (newest first).',
-        curl: `curl "https://your-app.example.com/api/dev/logs?limit=50" \\
+        path: '/v1/usage?days=30',
+        description: 'Balance, plan, run counts, per-key spend vs limits.',
+        curl: `curl "https://your-app.example.com/v1/usage?days=30" \\
   -H "Authorization: Bearer ap_sk_..."`,
       },
     ],
@@ -229,15 +257,13 @@ const DOCS = {
   // ─────────────────────────── Automation File ───────────────────────────
   automationFile: {
     description:
-      'A single JSON object that fully describes an agent: its name, department, trigger, inline integrations, inline credentials, and a list of tool/reason/gate steps. Drop it on the chat, POST it to /api/dev/deploy, or pass it to the MCP `deploy` tool.',
+      'A single JSON object that fully describes an agent: its name, trigger, inline integrations, inline credentials, and a list of tool/reason/gate steps. Drop it on the chat, POST it to /api/dev/deploy, or pass it to the MCP `deploy` tool.',
     schemaUrl: '/api/dev/schema',
     schemaNote:
       'The full field-by-field schema (with descriptions, required badges, nested sub-tables for steps/integrations/credentials, and a complete worked example) is at /api/dev/schema.',
     topFields: [
       { name: 'name', type: 'string', required: true, description: 'Agent name.' },
       { name: 'description', type: 'string', required: false, description: 'One-sentence role.' },
-      { name: 'department', type: 'string', required: false, description: 'Free-form group label.' },
-      { name: 'title', type: 'string', required: false, description: 'Role title.' },
       { name: 'trigger', type: 'object', required: false, description: "{ type: 'manual'|'schedule', cron?, label? }" },
       { name: 'integrations', type: 'array', required: false, description: 'Inline integrations to install.' },
       { name: 'mcpServers', type: 'array', required: false, description: 'Shorthand for MCP servers (each becomes an Integration).' },
@@ -245,9 +271,7 @@ const DOCS = {
       { name: 'steps', type: 'array', required: true, description: 'List of { id, kind: tool|reason|gate, ... }.' },
     ],
     minimalExample: {
-      name: 'Pat',
-      title: 'Filing Clerk',
-      department: 'Filing',
+      name: 'Scanner Filing',
       steps: [
         { id: 's1', kind: 'tool', label: 'List files', tool: 'files.list', inputs: { folder: '/Inbox' } },
         { id: 's2', kind: 'reason', label: 'Classify', prompt: 'Determine which client this file belongs to.', outputShape: { client: 'string' } },

@@ -313,7 +313,7 @@ export function DataTab() {
             {DEMO_WORKFLOWS.slice(0, 4).map((w) => (
               <div key={w.id} className="mb-0.5 rounded-md px-2 py-1.5 text-[11px]">
                 <div className="font-medium">{w.name}</div>
-                <div className="text-[9px] text-muted-foreground">{w.title ?? "Agent"} · {relativeTime(w.updatedAt)}</div>
+                <div className="text-[9px] text-muted-foreground">{relativeTime(w.updatedAt)}</div>
               </div>
             ))}
           </Section>

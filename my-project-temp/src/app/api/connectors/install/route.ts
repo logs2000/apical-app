@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth-helpers';
+import { workspaceIdForUser } from '@/lib/integration-scope';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await getCurrentUser(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const body = await request.json();
     const { connectorSlug } = body;
 
@@ -32,18 +38,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Get userId from authenticated session. For now, use a placeholder.
-    // In production this would come from NextAuth session:
-    // const session = await getServerSession(authOptions);
-    // const userId = session?.user?.id;
-    const userId = 'system';
+    const wsId = await workspaceIdForUser(user);
 
-    // Check if this integration already exists for the user
+    // Check if this connector is already installed in the workspace
     const existing = await db.integration.findFirst({
       where: {
-        name: catalogEntry.name,
-        kind: catalogEntry.kind,
-        category: catalogEntry.category,
+        workspaceId: wsId,
+        registrySlug: catalogEntry.slug,
       },
     });
 
@@ -54,9 +55,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create an Integration record from the catalog entry
+    // Create a workspace-scoped Integration instance from the catalog entry
     const integration = await db.integration.create({
       data: {
+        workspaceId: wsId,
+        registrySlug: catalogEntry.slug,
         name: catalogEntry.name,
         kind: catalogEntry.kind,
         description: catalogEntry.description,

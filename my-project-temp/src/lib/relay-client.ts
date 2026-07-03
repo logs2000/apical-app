@@ -49,6 +49,10 @@ export function getRelayClient(): Socket {
     reconnectionDelayMax: 5000,
     timeout: 4000,
     autoConnect: true,
+    // Publisher handshake — the relay only fans out `relay` events from
+    // sockets that present the shared secret. Server-only module, so the
+    // secret never reaches a browser.
+    auth: { publisherSecret: (process.env.APICAL_RELAY_SECRET || '').trim() },
   })
 
   sock.on('connect', () => {

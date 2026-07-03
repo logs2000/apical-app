@@ -1,6 +1,6 @@
 // Server-side Supabase client (for Route Handlers and Server Components).
 // Reads/writes the auth cookies via next/headers. Returns null when Supabase
-// env vars are absent so server auth can fall through to PAT / dev bypass.
+// env vars are absent so server auth can fall through to API-key / dev auto-login.
 
 import { createServerClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'

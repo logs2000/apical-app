@@ -1,0 +1,50 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "shopify_levels",
+      "kind": "tool",
+      "label": "Fetch current inventory levels from Shopify",
+      "http": {
+        "method": "GET",
+        "url": "https://acme.myshopify.com/admin/api/2025-01/inventory_levels.json?location_ids=123456",
+        "headers": { "X-Shopify-Access-Token": "{{cred:shopify.access_token}}" }
+      },
+      "retry": { "maxAttempts": 3, "backoffMs": 2000 },
+      "timeoutMs": 30000
+    },
+    {
+      "id": "warehouse_levels",
+      "kind": "tool",
+      "label": "Fetch physical counts from the warehouse system",
+      "http": {
+        "method": "GET",
+        "url": "https://wms.example.com/api/stock?location=main",
+        "auth": { "type": "apikey_header", "ref": "cred_wms", "headerName": "X-Api-Key" }
+      }
+    },
+    {
+      "id": "diff",
+      "kind": "tool",
+      "label": "Compute SKUs that drifted",
+      "code": {
+        "language": "javascript",
+        "source": "const drift = []; for (const w of data.warehouse) { const s = data.shopify.find(x => x.sku === w.sku); if (s && s.available !== w.count) drift.push({ sku: w.sku, shopify: s.available, warehouse: w.count }); } return { drift };",
+        "data": { "shopify": "{{shopify_levels.body.inventory_levels}}", "warehouse": "{{warehouse_levels.body.stock}}" }
+      }
+    },
+    {
+      "id": "push_corrections",
+      "kind": "tool",
+      "label": "Push corrected counts to Shopify",
+      "http": {
+        "method": "POST",
+        "url": "https://acme.myshopify.com/admin/api/2025-01/inventory_levels/set.json",
+        "headers": { "X-Shopify-Access-Token": "{{cred:shopify.access_token}}" },
+        "body": { "corrections": "{{diff.drift}}" }
+      },
+      "retry": { "maxAttempts": 2, "backoffMs": 4000 }
+    }
+  ]
+}

@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
-import { isDesktopLocalWithoutDb } from '@/lib/dev-bypass'
 import { mapWorkflow } from '@/lib/mappers'
 import { serializeWorkflowJSON } from '@/lib/apical-server'
+import { saveWorkflowSteps } from '@/lib/platform/workflow-revisions'
 import type { WorkflowJSON } from '@/lib/types'
 
 // GET /api/workflows?workspaceId=... — list the current user's workflows
@@ -16,9 +16,6 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req)
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    if (isDesktopLocalWithoutDb()) {
-      return NextResponse.json([])
     }
     const url = new URL(req.url)
     const workspaceId = url.searchParams.get('workspaceId')
@@ -50,10 +47,6 @@ interface CreateBody {
   steps?: WorkflowJSON
   trigger?: 'manual' | 'schedule'
   schedule?: string | null
-  /** Free-form department label the agent creates (e.g. "Filing", "Inbox"). */
-  department?: string
-  /** Role title, e.g. "Filing Agent". */
-  title?: string
   /** Which workspace this agent belongs to (null = default). */
   workspaceId?: string | null
   /** Where this agent runs: local (desktop) or hosted (server). Default hosted. */
@@ -63,8 +56,8 @@ interface CreateBody {
 }
 
 // POST /api/workflows — create a new workflow (typically from the agent chat's
-// "approve agent" flow). Accepts department + title + workspaceId so the new
-// agent lands in the right place.
+// "approve agent" flow). Accepts workspaceId so the new agent lands in the
+// right place.
 export async function POST(req: Request) {
   try {
     const user = await getCurrentUser(req)
@@ -88,15 +81,6 @@ export async function POST(req: Request) {
     // runtime knows how to execute http steps directly (no named tool needed).
     // We just sanitize the shape so the JSON stays valid.
 
-    const department =
-      typeof body.department === 'string' && body.department.trim()
-        ? body.department.trim()
-        : 'General'
-
-    const title =
-      typeof body.title === 'string' && body.title.trim()
-        ? body.title.trim()
-        : null
 
     const workspaceId =
       typeof body.workspaceId === 'string' && body.workspaceId.trim()
@@ -118,11 +102,14 @@ export async function POST(req: Request) {
         schedule: body.schedule ?? null,
         status: 'active',
         origin,
-        department,
-        title,
         workspaceId,
         runtime: body.runtime === 'local' ? 'local' : 'hosted',
       },
+    })
+    // Revision 1 — every workflow starts with an immutable snapshot.
+    await saveWorkflowSteps(created.id, steps, {
+      author: origin === 'manual' ? 'user' : 'agent',
+      note: 'Initial revision.',
     })
     return NextResponse.json(mapWorkflow(created))
   } catch (err) {

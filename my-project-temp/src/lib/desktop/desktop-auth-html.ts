@@ -24,9 +24,8 @@ const MARK_SVG = `<svg viewBox="-14 -10 493 361" fill="none" width="44" height="
 export function buildDesktopAuthHtml(opts: {
   mode: Mode;
   error?: string;
-  isDev: boolean;
 }) {
-  const { mode, error, isDev } = opts;
+  const { mode, error } = opts;
   const isSignup = mode === "signup";
   const err = error ? decodeURIComponent(error.replace(/\+/g, " ")) : "";
 
@@ -204,7 +203,6 @@ export function buildDesktopAuthHtml(opts: {
         <button type="submit">${isSignup ? "Create account" : "Sign in"}</button>
       </form>
 
-      ${isDev ? `<a class="dev-skip" href="/api/auth/desktop-dev">Skip and continue in dev mode</a>` : ""}
     </div>
   </div>
 </body>

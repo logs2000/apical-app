@@ -1,81 +1,67 @@
 // Apical — auth helpers for API routes + server components.
 //
 // Three modes of identifying "the current user":
-//   1. NextAuth session (Google or Credentials login) → getServerSession.
-//   2. PAT (Personal Access Token) → Authorization: Bearer ap_pat_...
-//      Used by the apical-mcp mini-service + REST API.
-//   3. Dev bypass → when NODE_ENV=development AND AUTH_BYPASS_DEV=true,
-//      return a synthesized dev user (dev@apical.local) without auth.
+//   1. Unified API key → Authorization: Bearer ap_pat_... / ap_sk_...
+//      (workspace-scoped keys; see src/lib/api-key-auth.ts).
+//   2. Desktop device token → Authorization: Bearer dsk_...
+//      (a DesktopSession minted via the device-authorization login).
+//   3. Supabase session (Google or Credentials login).
 //
-// PATs use SHA-256 hashed storage (just like the old DeveloperAccount ApiKey
-// flow) so the raw token is never persisted. Replaces src/lib/dev-auth.ts for
-// user-facing API auth; the old dev-auth is kept for the legacy
-// /api/dev/* routes until they migrate.
+// There is NO production auth bypass — every request authenticates for real.
+// In development only, an opt-in auto sign-in (src/lib/dev-login.ts) can resolve
+// a configured DEV_AUTH_EMAIL account as a final fallback. It is inert unless
+// NODE_ENV !== 'production' and DEV_AUTH_EMAIL is set in .env.local.
 
-import { createHash, randomBytes } from 'crypto'
 import { db } from './db'
-import { getOrCreateDevUser, isDevBypass } from './auth'
-import { DEV_USER_EMAIL, DEV_USER_NAME, isDesktopLocalWithoutDb } from './dev-bypass'
 import { createSupabaseServerClient } from './supabase/server'
+import { authenticateApiKey, getWorkspaceForUser } from './api-key-auth'
+import { authenticateDesktopToken } from './desktop/device-auth'
+import { getDevAutoLoginUser } from './dev-login'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
-import type { PersonalAccessToken, User } from '@prisma/client'
+import type { User } from '@prisma/client'
+
+export { getWorkspaceForUser }
 
 // ---------------- Session user ----------------
 
 /**
  * The current user, resolved from (in order):
- *   1. A NextAuth session (Google or Credentials login).
- *   2. A PAT in the Authorization header (ap_pat_...).
- *   3. Dev bypass (returns the dev@apical.local user, creating it if needed).
+ *   1. A unified API key in the Authorization header (ap_pat_/ap_sk_).
+ *   2. A desktop device token in the Authorization header (dsk_).
+ *   3. A Supabase session (cookies).
  * Returns null if none of those apply.
  *
- * `req` is optional — when passed, PAT auth is attempted. NextAuth session
+ * `req` is optional — when passed, bearer-token auth is attempted. Session
  * resolution doesn't need it (it reads cookies via next/headers).
  */
 export async function getCurrentUser(req?: Request): Promise<User | null> {
-  // 1. Dev bypass — short-circuit before anything else.
-  if (isDevBypass()) {
-    if (isDesktopLocalWithoutDb()) {
-      return {
-        id: 'desktop-local-dev',
-        email: DEV_USER_EMAIL,
-        name: DEV_USER_NAME,
-        provider: 'credentials',
-        passwordHash: null,
-        image: null,
-        emailVerified: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as User
-    }
-    try {
-      return await getOrCreateDevUser()
-    } catch (err) {
-      console.error('[auth-helpers] dev bypass getOrCreateDevUser failed:', err)
-      return null
-    }
-  }
-
-  // 2. PAT (Authorization: Bearer ap_pat_...).
+  // 1. Unified API key (Authorization: Bearer ap_pat_... / ap_sk_...).
   if (req) {
-    const pat = await authenticatePat(req)
-    if (pat) return pat.user
+    const keyAuth = await authenticateApiKey(req)
+    if (keyAuth?.user) return keyAuth.user
+
+    // 2. Desktop device token (Authorization: Bearer dsk_...).
+    const desktopAuth = await authenticateDesktopToken(req)
+    if (desktopAuth) return desktopAuth.user
   }
 
   // 3. Supabase session — resolve the Supabase auth user, then mirror it into
   //    the Prisma `User` table (the app's data anchor) on first use.
   try {
     const supabase = await createSupabaseServerClient()
-    if (!supabase) return null
-    const {
-      data: { user: supaUser },
-    } = await supabase.auth.getUser()
-    if (!supaUser) return null
-    return await syncSupabaseUser(supaUser)
+    if (supabase) {
+      const {
+        data: { user: supaUser },
+      } = await supabase.auth.getUser()
+      if (supaUser) return await syncSupabaseUser(supaUser)
+    }
   } catch (err) {
     console.error('[auth-helpers] getCurrentUser session lookup failed:', err)
-    return null
   }
+
+  // 4. Dev-only auto sign-in (final fallback). Inert in production and unless
+  //    DEV_AUTH_EMAIL is configured — a real session above always wins.
+  return await getDevAutoLoginUser()
 }
 
 /**
@@ -160,88 +146,22 @@ export function withUser<T extends unknown[]>(
   }
 }
 
-export { isDevBypass }
-
-// ---------------- PAT: generation + hashing ----------------
-
-export const PAT_PREFIX = 'ap_pat_'
-
-/** SHA-256 hex of the raw PAT. What we store in `PersonalAccessToken.tokenHash`. */
-export function hashPat(raw: string): string {
-  return createHash('sha256').update(raw).digest('hex')
-}
+// ---------------- Admin gate ----------------
 
 /**
- * Generate a new `ap_pat_` + 32 hex chars token.
- * Returns the raw token (shown ONCE), the hash (stored), and the prefix
- * (first 12 chars — used for display in the dashboard).
+ * Platform-admin check for operator-only endpoints (e.g. editing global OAuth
+ * provider credentials). Admins are declared via APICAL_ADMIN_EMAILS (comma-
+ * separated). Fails closed when the env var is unset.
  */
-export function generatePat(userId: string): {
-  raw: string
-  hash: string
-  prefix: string
-  userId: string
-} {
-  // 16 random bytes → 32 hex chars.
-  const raw = PAT_PREFIX + randomBytes(16).toString('hex')
-  return {
-    raw,
-    hash: hashPat(raw),
-    prefix: raw.slice(0, 12),
-    userId,
-  }
+export function isAdminUser(user: User): boolean {
+  const raw = process.env.APICAL_ADMIN_EMAILS ?? ''
+  const admins = raw
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+  return admins.length > 0 && admins.includes(user.email.toLowerCase())
 }
 
-// ---------------- PAT: authentication ----------------
-
-export interface PatAuthResult {
-  user: User
-  pat: PersonalAccessToken
-}
-
-/**
- * Authenticate a request via Personal Access Token.
- * Reads `Authorization: Bearer ap_pat_...` (also tolerates a raw `ap_pat_...`
- * value with no Bearer prefix). Hashes it, looks up an active PAT, loads the
- * user. Returns null on any failure — never throws.
- *
- * Used by the apical-mcp mini-service + the REST API.
- */
-export async function authenticatePat(
-  req: Request,
-): Promise<PatAuthResult | null> {
-  try {
-    const raw = readRawPat(req)
-    if (!raw) return null
-    if (!raw.startsWith(PAT_PREFIX)) return null
-
-    const hash = hashPat(raw)
-    const pat = await db.personalAccessToken.findUnique({
-      where: { tokenHash: hash },
-      include: { user: true },
-    })
-    if (!pat) return null
-    if (pat.status !== 'active') return null
-
-    // Touch lastUsedAt (best-effort; never blocks the request).
-    void db.personalAccessToken
-      .update({ where: { id: pat.id }, data: { lastUsedAt: new Date() } })
-      .catch((e) => {
-        console.error('[auth-helpers] PAT lastUsedAt update failed:', e)
-      })
-
-    return { user: pat.user, pat }
-  } catch (err) {
-    console.error('[auth-helpers] authenticatePat failed:', err)
-    return null
-  }
-}
-
-/** Read the raw PAT string from a request's Authorization header. */
-function readRawPat(req: Request): string | null {
-  const auth = req.headers.get('authorization') || req.headers.get('Authorization')
-  if (!auth) return null
-  const trimmed = auth.trim()
-  const raw = trimmed.startsWith('Bearer ') ? trimmed.slice('Bearer '.length).trim() : trimmed
-  return raw || null
-}
+// (Personal Access Tokens are now ordinary unified API keys with the
+// `ap_pat_` display prefix, stored in the workspace-scoped ApiKey table.
+// See src/lib/api-key-auth.ts — there is no separate PAT code path anymore.)

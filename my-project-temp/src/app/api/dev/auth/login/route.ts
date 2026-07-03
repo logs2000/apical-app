@@ -5,7 +5,7 @@ import { hashApiKey, DEV_KEY_COOKIE } from '@/lib/dev-auth'
 
 // POST /api/dev/auth/login — log into the SaaS Developer Console with an API key.
 //
-// Hashes the raw key, looks up the ApiKey (must be active) + its DeveloperAccount
+// Hashes the raw key, looks up the ApiKey (must be active) + its Workspace
 // (must be active). On success, sets an httpOnly cookie with the raw key so the
 // console can make authenticated calls without re-sending the key each time.
 export async function POST(req: Request) {
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     const hash = hashApiKey(raw)
     const apiKey = await db.apiKey.findUnique({
       where: { keyHash: hash },
-      include: { developer: true },
+      include: { workspace: true },
     })
     if (!apiKey || apiKey.status !== 'active') {
       return NextResponse.json(
@@ -30,9 +30,9 @@ export async function POST(req: Request) {
         { status: 401 },
       )
     }
-    if (apiKey.developer.status !== 'active') {
+    if (apiKey.workspace.status !== 'active') {
       return NextResponse.json(
-        { error: 'This developer account is not active.' },
+        { error: 'This workspace is not active.' },
         { status: 403 },
       )
     }
@@ -46,10 +46,10 @@ export async function POST(req: Request) {
     // Audit log.
     await db.mcpAuditLog.create({
       data: {
-        developerId: apiKey.developer.id,
+        workspaceId: apiKey.workspaceId,
         apiKeyId: apiKey.id,
         action: 'account:login',
-        target: apiKey.developer.id,
+        target: apiKey.workspaceId,
         success: true,
         costCents: 0,
         detail: 'Console login.',
@@ -65,15 +65,15 @@ export async function POST(req: Request) {
       maxAge: 60 * 60 * 24 * 30, // 30 days
     })
 
-    const dev = apiKey.developer
+    const ws = apiKey.workspace
     return NextResponse.json({
       developer: {
-        id: dev.id,
-        email: dev.email,
-        name: dev.name,
-        plan: dev.plan,
-        balanceCents: dev.balanceCents,
-        workspaceId: dev.workspaceId,
+        id: ws.id,
+        email: ws.billingEmail,
+        name: ws.name,
+        plan: ws.plan,
+        balanceCents: ws.balanceCents,
+        workspaceId: ws.id,
       },
       apiKey: {
         id: apiKey.id,

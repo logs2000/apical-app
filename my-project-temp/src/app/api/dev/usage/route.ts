@@ -12,7 +12,7 @@ import { withDevAuth } from '@/lib/dev-auth'
 //   - agentsDeployed  — count of workflows with origin='agent' in their workspace
 //   - runsTriggered   — count of audit logs with action 'rest:run' or 'mcp:run'
 //   - successRate     — %
-export const GET = withDevAuth(async (req, { developer }) => {
+export const GET = withDevAuth(async (req, { workspace }) => {
   try {
     const url = new URL(req.url)
     const daysRaw = Number.parseInt(url.searchParams.get('days') || '30', 10)
@@ -20,7 +20,7 @@ export const GET = withDevAuth(async (req, { developer }) => {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
 
     const logs = await db.mcpAuditLog.findMany({
-      where: { developerId: developer.id, createdAt: { gte: since } },
+      where: { workspaceId: workspace.id, createdAt: { gte: since } },
       orderBy: { createdAt: 'asc' },
     })
 
@@ -57,16 +57,13 @@ export const GET = withDevAuth(async (req, { developer }) => {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, v]) => ({ date, calls: v.calls, costCents: v.costCents }))
 
-    // Count deployed agents (workflows with origin='agent' in their workspace).
-    let agentsDeployed = 0
-    if (developer.workspaceId) {
-      agentsDeployed = await db.workflow.count({
-        where: {
-          workspaceId: developer.workspaceId,
-          origin: 'agent',
-        },
-      })
-    }
+    // Count deployed agents (workflows with origin='agent' in the workspace).
+    const agentsDeployed = await db.workflow.count({
+      where: {
+        workspaceId: workspace.id,
+        origin: 'agent',
+      },
+    })
 
     const runsTriggered = logs.filter(
       (l) => l.action === 'rest:run' || l.action === 'mcp:run',

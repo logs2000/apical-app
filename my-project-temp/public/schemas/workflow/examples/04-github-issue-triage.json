@@ -1,0 +1,36 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "fetch_issues",
+      "kind": "tool",
+      "label": "Fetch unlabeled open issues via the GitHub MCP server",
+      "mcp": {
+        "integrationId": "github",
+        "tool": "list_issues",
+        "args": { "owner": "acme", "repo": "webapp", "state": "open", "labels": "" }
+      },
+      "timeoutMs": 20000
+    },
+    {
+      "id": "triage",
+      "kind": "reason",
+      "label": "Classify each issue: bug, feature, question, or spam",
+      "prompt": "For each issue in {{fetch_issues.issues}}, classify it as bug / feature / question / spam and pick a priority (p0-p3) based on severity and user impact.",
+      "outputShape": { "label": "string", "priority": "string", "confidence": "number 0-1" },
+      "confidenceThreshold": 0.7
+    },
+    {
+      "id": "apply_labels",
+      "kind": "tool",
+      "label": "Apply the chosen labels",
+      "mcp": {
+        "integrationId": "github",
+        "tool": "add_labels",
+        "args": { "owner": "acme", "repo": "webapp", "labelsByIssue": "{{triage.labelsByIssue}}" }
+      },
+      "retry": { "maxAttempts": 3, "backoffMs": 1000 }
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "pull_reports",
+      "kind": "tool",
+      "label": "Pull submitted expense reports",
+      "http": {
+        "method": "GET",
+        "url": "https://api.example-expenses.com/v1/reports?status=submitted",
+        "auth": { "type": "apikey_header", "ref": "cred_expenses", "headerName": "X-Api-Key" }
+      }
+    },
+    {
+      "id": "check_policy",
+      "kind": "reason",
+      "label": "Check each report against the expense policy",
+      "prompt": "Audit each report in {{pull_reports.body.reports}} against policy: meals under $75/day, no alcohol, flights economy under 6 hours, receipts required over $25. List violations per report.",
+      "outputShape": { "compliant": "boolean", "issues": "string[]", "confidence": "number 0-1" },
+      "confidenceThreshold": 0.85
+    },
+    {
+      "id": "approve_clean",
+      "kind": "tool",
+      "label": "Auto-approve compliant reports",
+      "http": {
+        "method": "POST",
+        "url": "https://api.example-expenses.com/v1/reports/approve",
+        "auth": { "type": "apikey_header", "ref": "cred_expenses", "headerName": "X-Api-Key" },
+        "body": { "reportIds": "{{check_policy.compliantReportIds}}" }
+      }
+    },
+    {
+      "id": "review_gate",
+      "kind": "gate",
+      "label": "Human review for flagged reports",
+      "gateMessage": "These expense reports have policy violations or low-confidence audits. Approve or reject each before the run completes."
+    }
+  ]
+}

@@ -67,24 +67,56 @@ export interface ResolvedCredential {
  * Resolve a credentialId to a usable secret + injection metadata.
  * Returns null if the credential doesn't exist, isn't owned by the user,
  * or has no usable secret.
+ *
+ * When `opts.connectedAccountId` is set (multi-tenant run on behalf of an
+ * end customer), resolution prefers a credential for the SAME service that is
+ * bound to that ConnectedAccount — so a run scoped to customer X uses X's
+ * vault entry instead of the workspace default.
  */
 export async function resolveCredentialForAgent(
   credentialId: string,
   userId: string,
+  opts: { connectedAccountId?: string | null } = {},
 ): Promise<ResolvedCredential | null> {
   if (!credentialId || !userId) return null
-  const row = await db.credential.findFirst({
+  let row = await db.credential.findFirst({
     where: { id: credentialId, userId },
     select: {
       id: true,
       kind: true,
       status: true,
+      service: true,
+      connectedAccountId: true,
       oauthAccessToken: true,
       oauthProvider: true,
       metaJson: true,
     },
   })
   if (!row || row.status !== 'active') return null
+
+  // Connected-account preference: swap in the account-bound sibling
+  // credential for the same service, when one exists.
+  if (opts.connectedAccountId && row.connectedAccountId !== opts.connectedAccountId) {
+    const accountRow = await db.credential.findFirst({
+      where: {
+        userId,
+        service: row.service,
+        connectedAccountId: opts.connectedAccountId,
+        status: 'active',
+      },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        service: true,
+        connectedAccountId: true,
+        oauthAccessToken: true,
+        oauthProvider: true,
+        metaJson: true,
+      },
+    })
+    if (accountRow) row = accountRow
+  }
 
   // Resolve the secret: prefer oauthAccessToken (decrypted); fall back to
   // metaJson.key / token / apikey / secret.
@@ -163,6 +195,7 @@ export async function buildSecureHeaders(
   llmHeaders: Record<string, string> | undefined,
   credentialId: string | undefined,
   userId: string,
+  opts: { connectedAccountId?: string | null } = {},
 ): Promise<{ headers: Record<string, string>; hadCredential: boolean }> {
   // 1. Strip auth-shaped headers the LLM tried to set.
   const headers: Record<string, string> = {}
@@ -176,7 +209,7 @@ export async function buildSecureHeaders(
 
   // 2. Resolve credential + inject.
   if (credentialId) {
-    const cred = await resolveCredentialForAgent(credentialId, userId)
+    const cred = await resolveCredentialForAgent(credentialId, userId, opts)
     if (cred) {
       headers[cred.headerName] = `${cred.headerPrefix}${cred.secret}`.trim()
       return { headers, hadCredential: true }

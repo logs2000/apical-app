@@ -1,0 +1,38 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "list_failed",
+      "kind": "tool",
+      "label": "List payment intents that failed in the last day",
+      "http": {
+        "method": "GET",
+        "url": "https://api.stripe.com/v1/payment_intents?limit=100&created[gte]={{trigger.yesterdayUnix}}",
+        "auth": { "type": "bearer", "ref": "cred_stripe" }
+      },
+      "retry": { "maxAttempts": 3, "backoffMs": 2000, "backoffMultiplier": 2 }
+    },
+    {
+      "id": "pick_recoverable",
+      "kind": "tool",
+      "label": "Filter to card_declined and insufficient_funds failures",
+      "code": {
+        "language": "javascript",
+        "source": "const failed = data.paymentIntents.filter(pi => pi.status === 'requires_payment_method' && ['card_declined','insufficient_funds'].includes(pi.last_payment_error?.code)); return { recoverable: failed.map(pi => ({ id: pi.id, customer: pi.customer, amount: pi.amount })) };",
+        "data": { "paymentIntents": "{{list_failed.body.data}}" }
+      }
+    },
+    {
+      "id": "send_dunning",
+      "kind": "tool",
+      "label": "Send a payment-update email to each affected customer",
+      "http": {
+        "method": "POST",
+        "url": "https://api.postmarkapp.com/email/batch",
+        "auth": { "type": "apikey_header", "ref": "cred_postmark", "headerName": "X-Postmark-Server-Token" },
+        "body": { "recipients": "{{pick_recoverable.recoverable}}", "template": "dunning-v2" }
+      }
+    }
+  ]
+}

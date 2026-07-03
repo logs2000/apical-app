@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { simpleComplete, resolveModelPreference, configuredHostedProviders } from '@/lib/platform/llm-gateway'
 import { MODEL_REGISTRY } from '@/lib/platform/models'
 import { db } from '@/lib/db'
+import { getCurrentUser } from '@/lib/auth-helpers'
 
 interface RouteCtx { params: Promise<{ id: string }> }
 
@@ -22,8 +23,10 @@ interface Suggestion {
   reasoning: string
 }
 
-export async function POST(_req: Request, { params }: RouteCtx) {
+export async function POST(req: Request, { params }: RouteCtx) {
   try {
+    const user = await getCurrentUser(req)
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const { id } = await params
     const wf = await db.workflow.findUnique({
       where: { id },
@@ -36,7 +39,9 @@ export async function POST(_req: Request, { params }: RouteCtx) {
         patterns: { orderBy: { occurrences: 'desc' }, take: 10 },
       },
     })
-    if (!wf) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
+    if (!wf || (wf.userId !== null && wf.userId !== user.id)) {
+      return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
+    }
 
     // Compute some quick stats from the run history.
     const runs = wf.runs
@@ -62,7 +67,7 @@ export async function POST(_req: Request, { params }: RouteCtx) {
     const hardenedPatternCount = wf.patterns.filter((p) => p.hardened).length
 
     // Build a context summary for the LLM.
-    const context = `Agent: ${wf.name}${wf.title ? ` (${wf.title})` : ''}
+    const context = `Agent: ${wf.name}
 Description: ${wf.description}
 Current trigger: ${wf.trigger}${wf.schedule ? ` (${wf.schedule})` : ''}
 Current status: ${wf.status}

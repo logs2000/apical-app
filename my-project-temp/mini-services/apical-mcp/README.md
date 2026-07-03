@@ -1,8 +1,8 @@
 # apical-mcp
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that lets your AI coding agent (Cursor, Claude Code, Claude Desktop, Windsurf) **deploy and run Apical automations** straight from your editor.
+A [Model Context Protocol](https://modelcontextprotocol.io) server that lets your AI coding agent (Cursor, Claude Code, Claude Desktop, Windsurf) **design, validate, deploy, and run Apical automations** straight from your editor.
 
-Apical is "Cursor for office work" — an AI agent platform where you describe a repetitive job and it runs on a schedule. With `apical-mcp`, the agent you're already pair-programming with can ship a workflow file to Apical, trigger a run, and read back the report — without you leaving the editor.
+Apical is "Cursor for office work" — an AI agent platform where you describe a repetitive job and it runs on a schedule. With `apical-mcp`, the agent you're already pair-programming with covers the full loop: search the connector registry, fetch the WorkflowJSON schema, validate a document, deploy it, trigger a run (sync or async), tail its status, read the report, rerun from a failed step, and check usage/spend — without you leaving the editor.
 
 ---
 
@@ -31,8 +31,8 @@ You'll need a recent Node.js or Bun. The server uses stdio for transport — you
 
 ### Get your API key
 
-1. Open the **Apical Developer Console** (in the Apical app: Settings → Developer).
-2. Create an API key. It starts with `ap_sk_...`.
+1. Open Apical: **Settings → API Keys**.
+2. Create a workspace API key. It starts with `ap_sk_...`. Give it at least the scopes `workflows:read`, `workflows:write`, `runs:execute`, `runs:read`, `registry:read`, `usage:read` (or leave scopes empty for all).
 3. Put it in the `APICAL_API_KEY` env var in your MCP client config (below).
 
 ---
@@ -76,7 +76,7 @@ Or, if you installed from source with Bun:
 }
 ```
 
-After saving, restart Cursor. You should see `apical` show up under **Settings → MCP** with 5 tools available.
+After saving, restart Cursor. You should see `apical` show up under **Settings → MCP** with 11 tools available.
 
 ### Claude Desktop
 
@@ -141,132 +141,50 @@ Add `APICAL_API_URL` to the `env` block:
 
 ## Tools
 
-The server exposes 5 tools. Your AI agent decides when to call them — you just chat naturally ("deploy this workflow", "what are my agents?", "run the filing clerk", "show me the last report").
+The server exposes 11 tools covering the full loop. Your AI agent decides when to call them — you just chat naturally ("build me an automation that files scans", "run the invoice workflow and show me the report").
 
-### 1. `apical_deploy`
+| Tool | What it does | Backing endpoint |
+| --- | --- | --- |
+| `apical_search_registry` | Search connectors + installed integrations (get ids for workflow steps). | `GET /v1/registry/integrations?q=` |
+| `apical_get_schema` | Fetch the WorkflowJSON v2 JSON Schema (the contract). | `GET /schemas/workflow/v2.json` |
+| `apical_validate` | Validate a WorkflowJSON document without saving. | `POST /v1/workflows/validate` |
+| `apical_deploy` | Create a workflow from a validated WorkflowJSON document. | `POST /v1/workflows` |
+| `apical_generate` | Natural-language spec → designed, validated draft workflow (blocks until done). | `POST /v1/workflows/generate` |
+| `apical_list_workflows` | List the workspace's workflows. | `GET /v1/workflows` |
+| `apical_get_workflow` | One workflow's steps + stats. | `GET /v1/workflows/{id}` |
+| `apical_run` | Trigger a run; `wait=true` (default) blocks up to 60s and returns the report. Supports `idempotencyKey`. | `POST /v1/workflows/{id}/run?wait=true` |
+| `apical_run_status` | Tail a run: status, per-step progress + errors, report. | `GET /v1/runs/{id}` |
+| `apical_rerun` | Re-execute a failed run from the failed step (or `fromStepId`). | `POST /v1/runs/{id}/rerun` |
+| `apical_usage` | Balance, plan, run counts, per-key spend vs limits. | `GET /v1/usage` |
 
-Deploy an Apical automation from a workflow JSON object. The `workflow` is an [AutomationFile](https://apic.al/schemas/automation-file.json) — a single JSON that defines the agent's name, department, the inline integrations + credentials it needs, and its `steps` (the tool / reason / gate pipeline).
+### The typical loop
 
-**Input:**
+1. `apical_search_registry("slack")` → find integration ids.
+2. `apical_get_schema` → read the WorkflowJSON v2 contract (or skip and use `apical_generate`).
+3. `apical_validate({ workflow })` → fix issues until `VALID ✓`.
+4. `apical_deploy({ name, workflow })` → get the workflow id.
+5. `apical_run({ workflowId })` → blocks and returns the report; on failure inspect with `apical_run_status`, patch, then `apical_rerun`.
+6. `apical_usage` → keep an eye on spend.
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `workflow` | object | yes | An Apical AutomationFile. Must have `steps`. |
-| `name` | string | no | Override `workflow.name` (the agent's first name). |
-| `department` | string | no | Override `workflow.department` (e.g. "Filing"). |
-| `title` | string | no | Override `workflow.title` (e.g. "Filing Clerk"). |
+### `apical_deploy` payload
 
-**Example (Cursor chat):**
-
-> "Deploy this Apical workflow: a filing clerk that lists new scans, OCRs them, classifies the client with AI, asks me if it's unsure, then files + marks processed."
-
-The agent assembles an AutomationFile and calls `apical_deploy`. Sample payload:
+The `workflow` argument is a **WorkflowJSON v2** document (see `apical_get_schema`; examples at `/schemas/workflow/examples/`):
 
 ```json
 {
+  "name": "Scan filing",
   "workflow": {
-    "name": "Pat",
-    "title": "Filing Clerk",
-    "department": "filing",
-    "trigger": { "type": "schedule", "label": "Every 30 minutes" },
-    "integrations": [
-      {
-        "id": "scanner",
-        "name": "Scanner Watch",
-        "kind": "mcp",
-        "url": "stdio://scanner-mcp",
-        "category": "files",
-        "auth": { "type": "none" },
-        "tools": [
-          { "id": "scanner.listNew", "name": "List new scans", "description": "List scans not yet processed." }
-        ]
-      }
-    ],
+    "version": 2,
     "steps": [
-      { "id": "s1", "kind": "tool", "label": "List new scans", "tool": "scanner.listNew", "inputs": { "folder": "/Scan Inbox" } },
-      { "id": "s2", "kind": "reason", "label": "Classify client", "prompt": "Which client does this scan belong to?", "outputShape": { "client": "string", "confidence": "number" }, "confidenceThreshold": 0.8 },
-      { "id": "s3", "kind": "gate", "label": "Confirm low-confidence", "gateMessage": "Not sure which client — please confirm before filing." }
+      { "id": "s1", "kind": "tool", "label": "List new scans", "code": { "language": "shell", "source": "ls ~/Scans/inbox" }, "hardened": true },
+      { "id": "s2", "kind": "reason", "label": "Classify client", "prompt": "Which client does {{s1.output}} belong to?", "confidenceThreshold": 0.8 },
+      { "id": "s3", "kind": "gate", "label": "Confirm low-confidence filings" }
     ]
   }
 }
 ```
 
-**Returns:** `Deployed Pat (Filing Clerk) into filing. 1 integrations installed. Agent ID: wfl_abc123`
-
-### 2. `apical_list_agents`
-
-List every agent you've deployed to Apical.
-
-**Input:** `{}` (no arguments)
-
-**Returns:**
-
-```
-Pat (Filing Clerk) — filing — active — 42 runs — id: wfl_abc123
-Sam (Inbox Triage) — mailroom — active — 17 runs — id: wfl_def456
-Alex (Bookkeeper) — finance — paused — 0 runs — id: wfl_ghi789
-```
-
-### 3. `apical_get_agent`
-
-Get one agent's full workflow detail — the step list, schedule, and run stats.
-
-**Input:**
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `agentId` | string | yes | The Apical agent (workflow) id, e.g. `wfl_abc123`. |
-
-**Returns:**
-
-```
-Pat (Filing Clerk)
-Department: filing
-Status: active
-Schedule: Every 30 minutes
-Runs: 42
-Items processed: 1247
-
-Steps:
-  s1 [tool] List new scans → scanner.listNew
-  s2 [reason] Classify client
-  s3 [gate] Confirm low-confidence
-```
-
-### 4. `apical_run_agent`
-
-Trigger a run of an agent immediately. The run executes asynchronously — use `apical_get_report` to poll for results.
-
-**Input:**
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `agentId` | string | yes | The Apical agent (workflow) id to run. |
-
-**Returns:** `Started run rn_xyz789 for wfl_abc123. Status: running. Use apical_get_report to see results.`
-
-### 5. `apical_get_report`
-
-Get a run's report and status — the human-readable summary, the stats, and the list of flagged items.
-
-**Input:**
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `runId` | string | yes | The Apical run id, e.g. `rn_xyz789`. |
-
-**Returns:**
-
-```
-Status: completed
-Summary: Did 47 documents, 44 automatic, 3 flagged
-Stats: 47 items, 44 automatic, 3 flagged, 12.4s
-
-Flagged items:
-  • [s2] invoice_2231.pdf — confidence 0.62 below threshold 0.80
-  • [s2] receipt_no_name.png — could not extract client
-  • [s3] unknown_form.pdf — user confirmation pending
-```
+**Returns:** `Deployed "Scan filing". Workflow ID: wfl_abc123` (plus any credential warnings).
 
 ---
 
@@ -277,8 +195,10 @@ Every tool call returns a plain-text message — even on error — so your AI ag
 | Situation | Returned text |
 | --- | --- |
 | Wrong API key (HTTP 401) | `Invalid API key` |
-| Out of credits (HTTP 402) | `Insufficient balance` |
-| Other 4xx/5xx | The API's error message (e.g. `Workflow must have at least one step`) |
+| Out of credits / key spend limit (HTTP 402) | The API's refusal reason (e.g. `API key spend limit reached (300/300¢)`) |
+| Key missing a scope (HTTP 403) | `Missing required scope: runs:execute` |
+| Validation failure (HTTP 422) | The error plus the issue list, one per line |
+| Other 4xx/5xx | The API's error message |
 | Apical app unreachable | `Could not reach Apical at http://localhost:3000 — is the app running?` |
 | Missing `APICAL_API_KEY` at boot | Server exits with a clear stderr message |
 
@@ -299,12 +219,16 @@ Every tool call returns a plain-text message — even on error — so your AI ag
 Cursor / Claude Code / Windsurf
         │  (stdio JSON-RPC)
         ▼
-   apical-mcp  ───── HTTP ─────►  Apical app
-                                    POST /api/dev/deploy
-                                    GET  /api/dev/agents
-                                    GET  /api/dev/agents/:id
-                                    POST /api/dev/run
-                                    GET  /api/dev/reports/:runId
+   apical-mcp  ───── HTTP ─────►  Apical /v1 API
+                                    GET  /v1/registry/integrations
+                                    POST /v1/workflows/validate
+                                    POST /v1/workflows
+                                    POST /v1/workflows/generate
+                                    GET  /v1/workflows(/{id})
+                                    POST /v1/workflows/{id}/run
+                                    GET  /v1/runs/{id}
+                                    POST /v1/runs/{id}/rerun
+                                    GET  /v1/usage
 ```
 
 `apical-mcp` is a thin, stateless proxy. It holds your API key, formats requests, and renders responses as plain text your agent can read. All logs go to stderr — the JSON-RPC channel on stdout stays clean.

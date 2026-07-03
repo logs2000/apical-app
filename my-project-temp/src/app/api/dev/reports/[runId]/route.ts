@@ -10,7 +10,7 @@ interface RouteCtx {
 // GET /api/dev/reports/[runId] — authenticated via bearer API key.
 // Returns { run: Run } — the run + its report + steps. The run must belong to
 // an agent (workflow) in the developer's workspace.
-export const GET = withDevAuth(async (_req, { developer, apiKey, params }) => {
+export const GET = withDevAuth(async (_req, { workspace, apiKey, params }) => {
   try {
     const { runId } = params
     const row = await db.run.findUnique({
@@ -20,7 +20,7 @@ export const GET = withDevAuth(async (_req, { developer, apiKey, params }) => {
         steps: { orderBy: { order: 'asc' } },
       },
     })
-    if (!row || row.workflow?.workspaceId !== developer.workspaceId) {
+    if (!row || row.workflow?.workspaceId !== workspace.id) {
       return NextResponse.json(
         { error: 'Report not found in your workspace.' },
         { status: 404 },
@@ -30,7 +30,7 @@ export const GET = withDevAuth(async (_req, { developer, apiKey, params }) => {
     // Audit log (reads are free).
     await db.mcpAuditLog.create({
       data: {
-        developerId: developer.id,
+        workspaceId: workspace.id,
         apiKeyId: apiKey.id,
         action: 'mcp:get_report',
         target: runId,

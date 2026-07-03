@@ -1,0 +1,18 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "description": "Complete, valid WorkflowJSON v2 examples. Every file validates against /schemas/workflow/v2.json.",
+  "examples": [
+    { "file": "01-scanned-document-filing.json", "name": "Scanned Document Filing", "demonstrates": ["fs tools", "reason + confidenceThreshold", "step output refs"] },
+    { "file": "02-daily-crm-digest.json", "name": "Daily CRM Digest", "demonstrates": ["inline http with vault auth", "retry + timeoutMs", "reason summarization"] },
+    { "file": "03-expense-report-audit.json", "name": "Expense Report Audit", "demonstrates": ["policy reason step", "auto-approve tool step", "gate for flagged items"] },
+    { "file": "04-github-issue-triage.json", "name": "GitHub Issue Triage", "demonstrates": ["mcp steps", "classification with confidence", "retry"] },
+    { "file": "05-stripe-failed-payment-recovery.json", "name": "Stripe Failed Payment Recovery", "demonstrates": ["code step (javascript)", "trigger refs", "batch email"] },
+    { "file": "06-lead-enrichment.json", "name": "Lead Enrichment + Scoring", "demonstrates": ["multi-API http chain", "ICP scoring reason step", "write-back"] },
+    { "file": "07-weekly-kpi-report.json", "name": "Weekly KPI Report", "demonstrates": ["code deltas", "narrative reason step", "Slack post"] },
+    { "file": "08-support-ticket-escalation.json", "name": "Support Ticket Escalation", "demonstrates": ["mcp search", "severity assessment", "gate before paging"] },
+    { "file": "09-content-repurposing.json", "name": "Content Repurposing", "demonstrates": ["spawn subagent steps", "editorial gate", "publish queue"] },
+    { "file": "10-inventory-sync.json", "name": "Inventory Sync", "demonstrates": ["parallel source fetches", "code diff", "cred: header refs", "retry"] },
+    { "file": "11-invoice-chasing.json", "name": "Invoice Chasing", "demonstrates": ["reason tone selection", "hardened rule.apply step", "batch send"] },
+    { "file": "12-meeting-notes-to-tasks.json", "name": "Meeting Notes to Tasks", "demonstrates": ["desktop fs read", "action extraction", "mcp task creation"] }
+  ]
+}

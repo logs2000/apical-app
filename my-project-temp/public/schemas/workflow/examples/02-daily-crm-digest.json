@@ -1,0 +1,43 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "fetch_deals",
+      "kind": "tool",
+      "label": "Fetch deals updated in the last 24h from HubSpot",
+      "http": {
+        "method": "GET",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals?limit=100&properties=dealname,amount,dealstage,hs_lastmodifieddate",
+        "auth": { "type": "bearer", "ref": "cred_hubspot" },
+        "description": "HubSpot CRM deals search"
+      },
+      "retry": { "maxAttempts": 3, "backoffMs": 2000 },
+      "timeoutMs": 30000
+    },
+    {
+      "id": "summarize",
+      "kind": "reason",
+      "label": "Summarize pipeline movement",
+      "prompt": "Given the deals in {{fetch_deals.body}}, write a 5-bullet digest: deals that advanced stage, new deals, stalled deals over $10k, total pipeline value change, and one recommended follow-up.",
+      "outputShape": { "digest": "string (markdown bullets)" }
+    },
+    {
+      "id": "send_email",
+      "kind": "tool",
+      "label": "Email the digest to the sales channel",
+      "http": {
+        "method": "POST",
+        "url": "https://api.sendgrid.com/v3/mail/send",
+        "auth": { "type": "bearer", "ref": "cred_sendgrid" },
+        "body": {
+          "personalizations": [{ "to": [{ "email": "sales@example.com" }] }],
+          "from": { "email": "digest@example.com" },
+          "subject": "Daily CRM digest",
+          "content": [{ "type": "text/plain", "value": "{{summarize.digest}}" }]
+        }
+      },
+      "retry": { "maxAttempts": 2, "backoffMs": 5000 }
+    }
+  ]
+}

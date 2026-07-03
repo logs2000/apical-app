@@ -1,0 +1,46 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "new_leads",
+      "kind": "tool",
+      "label": "Fetch leads created today from the CRM",
+      "http": {
+        "method": "GET",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts?limit=50&properties=email,company,jobtitle",
+        "auth": { "type": "bearer", "ref": "cred_hubspot" }
+      }
+    },
+    {
+      "id": "enrich",
+      "kind": "tool",
+      "label": "Enrich each lead's company via Clearbit",
+      "http": {
+        "method": "GET",
+        "url": "https://company.clearbit.com/v2/companies/find?domain={{new_leads.body.results}}",
+        "auth": { "type": "bearer", "ref": "cred_clearbit" }
+      },
+      "retry": { "maxAttempts": 2, "backoffMs": 3000 }
+    },
+    {
+      "id": "score",
+      "kind": "reason",
+      "label": "Score each lead 1-100 against the ICP",
+      "prompt": "Score each lead using CRM data {{new_leads.body.results}} and enrichment {{enrich.body}}. ICP: B2B SaaS, 50-500 employees, US/EU. Explain each score in one sentence.",
+      "outputShape": { "score": "number 1-100", "reason": "string", "confidence": "number 0-1" },
+      "confidenceThreshold": 0.75
+    },
+    {
+      "id": "write_back",
+      "kind": "tool",
+      "label": "Write scores back to the CRM",
+      "http": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts/batch/update",
+        "auth": { "type": "bearer", "ref": "cred_hubspot" },
+        "body": { "inputs": "{{score.updates}}" }
+      }
+    }
+  ]
+}

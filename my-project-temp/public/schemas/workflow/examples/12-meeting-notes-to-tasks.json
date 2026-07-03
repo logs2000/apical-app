@@ -1,0 +1,39 @@
+{
+  "$schema": "https://apical.dev/schemas/workflow/v2.json",
+  "version": 2,
+  "steps": [
+    {
+      "id": "list_notes",
+      "kind": "tool",
+      "label": "List new meeting notes in the granted Notes folder",
+      "tool": "fs.list",
+      "inputs": { "path": "/Notes/Meetings", "newerThanHours": 24, "extensions": [".md", ".txt"] }
+    },
+    {
+      "id": "read_notes",
+      "kind": "tool",
+      "label": "Read each new note",
+      "tool": "fs.read",
+      "inputs": { "paths": "{{list_notes.files}}" }
+    },
+    {
+      "id": "extract_actions",
+      "kind": "reason",
+      "label": "Extract action items with owners and due dates",
+      "prompt": "From the meeting notes in {{read_notes.contents}}, extract every action item with its owner and due date. Skip vague statements without a clear owner. Use ISO dates; infer 'next Friday' style phrases from the note's date.",
+      "outputShape": { "tasks": "array of { title, owner, dueDate }", "confidence": "number 0-1" },
+      "confidenceThreshold": 0.75
+    },
+    {
+      "id": "create_tasks",
+      "kind": "tool",
+      "label": "Create the tasks in Linear",
+      "mcp": {
+        "integrationId": "linear",
+        "tool": "create_issues",
+        "args": { "teamKey": "OPS", "issues": "{{extract_actions.tasks}}" }
+      },
+      "retry": { "maxAttempts": 2, "backoffMs": 2000 }
+    }
+  ]
+}
