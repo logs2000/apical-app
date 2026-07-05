@@ -10,7 +10,12 @@ mkdir -p "$OUT"
 
 find_bundle_dir() {
   local marker="$1"
-  local candidates=(
+  local preferred="${APICAL_BUNDLE_TARGET:-}"
+  local candidates=()
+  if [[ -n "$preferred" ]]; then
+    candidates+=("$ROOT/src-tauri/target/$preferred/release/bundle")
+  fi
+  candidates+=(
     "$ROOT/src-tauri/target/universal-apple-darwin/release/bundle"
     "$ROOT/src-tauri/target/release/bundle"
     "$ROOT/src-tauri/target/aarch64-apple-darwin/release/bundle"

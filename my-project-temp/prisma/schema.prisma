@@ -5,7 +5,9 @@
 // workspace-scoped ApiKeys for the MCP server + REST API.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Desktop CI builds on Apple Silicon but must run on Intel Macs too.
+  binaryTargets = ["native", "darwin-arm64", "darwin"]
 }
 
 datasource db {

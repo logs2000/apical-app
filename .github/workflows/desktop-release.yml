@@ -71,6 +71,8 @@ jobs:
 
       - name: Package Intel macOS DMG
         working-directory: my-project-temp
+        env:
+          APICAL_BUNDLE_TARGET: x86_64-apple-darwin
         run: bash scripts/package-desktop.sh mac apical-mac-intel.dmg
 
       - uses: actions/upload-artifact@v4
