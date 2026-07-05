@@ -24,8 +24,21 @@ function runCli(
   cwd: string | undefined,
   timeoutMs: number,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  // Agents often pass compound shell lines as a single command string.
+  let execCmd = cmd
+  let execArgs = cliArgs
+  if (cliArgs.length === 0 && /\s/.test(cmd.trim())) {
+    if (process.platform === 'win32') {
+      execCmd = 'cmd'
+      execArgs = ['/c', cmd]
+    } else {
+      execCmd = 'sh'
+      execArgs = ['-c', cmd]
+    }
+  }
+
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, cliArgs, {
+    const child = spawn(execCmd, execArgs, {
       cwd: cwd ? expandPath(cwd) : undefined,
       shell: false,
       env: process.env,
@@ -55,6 +68,62 @@ function runCli(
 
 export function isLocalDesktopRuntime(): boolean {
   return process.env.DESKTOP_LOCAL === 'true'
+}
+
+/**
+ * Raise a native OS notification. Best-effort: shells out to the platform's
+ * notification tool and never throws (returns false on failure). Escapes user
+ * text so it can't break out of the shell one-liner.
+ */
+async function nativeNotify(title: string, body: string): Promise<boolean> {
+  const runQuiet = (cmd: string, cmdArgs: string[]): Promise<boolean> =>
+    new Promise((resolve) => {
+      try {
+        const child = spawn(cmd, cmdArgs, { shell: false, env: process.env })
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL')
+          resolve(false)
+        }, 5000)
+        child.on('close', (code) => {
+          clearTimeout(timer)
+          resolve(code === 0)
+        })
+        child.on('error', () => {
+          clearTimeout(timer)
+          resolve(false)
+        })
+      } catch {
+        resolve(false)
+      }
+    })
+
+  try {
+    if (process.platform === 'darwin') {
+      // AppleScript: escape double quotes and backslashes.
+      const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      const script = `display notification "${esc(body)}" with title "${esc(title)}"`
+      return await runQuiet('osascript', ['-e', script])
+    }
+    if (process.platform === 'win32') {
+      // Windows toast via PowerShell. Escape single quotes for the PS string.
+      const esc = (s: string) => s.replace(/'/g, "''")
+      const ps = [
+        '[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null;',
+        '[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null;',
+        "$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);",
+        `$texts = $template.GetElementsByTagName('text');`,
+        `$texts.Item(0).AppendChild($template.CreateTextNode('${esc(title)}')) | Out-Null;`,
+        `$texts.Item(1).AppendChild($template.CreateTextNode('${esc(body)}')) | Out-Null;`,
+        "$toast = [Windows.UI.Notifications.ToastNotification]::new($template);",
+        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Apical').Show($toast);",
+      ].join(' ')
+      return await runQuiet('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps])
+    }
+    // Linux (best-effort).
+    return await runQuiet('notify-send', [title, body])
+  } catch {
+    return false
+  }
 }
 
 export async function invokeLocalDesktopTool(
@@ -161,7 +230,10 @@ export async function invokeLocalDesktopTool(
       }
 
       case 'desktop.notify': {
-        return { ok: true, result: { ok: true } }
+        const title = String(args.title ?? 'Apical')
+        const body = String(args.body ?? '')
+        const ok = await nativeNotify(title, body)
+        return { ok: true, result: { ok } }
       }
 
       case 'desktop.secrets.get': {

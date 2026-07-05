@@ -4,6 +4,7 @@ import { withAuth } from '@/lib/with-auth'
 import { serializeWorkflowJSON } from '@/lib/apical-server'
 import { saveWorkflowSteps } from '@/lib/platform/workflow-revisions'
 import { validateWorkflowForWorkspace } from '@/lib/platform/workflow-validate-server'
+import { inferRuntimeFromSteps } from '@/lib/workflow-schema'
 import { mapWorkflowV1, workflowScopeWhere } from '@/lib/v1/mappers'
 
 // GET /v1/workflows — list the workspace's workflows.
@@ -65,6 +66,7 @@ export const POST = withAuth(
       )
     }
     const wf = validation.workflow!
+    const runtime = inferRuntimeFromSteps(wf.steps)
 
     const created = await db.workflow.create({
       data: {
@@ -83,6 +85,7 @@ export const POST = withAuth(
           body.origin === 'agent' || body.origin === 'chat'
             ? body.origin
             : 'manual',
+        runtime,
       },
     })
     // An empty document (e.g. a brand-new chat/agent shell) has nothing to

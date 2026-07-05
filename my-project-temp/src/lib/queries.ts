@@ -5,6 +5,10 @@ import {
   useMutation,
   useQueryClient,
 } from '@tanstack/react-query'
+import {
+  fetchAndCacheAgentMessages,
+  readAgentMessagesCache,
+} from '@/lib/apical/chat-cache'
 import type {
   Workflow,
   WorkflowJSON,
@@ -318,7 +322,31 @@ export function useRuns(limit = 20, workflowId?: string | null) {
           `/api/runs?limit=${limit}${workflowId ? `&workflowId=${encodeURIComponent(workflowId)}` : ''}`,
         ).then((r) => r),
       ),
-    refetchInterval: 5000,
+    refetchInterval: (query) => {
+      const rows = query.state.data
+      if (rows?.some((r) => r.status === 'running' || r.status === 'awaiting_gate')) {
+        return 3000
+      }
+      return 15000
+    },
+  })
+}
+
+export interface SchedulerJobRow {
+  id: string
+  workflowId: string
+  workflowName: string | null
+  schedule: string
+  status: string
+  nextRunAt: string
+}
+
+export function useSchedulerJobs() {
+  return useQuery<SchedulerJobRow[]>({
+    queryKey: ['scheduler-jobs'],
+    queryFn: () =>
+      j(fetch('/api/scheduler/jobs', { credentials: 'include' }).then((r) => r)),
+    refetchInterval: 30000,
   })
 }
 
@@ -353,10 +381,18 @@ export function useRun(id: string | null) {
 export function useAgentMessages(agentId: string | null) {
   return useQuery<import('./types').AgentMessage[]>({
     queryKey: ['agent-messages', agentId],
-    queryFn: () => j(fetch(`/api/agents/${agentId}/messages`).then((r) => r)),
+    queryFn: () => fetchAndCacheAgentMessages(agentId!),
     enabled: !!agentId,
     staleTime: 30_000,
     gcTime: 5 * 60_000,
+    initialData: () => {
+      if (!agentId) return undefined
+      return readAgentMessagesCache(agentId)
+    },
+    initialDataUpdatedAt: () => {
+      if (!agentId) return undefined
+      return readAgentMessagesCache(agentId) ? Date.now() - 60_000 : undefined
+    },
   })
 }
 

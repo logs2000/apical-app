@@ -47,6 +47,7 @@ export function useAuth() {
 export function AuthProvider({
   children,
   variant = "landing",
+  initialUser = null,
 }: {
   children: React.ReactNode;
   /**
@@ -55,10 +56,12 @@ export function AuthProvider({
    * desktop = native app entry (no home page)
    */
   variant?: "landing" | "desktop" | "web";
+  /** Server-resolved user for desktop/web shells (avoids a flash before /api/auth/session). */
+  initialUser?: { email: string; name: string } | null;
 }) {
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<Mode>("signin");
-  const [user, setUser] = React.useState<{ email: string; name: string } | null>(null);
+  const [user, setUser] = React.useState<{ email: string; name: string } | null>(initialUser);
   const [bypassUser, setBypassUser] = React.useState<{ email: string; name: string } | null>(null);
   const [appOpen, setAppOpen] = React.useState(variant === "web");
   const isDesktop = variant === "desktop";
@@ -78,10 +81,10 @@ export function AuthProvider({
       const email = session.user.email ?? "";
       const name = session.user.name ?? email.split("@")[0];
       setUser({ email, name });
-    } else if (status === "unauthenticated") {
+    } else if (status === "unauthenticated" && !initialUser) {
       setUser(null);
     }
-  }, [status, session]);
+  }, [status, session, initialUser]);
 
   const openAuth = React.useCallback((m: Mode = "signin") => {
     setMode(m);

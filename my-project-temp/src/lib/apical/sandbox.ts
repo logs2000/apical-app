@@ -31,6 +31,9 @@ export interface SandboxItem {
   isResult: boolean
   /** Preferred rendering when shown in Preview. */
   resultFormat?: PreviewFormat
+  /** Chat ExecutionStep id that produced this item — lets a chat action row
+   *  deep-link to and highlight this card in the Progress panel. */
+  stepId?: string
   timestamp: string
 }
 

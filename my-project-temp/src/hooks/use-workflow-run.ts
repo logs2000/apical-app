@@ -28,14 +28,15 @@ export function useWorkflowRun(workflowId: string) {
       ? live.status
       : null
 
-  const isReviewing = !!activeRunId && live.status === 'reviewing' && !liveTerminal && !terminalFromPoll
+  const isSupervising =
+    !!activeRunId && live.status === 'supervising' && !liveTerminal && !terminalFromPoll
 
   const isRunning =
     !!activeRunId &&
     !liveTerminal &&
     !terminalFromPoll &&
     (live.status === 'running' ||
-      live.status === 'reviewing' ||
+      live.status === 'supervising' ||
       polledRun?.status === 'running' ||
       runWorkflow.isPending)
 
@@ -78,7 +79,7 @@ export function useWorkflowRun(workflowId: string) {
     startRun,
     stopRun,
     isRunning,
-    isReviewing,
+    isSupervising,
     isStarting: runWorkflow.isPending,
     isStopping: cancelRun.isPending,
     activeRunId,

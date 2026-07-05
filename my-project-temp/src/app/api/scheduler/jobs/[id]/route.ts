@@ -89,6 +89,11 @@ export const PATCH = withUser(async (req, { user, params }) => {
     body.status === 'disabled'
   ) {
     data.status = body.status
+    if (body.status === 'paused') {
+      data.pausedByUserToggle = true
+    } else if (body.status === 'active') {
+      data.pausedByUserToggle = false
+    }
   }
 
   // Determine the effective schedule + kind (post-patch) so we can recompute

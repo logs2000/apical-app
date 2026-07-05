@@ -280,18 +280,24 @@ function ProgressStepView({ item }: { item: SandboxItem }) {
  *  - Progress → full technical working log
  */
 export function SandboxPanel({
-  mode = "preview",
+  mode = "progress",
   showClose = true,
+  embedded = false,
   className,
 }: {
   mode?: "preview" | "progress";
   showClose?: boolean;
+  /** Hide the panel header when nested inside the inspector Progress tab. */
+  embedded?: boolean;
   className?: string;
 }) {
   const allItems = useAppStore((s) => s.sandboxItems);
   const clearSandbox = useAppStore((s) => s.clearSandbox);
   const setSandboxOpen = useAppStore((s) => s.setSandboxOpen);
+  const highlightedStepId = useAppStore((s) => s.highlightedStepId);
+  const setHighlightedStepId = useAppStore((s) => s.setHighlightedStepId);
   const bottomRef = React.useRef<HTMLDivElement>(null);
+  const itemRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   const items = React.useMemo(() => {
     if (mode === "progress") return allItems;
@@ -311,47 +317,59 @@ export function SandboxPanel({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [items.length]);
 
+  // A chat action row asked to reveal its matching item — scroll to it, then
+  // clear the highlight after a moment.
+  React.useEffect(() => {
+    if (!highlightedStepId) return;
+    const el = itemRefs.current[highlightedStepId];
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => setHighlightedStepId(null), 2500);
+    return () => clearTimeout(t);
+  }, [highlightedStepId, setHighlightedStepId]);
+
   const isPreview = mode === "preview";
   const Heading = isPreview ? Database : ListChecks;
   const label = isPreview ? "Preview" : "Progress";
 
   return (
     <aside className={cn("flex h-full w-full min-w-0 flex-col overflow-hidden bg-muted/30", className)}>
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-background/50 px-3 py-2">
-        <Heading className="h-3.5 w-3.5 text-foreground" />
-        <span className="text-xs font-semibold">{label}</span>
-        {!isPreview && (
-          <span className="text-[10px] text-muted-foreground">
-            {items.length} step{items.length === 1 ? "" : "s"}
-          </span>
-        )}
-        <div className="ml-auto flex items-center gap-1">
-          {allItems.length > 0 && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1 px-2 text-[10px]"
-              onClick={clearSandbox}
-            >
-              <Trash2 className="h-3 w-3" />
-              Clear
-            </Button>
+      {!embedded && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-background/50 px-3 py-2">
+          <Heading className="h-3.5 w-3.5 text-foreground" />
+          <span className="text-xs font-semibold">{label}</span>
+          {!isPreview && (
+            <span className="text-[10px] text-muted-foreground">
+              {items.length} step{items.length === 1 ? "" : "s"}
+            </span>
           )}
-          {showClose && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setSandboxOpen(false)}
-              title={`Close ${label.toLowerCase()}`}
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          )}
+          <div className="ml-auto flex items-center gap-1">
+            {allItems.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-[10px]"
+                onClick={clearSandbox}
+              >
+                <Trash2 className="h-3 w-3" />
+                Clear
+              </Button>
+            )}
+            {showClose && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => setSandboxOpen(false)}
+                title={`Close ${label.toLowerCase()}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
         {items.length === 0 ? (
@@ -365,13 +383,27 @@ export function SandboxPanel({
           </div>
         ) : (
           <div className="space-y-3">
-            {items.map((item) =>
-              isPreview ? (
-                <PreviewDeliverableView key={item.id} item={item} />
-              ) : (
-                <ProgressStepView key={item.id} item={item} />
-              ),
-            )}
+            {items.map((item) => {
+              const isHighlighted = !!item.stepId && item.stepId === highlightedStepId;
+              return (
+                <div
+                  key={item.id}
+                  ref={(el) => {
+                    if (item.stepId) itemRefs.current[item.stepId] = el;
+                  }}
+                  className={cn(
+                    "rounded-lg transition-shadow",
+                    isHighlighted && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+                  )}
+                >
+                  {isPreview ? (
+                    <PreviewDeliverableView item={item} />
+                  ) : (
+                    <ProgressStepView item={item} />
+                  )}
+                </div>
+              );
+            })}
             <div ref={bottomRef} />
           </div>
         )}

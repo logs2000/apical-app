@@ -22,11 +22,16 @@
 // and logged; it must NEVER crash the process.
 
 import { simpleComplete } from '@/lib/platform/llm-gateway'
-import { generateRunReview } from '@/lib/platform/run-review'
+import {
+  SUPERVISION_ENABLED,
+  superviseRun,
+  runDeterministicOutcomeCheck,
+  buildSupervisionSummary,
+} from '@/lib/platform/run-supervision'
 import { executeProductionStep } from '@/lib/platform/workflow-executor'
 import { notifyGate, notifyFlagged } from '@/lib/platform/notifications'
 import { emitWebhookEvent } from '@/lib/platform/webhooks'
-import { runFailureOversight } from '@/lib/platform/oversight'
+import { resolveActiveRevision } from '@/lib/platform/workflow-revisions'
 import { db } from './db'
 import { broadcastRun } from './relay-client'
 import { parseWorkflowJSON } from './apical-server'
@@ -496,40 +501,39 @@ async function finalizeRun(
 
   const report: RunReport = { summary, items, flags }
 
-  broadcastRun(runId, 'run:reviewing', { runId })
+  // A run that was itself a rerun (including a supervision rerun) never
+  // re-triggers supervision — this is what prevents infinite recovery loops.
+  const runRow = await db.run.findUnique({ where: { id: runId }, select: { trigger: true } })
+  const isRerun = runRow?.trigger === 'rerun'
 
-  try {
-    const review = await generateRunReview({
-      userId: workflow.userId,
-      runId,
-      agentName: workflow.name,
-      agentGoal: workflow.description,
-      runStatus: finalStatus,
-      durationMs,
-      reportSummary: summary,
-      workflowStepsJson: workflow.stepsJson,
-      modelPreference: workflow.modelPreference,
-      steps: stepRows.map((s) => ({
-        label: s.label,
-        kind: s.kind,
-        status: s.status,
-        output: s.outputJson
-          ? (() => {
-              try {
-                const parsed = JSON.parse(s.outputJson)
-                return typeof parsed === 'string' ? parsed : JSON.stringify(parsed).slice(0, 500)
-              } catch {
-                return s.outputJson.slice(0, 500)
-              }
-            })()
-          : undefined,
-      })),
-    })
-    report.review = review
-  } catch (err) {
-    console.error('[runtime] run review failed:', err)
+  const outcomeSteps = stepRows.map((s) => ({
+    label: s.label,
+    kind: s.kind,
+    status: s.status,
+    outputJson: s.outputJson,
+  }))
+
+  // Decide up front whether the agent needs to step in. A clean run skips the
+  // LLM entirely — only the deterministic check runs.
+  const willSupervise =
+    SUPERVISION_ENABLED &&
+    !isRerun &&
+    !!workflow.userId &&
+    finalStatus !== 'cancelled' &&
+    (finalStatus === 'failed' ||
+      state.flaggedCount > 0 ||
+      !runDeterministicOutcomeCheck({
+        steps: outcomeSteps,
+        runStatus: finalStatus,
+        workflowGoal: workflow.description,
+      }).ok)
+
+  if (!willSupervise && finalStatus !== 'cancelled') {
+    report.supervision = { outcome: 'passed', attempts: [], summary: 'Run completed successfully.' }
   }
 
+  // Persist the terminal run FIRST — supervision reruns require the original
+  // run to be in a terminal state before rerunFromStep will touch it.
   await db.run.update({
     where: { id: runId },
     data: {
@@ -563,8 +567,32 @@ async function finalizeRun(
     },
   })
 
+  // Supervision: the agent diagnoses the failure/degradation, patches the
+  // workflow, reruns from the broken step, and verifies — autonomously. On
+  // recovery the run's effective status flips to completed.
+  let effectiveStatus: 'completed' | 'failed' | 'cancelled' = finalStatus
+  if (willSupervise && workflow.userId) {
+    broadcastRun(runId, 'run:supervising', { runId })
+    const supervision = await superviseRun(runId, {
+      userId: workflow.userId,
+      workflowId: workflow.id,
+    })
+    report.supervision = supervision
+    if (supervision.outcome === 'recovered') {
+      effectiveStatus = 'completed'
+      report.summary = `Recovered after supervision (${supervision.attempts.length} attempt(s)). ${summary}`.slice(0, 800)
+    } else if (supervision.outcome === 'failed') {
+      effectiveStatus = 'failed'
+      report.summary = `${buildSupervisionSummary(supervision)} ${summary}`.slice(0, 800)
+    }
+    await db.run.update({
+      where: { id: runId },
+      data: { status: effectiveStatus, reportJson: JSON.stringify(report) },
+    })
+  }
+
   // Notify on flagged items (real flags only).
-  if (workflow.userId && state.flaggedItems.length > 0 && finalStatus === 'completed') {
+  if (workflow.userId && state.flaggedItems.length > 0 && effectiveStatus === 'completed') {
     try {
       await notifyFlagged(workflow.userId, {
         workflowName: workflow.name,
@@ -576,25 +604,16 @@ async function finalizeRun(
     }
   }
 
-  // Failed runs get an oversight pass: an agent session diagnoses the real
-  // step error, proposes a patch in the workflow's chat thread, and notifies
-  // the owner. Fire-and-forget — never blocks or fails the finalize.
-  if (finalStatus === 'failed') {
-    void runFailureOversight(runId).catch((err) =>
-      console.error('[runtime] oversight failed:', err),
-    )
-  }
-
   // Outbound webhooks: run.completed / run.failed (cancelled counts as failed
   // for delivery purposes — subscribers care that the run didn't finish).
   emitWebhookEvent(
     workflow.workspaceId,
-    finalStatus === 'completed' ? 'run.completed' : 'run.failed',
+    effectiveStatus === 'completed' ? 'run.completed' : 'run.failed',
     {
       runId,
       workflowId: workflow.id,
-      status: finalStatus,
-      summary,
+      status: effectiveStatus,
+      summary: report.summary,
       itemsProcessed: state.stepsExecuted,
       flaggedCount: state.flaggedCount,
       durationMs,
@@ -616,7 +635,7 @@ async function finalizeRun(
       durationMs,
     },
   })
-  broadcastRun(runId, 'run:completed', { runId, status: finalStatus })
+  broadcastRun(runId, 'run:completed', { runId, status: effectiveStatus })
 }
 
 function extractError(outputJson: string | null): string {
@@ -691,7 +710,7 @@ export async function executeRun(
  */
 export async function rerunFromStep(
   originalRunId: string,
-  opts: { fromStepId?: string; actorId?: string } = {},
+  opts: { fromStepId?: string; actorId?: string; useLatestRevision?: boolean } = {},
 ): Promise<{ runId: string }> {
   const original = await db.run.findUnique({
     where: { id: originalRunId },
@@ -705,9 +724,15 @@ export async function rerunFromStep(
   const workflow = original.workflow as unknown as WorkflowRow & {
     workspaceId?: string | null
   }
-  // Execute the SAME revision the original run executed.
+  // Supervision reruns execute the workflow's CURRENT (freshly patched) revision
+  // so the auto-fix takes effect; a normal rerun replays the SAME revision the
+  // original run executed for a faithful retry.
   let stepsJson = workflow.stepsJson
-  if (original.revisionId) {
+  let rerunRevisionId = original.revisionId
+  if (opts.useLatestRevision) {
+    rerunRevisionId = await resolveActiveRevision(workflow.id)
+    stepsJson = workflow.stepsJson
+  } else if (original.revisionId) {
     const revision = await db.workflowRevision.findUnique({
       where: { id: original.revisionId },
       select: { stepsJson: true },
@@ -743,7 +768,7 @@ export async function rerunFromStep(
       workflowId: workflow.id,
       status: 'running',
       trigger: 'rerun',
-      revisionId: original.revisionId,
+      revisionId: rerunRevisionId,
       connectedAccountId: original.connectedAccountId,
       rerunOfRunId: original.id,
       startedAt: new Date(),

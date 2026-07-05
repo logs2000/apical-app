@@ -76,7 +76,35 @@ export async function PATCH(req: Request, { params }: RouteCtx) {
       },
     })
 
-    return NextResponse.json(mapAgentMessage(updated))
+    const saved = mapAgentMessage(updated)
+
+    if (process.env.DESKTOP_LOCAL === 'true') {
+      try {
+        const { readChatCacheFromDisk, writeChatCacheToDisk } = await import(
+          '@/lib/desktop/desktop-paths'
+        )
+        const existing = readChatCacheFromDisk(id)
+        const prior = existing?.messages ?? []
+        writeChatCacheToDisk(
+          id,
+          prior.map((m) =>
+            m.id === saved.id
+              ? {
+                  id: saved.id,
+                  role: saved.role,
+                  content: saved.content,
+                  createdAt: saved.createdAt,
+                  events: saved.events,
+                }
+              : m,
+          ),
+        )
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    return NextResponse.json(saved)
   } catch (err) {
     console.error('[api/agents/[id]/messages/[msgId]] PATCH failed:', err)
     return NextResponse.json({ error: 'Failed to update message' }, { status: 500 })

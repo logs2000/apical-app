@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. desktop-v0.1.1)'
+        description: 'Release tag (e.g. desktop-v0.2.0)'
         required: true
-        default: 'desktop-v0.1.4'
+        default: 'desktop-v0.2.0'
   push:
     tags:
       - 'desktop-v*'
@@ -124,8 +124,9 @@ jobs:
           if-no-files-found: error
 
   build-linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -135,14 +136,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # AppImage bundling (linuxdeploy) fails on ubuntu-24.04 noble runners.
-      # Jammy + libfuse2 + NO_STRIP is the reliable combo for Tauri AppImages in CI.
+      # Tauri 2.11+ requires WebKitGTK 4.1 (javascriptcoregtk-4.1).
+      # NO_STRIP avoids AppImage strip failures on noble runners.
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.0-dev \
-            libjavascriptcoregtk-4.0-dev \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
@@ -176,11 +177,12 @@ jobs:
 
   publish:
     needs: [build-macos, build-windows, build-linux]
-    if: always() && needs.build-macos.result == 'success'
+    if: always() && needs.build-macos.result == 'success' && needs.build-windows.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/download-artifact@v4
@@ -272,5 +274,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add my-project-temp/download/manifest.json download/manifest.json
-          git diff --staged --quiet || git commit -m "Update desktop download manifest for ${{ steps.tag.outputs.name }}"
-          git push
+          if ! git diff --staged --quiet; then
+            git commit -m "Update desktop download manifest for ${{ steps.tag.outputs.name }}"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi

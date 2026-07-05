@@ -241,10 +241,318 @@ function DesktopAccessSection() {
           Agents can read, write, and move files inside the folders you grant below, and run shell commands when you ask them to.
         </p>
       </div>
+      <DesktopBackgroundSettings />
+      <RemoteAccessSettings />
       <GrantedFoldersManager />
       <WatchedFoldersManager />
       <CloudDeviceLink />
+      <LocalOnlyModeSettings />
     </Section>
+  );
+}
+
+// ─── Desktop background / launch-at-login ────────────────────────────────────
+
+function DesktopBackgroundSettings() {
+  const [settings, setSettings] = React.useState<import("@/lib/desktop/desktop-settings").DesktopSettings | null>(null);
+  const [autostart, setAutostartState] = React.useState<boolean>(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const [{ loadDesktopSettings, isAutostartEnabled }] = await Promise.all([
+        import("@/lib/desktop/tauri-bridge"),
+      ]);
+      const s = await loadDesktopSettings();
+      const a = await isAutostartEnabled();
+      if (alive) {
+        setSettings(s);
+        setAutostartState(a);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function toggleBackground(v: boolean) {
+    if (!settings) return;
+    const next = { ...settings, keepRunningInBackground: v };
+    setSettings(next);
+    const { saveDesktopSettings } = await import("@/lib/desktop/tauri-bridge");
+    await saveDesktopSettings(next);
+  }
+
+  async function toggleAutostart(v: boolean) {
+    setAutostartState(v);
+    const { setAutostart, saveDesktopSettings } = await import("@/lib/desktop/tauri-bridge");
+    await setAutostart(v);
+    // Record the explicit choice so the first-run default never overrides it.
+    if (settings && !settings.autostartConfigured) {
+      const next = { ...settings, autostartConfigured: true };
+      setSettings(next);
+      await saveDesktopSettings(next);
+    }
+  }
+
+  if (!settings) return null;
+
+  return (
+    <div className="mt-3 space-y-2">
+      <p className="text-xs font-medium text-foreground">Background &amp; startup</p>
+      <Toggle
+        label="Launch Apical at login"
+        desc="Start Apical automatically (hidden in the menu bar) so scheduled workflows keep running."
+        checked={autostart}
+        onChange={(v) => void toggleAutostart(v)}
+      />
+      <Toggle
+        label="Keep running in background when window closes"
+        desc="Closing the window keeps Apical in the menu bar. Turn off to quit fully on close."
+        checked={settings.keepRunningInBackground}
+        onChange={(v) => void toggleBackground(v)}
+      />
+    </div>
+  );
+}
+
+// ─── Remote access policy (default-deny; opt-in from the desktop only) ────────
+
+function RemoteAccessSettings() {
+  const [settings, setSettings] = React.useState<import("@/lib/desktop/desktop-settings").DesktopSettings | null>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    void import("@/lib/desktop/tauri-bridge")
+      .then((m) => m.loadDesktopSettings())
+      .then((s) => {
+        if (alive) setSettings(s);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function update(patch: Partial<import("@/lib/desktop/desktop-settings").RemoteAccessPolicy>) {
+    if (!settings) return;
+    const next = { ...settings, remote: { ...settings.remote, ...patch } };
+    setSettings(next);
+    const { saveDesktopSettings } = await import("@/lib/desktop/tauri-bridge");
+    await saveDesktopSettings(next);
+    // Re-advertise capabilities to the cloud bridge relay.
+    const cloudUrl = process.env.NEXT_PUBLIC_APICAL_CLOUD_URL?.trim() || "https://api.apic.al";
+    const { resyncCloudLinkAtBoot } = await import("@/lib/desktop/device-flow");
+    await resyncCloudLinkAtBoot(cloudUrl);
+  }
+
+  if (!settings) return null;
+  const fsMode = settings.remote.fs;
+
+  return (
+    <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 shrink-0 text-foreground" />
+        <h4 className="text-xs font-semibold">Remote access</h4>
+      </div>
+      <p className="mt-1.5 text-[11px] text-muted-foreground">
+        Controls what workflows triggered from the web or on a schedule can do on this computer.
+        Off means those runs cannot touch this machine — only workflows you run from this desktop app can.
+      </p>
+
+      <div className="mt-3">
+        <p className="text-[11px] font-medium text-foreground">Allow cloud workflows to access files</p>
+        <div className="mt-1.5 flex gap-1.5">
+          {(["off", "read_only", "read_write"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => void update({ fs: mode })}
+              className={cn(
+                "rounded-md border px-2.5 py-1 text-[11px] transition",
+                fsMode === mode
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border text-muted-foreground hover:bg-accent",
+              )}
+            >
+              {mode === "off" ? "Off" : mode === "read_only" ? "Read only" : "Read & write"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        <Toggle
+          label="Allow cloud workflows to run commands"
+          desc="Lets scheduled/web-triggered runs execute shell commands and scripts on this machine. Only enable if you trust your workflows."
+          checked={settings.remote.cli}
+          onChange={(v) => void update({ cli: v })}
+        />
+        <Toggle
+          label="Allow cloud workflows to make network requests from this machine"
+          desc="Lets runs reach your local network (e.g. internal services). Sensitive — off by default."
+          checked={settings.remote.net}
+          onChange={(v) => void update({ net: v })}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Local-only (enterprise, license-gated) ──────────────────────────────────
+
+interface LicenseClaims {
+  org: string;
+  plan: string;
+  seats: number;
+  features: string[];
+  expiresAt: string;
+}
+
+/**
+ * Verify a license against the LOCAL bundled server (offline — localhost). We
+ * verify server-side because the desktop WebView (Safari 15) may lack WebCrypto
+ * Ed25519 support; Node's crypto handles it reliably.
+ */
+async function verifyLicenseViaLocalServer(
+  token: string,
+): Promise<{ valid: boolean; reason?: string; claims?: LicenseClaims }> {
+  if (!token) return { valid: false, reason: "No license provided." };
+  try {
+    const res = await fetch("/api/desktop/local/license/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { reason?: string };
+      return { valid: false, reason: err.reason ?? `HTTP ${res.status}` };
+    }
+    return (await res.json()) as { valid: boolean; reason?: string; claims?: LicenseClaims };
+  } catch (e) {
+    return { valid: false, reason: (e as Error).message };
+  }
+}
+
+function LocalOnlyModeSettings() {
+  const [settings, setSettings] = React.useState<import("@/lib/desktop/desktop-settings").DesktopSettings | null>(null);
+  const [licenseInput, setLicenseInput] = React.useState("");
+  const [status, setStatus] = React.useState<{ valid: boolean; message: string } | null>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    void import("@/lib/desktop/tauri-bridge")
+      .then((m) => m.loadDesktopSettings())
+      .then((s) => {
+        if (alive) {
+          setSettings(s);
+          setLicenseInput(s.license ?? "");
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function applyLicense() {
+    if (!settings) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const result = await verifyLicenseViaLocalServer(licenseInput.trim());
+      if (!result.valid) {
+        setStatus({ valid: false, message: result.reason ?? "Invalid license." });
+        // Invalid license → force hybrid.
+        const next = { ...settings, license: null, deploymentMode: "hybrid" as const };
+        setSettings(next);
+        const { saveDesktopSettings } = await import("@/lib/desktop/tauri-bridge");
+        await saveDesktopSettings(next);
+        return;
+      }
+      const next = { ...settings, license: licenseInput.trim() };
+      setSettings(next);
+      const { saveDesktopSettings } = await import("@/lib/desktop/tauri-bridge");
+      await saveDesktopSettings(next);
+      setStatus({
+        valid: true,
+        message: `Licensed to ${result.claims?.org ?? "your org"} (expires ${
+          result.claims ? new Date(result.claims.expiresAt).toLocaleDateString() : "?"
+        }).`,
+      });
+    } catch (e) {
+      setStatus({ valid: false, message: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setMode(mode: "hybrid" | "local_only") {
+    if (!settings) return;
+    if (mode === "local_only") {
+      // Must have a valid license.
+      const result = await verifyLicenseViaLocalServer(settings.license ?? "");
+      if (!result.valid) {
+        setStatus({ valid: false, message: "A valid enterprise license is required for local-only mode." });
+        return;
+      }
+    }
+    const next = { ...settings, deploymentMode: mode };
+    setSettings(next);
+    const { saveDesktopSettings } = await import("@/lib/desktop/tauri-bridge");
+    await saveDesktopSettings(next);
+  }
+
+  if (!settings) return null;
+
+  return (
+    <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4">
+      <div className="flex items-center gap-2">
+        <Lock className="h-4 w-4 shrink-0 text-foreground" />
+        <h4 className="text-xs font-semibold">Local-only mode (enterprise)</h4>
+      </div>
+      <p className="mt-1.5 text-[11px] text-muted-foreground">
+        Runs Apical fully separated from the web: no cloud bridge, no device link. Requires a valid enterprise license.
+        Changes take effect on the next app restart.
+      </p>
+
+      <div className="mt-3">
+        <Label className="text-[11px]">Enterprise license</Label>
+        <div className="mt-1 flex gap-2">
+          <Input
+            value={licenseInput}
+            onChange={(e) => setLicenseInput(e.target.value)}
+            placeholder="Paste license token…"
+            className="h-8 flex-1 font-mono text-[11px]"
+          />
+          <Button size="sm" className="h-8 text-xs" disabled={busy || !licenseInput.trim()} onClick={() => void applyLicense()}>
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Apply"}
+          </Button>
+        </div>
+        {status && (
+          <p className={cn("mt-1.5 text-[11px]", status.valid ? "text-foreground" : "text-destructive")}>
+            {status.message}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-3 flex gap-1.5">
+        {(["hybrid", "local_only"] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => void setMode(mode)}
+            className={cn(
+              "rounded-md border px-2.5 py-1 text-[11px] transition",
+              settings.deploymentMode === mode
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border text-muted-foreground hover:bg-accent",
+            )}
+          >
+            {mode === "hybrid" ? "Hybrid (cloud-connected)" : "Local-only"}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -266,7 +574,16 @@ function GrantedFoldersManager() {
       const res = await fetch("/api/desktop/folders");
       if (!res.ok) return;
       const data = (await res.json()) as { folders?: GrantedFolderRow[] };
-      setFolders(data.folders ?? []);
+      const list = data.folders ?? [];
+      setFolders(list);
+      if (IS_TAURI) {
+        const { loadDesktopSettings, saveDesktopSettings } = await import("@/lib/desktop/tauri-bridge");
+        const s = await loadDesktopSettings();
+        await saveDesktopSettings({
+          ...s,
+          grantedRoots: list.map((f) => f.path),
+        });
+      }
     } catch {
       /* offline — keep whatever we have */
     }
@@ -327,7 +644,9 @@ function GrantedFoldersManager() {
       {error && <p className="mt-1.5 text-[11px] text-destructive">{error}</p>}
       {folders.length === 0 ? (
         <p className="mt-2 rounded-md border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
-          No folders granted — filesystem tools are disabled until you grant one.
+          {IS_TAURI
+            ? "Filesystem tools use your home folder by default. Grant additional folders here to narrow access for cloud-connected sessions."
+            : "No folders granted — filesystem tools are disabled until you grant one."}
         </p>
       ) : (
         <ul className="mt-2 divide-y divide-border rounded-md border border-border">

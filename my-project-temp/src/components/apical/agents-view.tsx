@@ -8,6 +8,7 @@ import {
   relativeTime,
   formatDuration,
   STEP_KIND_META,
+  stepKind,
   type ChatMessage,
   type Workflow,
   type AgentRuntime,
@@ -23,10 +24,12 @@ import {
   useAgentsData,
   sortSidebarConversations,
 } from "@/lib/apical/agents-data";
-import { agentWorkflowRingClass, buildEditHandoffPrompt, agentHasSavedWorkflow } from "@/lib/apical/agent-display";
+import { agentWorkflowRingClass, buildEditHandoffPrompt } from "@/lib/apical/agent-display";
+import type { AgentRingState } from "@/lib/apical/agent-display";
 import { routeAgentMessage } from "@/lib/apical/agent-route";
 import { useToast } from "@/hooks/use-toast";
 import { ApicalMark, RuntimeBadge, AgentAvatar, FlaggedCountBadge } from "./logo";
+import { DesktopStatusChip } from "@/components/desktop/desktop-status-chip";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,7 +86,7 @@ import {
   X,
   ChevronRight,
   ChevronDown,
-  Database,
+  ListChecks,
   Columns2,
   SquareStack,
 } from "lucide-react";
@@ -93,26 +96,28 @@ import {
   chatHistoryForApi,
   eventsForPersistedMessage,
   analyzeRun,
-  buildChatRun,
   automationSaveSucceeded,
+  STOPPED_SUMMARY,
+  INTERRUPTED_SUMMARY,
 } from "@/lib/apical/chat-stream";
 import { ChatComposer } from "./chat-composer";
+import { ScheduleEditor } from "./schedule-editor";
 import { workflowStepDetail, workflowStepToolLabel } from "@/lib/apical/workflow-display";
 import { ArtifactEditor, type ArtifactEditorInitial } from "./artifact-editor";
 import { AssetCards } from "./asset-cards";
 import { SandboxPanel } from "./sandbox-panel";
 import { CredentialRequestList } from "./credential-box";
-import { AgentChecklist } from "./agent-checklist";
 import { ClarificationCard } from "./clarification-card";
 import { MarkdownText } from "./markdown-text";
 import { CopyMessageButton } from "./copy-message-button";
-import { RunTimeline } from "./run-timeline";
-import { AgentRunSection, RunLog, RunNowControls } from "./workflow-runs-console";
+import { ActivityFlow } from "./activity-flow";
+import { AgentRunSection, RunNowControls } from "./workflow-runs-console";
 import { fetchArtifactText } from "@/lib/apical/attachments";
 import { sandboxItemFromAttachment } from "@/lib/apical/sandbox";
 import type { ChatAttachment } from "@/lib/apical";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAgentMessages, useCreateWorkflow } from "@/lib/queries";
+import { syncChatThreadCache } from "@/lib/apical/chat-cache";
 import { useAuth } from "@/components/auth/AuthDialog";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -141,7 +146,7 @@ function latestUnfinishedPlan(messages: ChatMessage[]): PlanItem[] | undefined {
 // ─── Main view: responsive 3-rail (desktop) / stacked (mobile) ─────────────
 //
 // DESKTOP (lg+): left rail (agent navigator) + center (chat) + right rail
-// (inspector with Overview/Dashboard/Workflow/Config as collapsible sections).
+// (inspector: Overview / Progress / Workflow / Config / Runs).
 // On narrow desktops (below lg), the right rail collapses to a toggle.
 //
 // MOBILE (below md): completely different architecture — bottom tab bar with
@@ -183,13 +188,12 @@ function DesktopAgentsView() {
   const sandboxOpen = useAppStore((s) => s.sandboxOpen);
   const sandboxItems = useAppStore((s) => s.sandboxItems);
   const setSandboxOpen = useAppStore((s) => s.setSandboxOpen);
-  const rightRailTab = useAppStore((s) => s.rightRailTab);
-  const setRightRailTab = useAppStore((s) => s.setRightRailTab);
   const clearSandbox = useAppStore((s) => s.clearSandbox);
   const { activeAgent, isNewChat } = useActiveAgent();
 
   React.useEffect(() => {
     clearSandbox();
+    useAppStore.getState().setInspectorSection("overview");
   }, [activeConversationId, clearSandbox]);
 
   // The inspector only fits on wide (lg+) viewports. Below that we drop the
@@ -258,12 +262,20 @@ function DesktopAgentsView() {
           onToggleInspector={toggleInspector}
           showInspectorToggle={isWide}
           previewOpen={showData}
-          onTogglePreview={() => setSandboxOpen(!sandboxOpen)}
-          hasPreviewContent={hasData}
+          onTogglePreview={() => {
+            const store = useAppStore.getState();
+            if (store.sandboxOpen) {
+              store.setSandboxOpen(false);
+            } else {
+              store.setSandboxOpen(true);
+              store.setInspectorSection("progress");
+            }
+          }}
+          hasPreviewContent={hasData || agentWorking}
         />
       </ResizablePanel>
 
-      {/* Right — preview / progress data panel + agent inspector */}
+      {/* Right — agent inspector (Progress tab) or standalone progress panel */}
       {showRightRail && (
         <>
           <ResizableHandle withHandle />
@@ -272,8 +284,6 @@ function DesktopAgentsView() {
               agent={activeAgent}
               showInspector={showInspectorPanel}
               showData={showData}
-              tab={rightRailTab}
-              onTabChange={setRightRailTab}
             />
           </ResizablePanel>
         </>
@@ -292,7 +302,7 @@ function AgentNavigator({
   onPick: (id: string) => void;
 }) {
   const [search, setSearch] = React.useState("");
-  const { workflows, conversations, deleteAgent, togglePin, isLoading } = useAgentsData();
+  const { workflows, conversations, deleteAgent, togglePin, isLoading, ringState } = useAgentsData();
   const { toast } = useToast();
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string } | null>(null);
 
@@ -377,6 +387,7 @@ function AgentNavigator({
                       key={c.id}
                       convo={c}
                       agent={wf}
+                      ringState={ringState}
                       active={c.id === activeId}
                       onClick={() => onPick(c.id)}
                       onTogglePin={() => togglePin(c.id)}
@@ -401,6 +412,7 @@ function AgentNavigator({
                       key={c.id}
                       convo={c}
                       agent={wf}
+                      ringState={ringState}
                       active={c.id === activeId}
                       onClick={() => onPick(c.id)}
                       onTogglePin={() => togglePin(c.id)}
@@ -602,6 +614,7 @@ function PopoutButton({ conversationId }: { conversationId: string }) {
 function AgentRailRow({
   convo,
   agent,
+  ringState,
   active,
   onClick,
   onTogglePin,
@@ -609,12 +622,13 @@ function AgentRailRow({
 }: {
   convo: { id: string; title: string; pinned?: boolean };
   agent: Workflow;
+  ringState: AgentRingState;
   active: boolean;
   onClick: () => void;
   onTogglePin: () => void;
   onDelete: () => void;
 }) {
-  const ringClass = agentWorkflowRingClass(agent);
+  const ringClass = agentWorkflowRingClass(agent, ringState);
   return (
     <AgentRowMenu
       conversationId={convo.id}
@@ -663,35 +677,21 @@ function AgentRailRow({
 // ─── Mobile: bottom-tab architecture ───────────────────────────────────────
 //
 // Completely different from desktop. Three panes (Agents / Chat / Detail),
-// one visible at a time, switched via a bottom tab bar. The Detail pane is a
-// slide-up sheet with Overview/Dashboard/Workflow/Config sections. No 3-rail
-// layout — mobile screens are too narrow for that.
+// one visible at a time, switched via a bottom tab bar. Detail holds
+// Overview / Progress / Workflow / Config / Runs. No 3-rail layout.
 
 function MobileAgentsView() {
   const activeConversationId = useAppStore((s) => s.activeConversationId);
   const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const mobilePane = useAppStore((s) => s.mobilePane);
   const setMobilePane = useAppStore((s) => s.setMobilePane);
-  const sandboxItems = useAppStore((s) => s.sandboxItems);
   const clearSandbox = useAppStore((s) => s.clearSandbox);
   const { activeAgent, isNewChat, workflows } = useActiveAgent();
 
   React.useEffect(() => {
     clearSandbox();
+    useAppStore.getState().setInspectorSection("overview");
   }, [activeConversationId, clearSandbox]);
-
-  const resultCount = sandboxItems.filter((i) => i.isResult).length;
-  const hasPreview = resultCount > 0;
-
-  // Auto-jump to Preview only when a finished RESULT lands (not for every
-  // intermediate step — those stay as live updates in the chat).
-  const prevResultCount = React.useRef(0);
-  React.useEffect(() => {
-    if (resultCount > prevResultCount.current) {
-      setMobilePane("preview");
-    }
-    prevResultCount.current = resultCount;
-  }, [resultCount, setMobilePane]);
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -732,15 +732,9 @@ function MobileAgentsView() {
         {mobilePane === "detail" && activeAgent && !isNewChat && (
           <MobileDetailPane agent={activeAgent} />
         )}
-        {mobilePane === "preview" && hasPreview && <SandboxPanel mode="preview" showClose={false} />}
         {mobilePane === "detail" && (isNewChat || !activeAgent) && (
           <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
             Select an agent to see its details.
-          </div>
-        )}
-        {mobilePane === "preview" && !hasPreview && (
-          <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
-            Run a task to see results here.
           </div>
         )}
       </div>
@@ -760,14 +754,6 @@ function MobileAgentsView() {
           icon={MessageSquare}
           label="Chat"
         />
-        {hasPreview && (
-          <MobileTabButton
-            active={mobilePane === "preview"}
-            onClick={() => setMobilePane("preview")}
-            icon={Database}
-            label="Preview"
-          />
-        )}
         <MobileTabButton
           active={mobilePane === "detail"}
           onClick={() => setMobilePane("detail")}
@@ -825,7 +811,7 @@ function MobileAgentList({
   activeId: string | null;
   onPick: (id: string) => void;
 }) {
-  const { workflows, conversations, deleteAgent, togglePin, isLoading } = useAgentsData();
+  const { workflows, conversations, deleteAgent, togglePin, isLoading, ringState } = useAgentsData();
   const { toast } = useToast();
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string } | null>(null);
   const agentConvos = sortSidebarConversations(conversations);
@@ -857,7 +843,7 @@ function MobileAgentList({
   function renderAgentRow(c: (typeof agentConvos)[number]) {
     const wf = workflows.find((w) => w.id === c.workflowId);
     if (!wf) return null;
-    const ringClass = agentWorkflowRingClass(wf);
+    const ringClass = agentWorkflowRingClass(wf, ringState);
     return (
       <AgentRowMenu
         key={c.id}
@@ -936,16 +922,18 @@ function MobileAgentList({
   );
 }
 
+const INSPECTOR_TABS = ["overview", "progress", "workflow", "config", "runs"] as const;
+
 function MobileDetailPane({ agent }: { agent: Workflow }) {
-  const [section, setSection] = React.useState<"overview" | "dashboard" | "workflow" | "config" | "runs">("overview");
+  const section = useAppStore((s) => s.inspectorSection);
+  const setSection = useAppStore((s) => s.setInspectorSection);
   const status = agentStatus(agent);
   const autoPct = Math.round((agent.automaticCount / Math.max(agent.itemsProcessed, 1)) * 100);
 
   return (
     <div className="flex h-full flex-col">
-      {/* Section tabs */}
       <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background/50 p-1">
-        {(["overview", "dashboard", "workflow", "config", "runs"] as const).map((s) => (
+        {INSPECTOR_TABS.map((s) => (
           <button
             key={s}
             onClick={() => setSection(s)}
@@ -962,7 +950,7 @@ function MobileDetailPane({ agent }: { agent: Workflow }) {
         {section === "overview" && (
           <InspectorOverview agent={agent} status={status} autoPct={autoPct} onGoSection={setSection} />
         )}
-        {section === "dashboard" && <AgentDashboard agent={agent} />}
+        {section === "progress" && <SandboxPanel mode="progress" embedded showClose={false} className="border-l-0" />}
         {section === "workflow" && <AgentWorkflow agent={agent} />}
         {section === "config" && <AgentConfig agent={agent} />}
         {section === "runs" && (
@@ -999,6 +987,7 @@ function CenterPane({
   onTogglePreview?: () => void;
   hasPreviewContent?: boolean;
 }) {
+  const { ringState } = useAgentsData();
   // Center pane is CHAT ONLY now — Dashboard/Workflow/Config live in the right
   // rail (InspectorPane). No mode tabs here.
   return (
@@ -1017,7 +1006,7 @@ function CenterPane({
           </div>
         ) : agent ? (
           <div className="flex items-center gap-2">
-            <AgentAvatar name={agent.name} className={cn("h-7 w-7", agentWorkflowRingClass(agent))} textClassName="text-[10px] font-semibold" />
+            <AgentAvatar name={agent.name} className={cn("h-7 w-7", agentWorkflowRingClass(agent, ringState))} textClassName="text-[10px] font-semibold" />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-semibold">{agent.name}</span>
@@ -1028,7 +1017,7 @@ function CenterPane({
           </div>
         ) : null}
 
-        {/* Preview + inspector toggles */}
+        {/* Progress + inspector toggles */}
         <div className="ml-auto flex items-center gap-1">
           {IS_TAURI && !isPopout && conversationId && conversationId !== NEW_CHAT_CONVERSATION_ID && (
             <button
@@ -1046,9 +1035,9 @@ function CenterPane({
                 "flex items-center gap-1 rounded-md p-1.5 transition-colors",
                 previewOpen ? "bg-surface-active text-foreground" : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
               )}
-              title={previewOpen ? "Hide preview" : "Show preview"}
+              title={previewOpen ? "Hide progress" : "Show progress"}
             >
-              <Database className="h-4 w-4" />
+              <ListChecks className="h-4 w-4" />
             </button>
           )}
           {showInspectorToggle && !isNewChat && agent && (
@@ -1090,11 +1079,18 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [isThinking, setIsThinking] = React.useState(false);
+  const [liveStatus, setLiveStatus] = React.useState<string | undefined>(undefined);
   const [composerAttachments, setComposerAttachments] = React.useState<ChatAttachment[]>([]);
   const [composerError, setComposerError] = React.useState<string | null>(null);
   const [editorOpen, setEditorOpen] = React.useState(false);
   const [editorInitial, setEditorInitial] = React.useState<ArtifactEditorInitial | null>(null);
   const addSandboxItem = useAppStore((s) => s.addSandboxItem);
+  const openProgressPanel = React.useCallback((stepId: string) => {
+    const store = useAppStore.getState();
+    store.setSandboxOpen(true);
+    store.setInspectorSection("progress");
+    store.setHighlightedStepId(stepId);
+  }, []);
   const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const setPendingAgentHandoff = useAppStore((s) => s.setPendingAgentHandoff);
   const setMobilePane = useAppStore((s) => s.setMobilePane);
@@ -1212,22 +1208,30 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
 
     if (awaitingHandoff) return;
 
-    // Cold-hydrate from the server exactly once per agent. After that, local
+    // Cold-hydrate from cache/server exactly once per agent. After that, local
     // message state is the source of truth for this session, so a background
     // refetch (triggered by persisting messages) can never clobber a streaming
     // or just-finished reply.
     if (hydratedAgentRef.current === agentId) return;
     if (isThinking) return;
-    if (!persistedRows) return;
+    if (persistedRows === undefined && messagesLoading) return;
     hydratedAgentRef.current = agentId;
     const loaded =
-      persistedRows.length > 0
+      persistedRows && persistedRows.length > 0
         ? filterLoadedMessages(mapPersistedMessages(persistedRows))
         : agent
           ? [agentWelcomeMessage(agent, user)]
           : [];
     setMessages(loaded);
-  }, [isNewChat, agent?.id, agent, persistedRows, user, setActiveConversation, isThinking]);
+  }, [isNewChat, agent?.id, agent, persistedRows, user, setActiveConversation, isThinking, messagesLoading]);
+
+  // Keep local + disk chat cache in sync so conversations restore instantly.
+  React.useEffect(() => {
+    const agentId = agent?.id ?? useAppStore.getState().pendingAgentHandoff?.agentId;
+    if (isNewChat || !agentId || isThinking || messages.length === 0) return;
+    if (hydratedAgentRef.current !== agentId) return;
+    syncChatThreadCache(agentId, messages);
+  }, [isNewChat, agent?.id, messages, isThinking]);
 
   function resolveAgentId(): string | undefined {
     return agent?.id ?? useAppStore.getState().pendingAgentHandoff?.agentId;
@@ -1306,13 +1310,14 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
     if (!mountedRef.current) return;
     setIsThinking(true);
     setComposerError(null);
-    // Reveal the Progress rail the moment work starts so the user can watch the
-    // agent think/act live, instead of waiting for the first tool observation.
+    // Mark the agent as working. Auto-open Progress when the side panel is closed.
     {
       const store = useAppStore.getState();
       store.setAgentWorking(true);
-      store.setSandboxOpen(true);
-      if (store.rightRailTab !== "inspector") store.setRightRailTab("progress");
+      if (!store.sandboxOpen) {
+        store.setSandboxOpen(true);
+      }
+      store.setInspectorSection("progress");
     }
     const handoff = useAppStore.getState().pendingAgentHandoff;
     const agentId = agent?.id ?? handoff?.agentId ?? null;
@@ -1366,6 +1371,9 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
         maxIterations: 64,
         signal: controller.signal,
         onStreamOpen: commitUser,
+        onStatusUpdate: (label) => {
+          if (mountedRef.current) setLiveStatus(label);
+        },
         onTraceUpdate: (trace) => {
           commitUser();
           if (!mountedRef.current) return;
@@ -1507,6 +1515,11 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
         setMobilePane("chat");
       }
 
+      // Simple, tool-less turns (plain questions, chat) skip the post-run
+      // outcome check entirely — there is nothing to verify, and no activity
+      // scaffolding should appear.
+      const usedTools = result.trace.some((s) => stepKind(s) === "tool");
+
       void persistMessage(finishedMsg).then((serverId) => {
         // Remember the server row id so interactive-card state (credential
         // boxes) can be PATCHed when the user saves/dismisses them.
@@ -1515,6 +1528,7 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
             prev.map((m) => (m.id === replyId ? { ...m, serverId } : m)),
           );
         }
+        if (!usedTools) return;
         setAnalyzingId(replyId);
         void analyzeRun({
           goal: text,
@@ -1574,20 +1588,31 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       if (err instanceof DOMException && err.name === "AbortError") {
         if (userCommitted && mountedRef.current) {
           setMessages((prev) => {
-            const trace = prev.find((m) => m.id === replyId)?.executionTrace;
-            const stoppedAnalysis = { success: false, summary: "Run was stopped before completion." };
+            const rawTrace = prev.find((m) => m.id === replyId)?.executionTrace;
+            // Finalize any live-thought sentinel so implementation ids never
+            // persist or render after a stop.
+            const trace = rawTrace?.map((s, i) =>
+              s.id.startsWith("__")
+                ? { ...s, id: `e${i + 1}`, status: s.status === "running" ? ("done" as const) : s.status }
+                : s,
+            );
+            const stoppedAnalysis = { success: false, summary: STOPPED_SUMMARY };
+            const partial = prev.find((m) => m.id === replyId)?.content?.trim() || "";
             void persistMessage({
               ...replyMsg,
-              content: "Stopped.",
+              content: partial || "Stopped.",
               executionTrace: trace,
               runAnalysis: stoppedAnalysis,
+              interrupted: { reason: "stopped" },
             });
             return prev.map((msg) =>
               msg.id === replyId
                 ? {
                     ...msg,
                     content: msg.content.trim() || "Stopped.",
+                    executionTrace: trace,
                     runAnalysis: stoppedAnalysis,
+                    interrupted: { reason: "stopped" as const },
                   }
                 : msg,
             );
@@ -1600,14 +1625,51 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       if (!mountedRef.current) return;
       const errorMessage = formatSendError(err);
       const retryable = isRetryableSendError(errorMessage);
+
+      // If the agent already produced partial output before the failure
+      // (disconnect, token limit, provider error mid-stream), KEEP that work in
+      // the chat as an interrupted turn the user can continue — never discard it.
+      const current = messagesRef.current.find((m) => m.id === replyId);
+      const hasPartial =
+        !!current &&
+        (current.content.trim().length > 0 || (current.executionTrace?.length ?? 0) > 0);
+
+      if (hasPartial) {
+        lastFailedSendRef.current = null;
+        const trace = current!.executionTrace?.map((s, i) =>
+          s.id.startsWith("__")
+            ? { ...s, id: `e${i + 1}`, status: s.status === "running" ? ("done" as const) : s.status }
+            : s,
+        );
+        const interruptedAnalysis = { success: false, summary: INTERRUPTED_SUMMARY };
+        const interruptedMsg: ChatMessage = {
+          ...replyMsg,
+          content: current!.content.trim() || "Interrupted.",
+          executionTrace: trace,
+          runAnalysis: interruptedAnalysis,
+          interrupted: { reason: "error", message: errorMessage },
+        };
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === replyId ? interruptedMsg : msg)),
+        );
+        void persistMessage(interruptedMsg).then((serverId) => {
+          if (serverId && mountedRef.current) {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === replyId ? { ...m, serverId } : m)),
+            );
+          }
+        });
+        return;
+      }
+
+      // Nothing produced yet — surface the failure ONCE as an in-chat notice
+      // (with Retry). Do not also set the composer banner (double-show).
       lastFailedSendRef.current = {
         text,
         attachments: turnAttachments,
         priorMessages: priorMessages.filter((m) => m.id !== pendingUserMsg.id),
         pendingUserMsg,
       };
-      // Surface the failure ONCE — as an in-chat notice (with Retry). Do not
-      // also set the composer banner, which would double-show the same error.
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== replyId && m.id !== pendingUserMsg.id),
         {
@@ -1622,7 +1684,10 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       setInput(text);
       setComposerAttachments(turnAttachments);
     } finally {
-      if (mountedRef.current) setIsThinking(false);
+      if (mountedRef.current) {
+        setIsThinking(false);
+        setLiveStatus(undefined);
+      }
       useAppStore.getState().setAgentWorking(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
@@ -1658,6 +1723,16 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       createdAt: new Date().toISOString(),
     };
     void runTurn(text, messagesRef.current, [], pendingUserMsg, undefined);
+  }
+
+  // Resume a turn that was stopped or interrupted mid-flight. The prior partial
+  // answer + reasoning are already in the history, so the agent picks up where
+  // it left off instead of restarting.
+  function continueInterrupted() {
+    if (isThinking) return;
+    sendDirect(
+      "Continue from where you left off. Pick up exactly where the previous response stopped — do not repeat work you already completed.",
+    );
   }
 
   // User saved or dismissed an inline credential box. Update + persist the box
@@ -1846,12 +1921,20 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
             agentName={isNewChat ? "Apical" : agent?.name ?? "Agent"}
             isStreaming={isThinking && i === messages.length - 1 && m.role === "agent"}
             isAnalyzing={analyzingId === m.id}
+            liveStatus={
+              isThinking && i === messages.length - 1 && m.role === "agent"
+                ? liveStatus
+                : undefined
+            }
             onEditArtifact={openArtifactForEdit}
             onCredentialResolved={handleCredentialResolved}
             onPickPrompt={(prompt) => send({ text: prompt })}
             onClarify={handleClarificationAnswer}
             onRetryFailedSend={retryFromDeliveryError}
             onDismissDeliveryError={dismissDeliveryError}
+            onOpenProgressPanel={openProgressPanel}
+            isLast={i === messages.length - 1}
+            onContinue={continueInterrupted}
           />
         ))}
         {isThinking && messages[messages.length - 1]?.role !== "agent" && (
@@ -1914,17 +1997,22 @@ function MessageBubble({
   agentName,
   isStreaming,
   isAnalyzing,
+  liveStatus,
   onEditArtifact,
   onCredentialResolved,
   onPickPrompt,
   onClarify,
   onRetryFailedSend,
   onDismissDeliveryError,
+  onOpenProgressPanel,
+  isLast,
+  onContinue,
 }: {
   message: ChatMessage;
   agentName: string;
   isStreaming?: boolean;
   isAnalyzing?: boolean;
+  liveStatus?: string;
   onEditArtifact?: (a: ChatAttachment) => void;
   onCredentialResolved?: (
     messageId: string,
@@ -1935,6 +2023,9 @@ function MessageBubble({
   onClarify?: (messageId: string, answer: string) => void;
   onRetryFailedSend?: (payload: { text: string; attachments?: ChatAttachment[] }) => void;
   onDismissDeliveryError?: (messageId: string) => void;
+  onOpenProgressPanel?: (stepId: string) => void;
+  isLast?: boolean;
+  onContinue?: () => void;
 }) {
   if (message.deliveryError) {
     return (
@@ -1975,33 +2066,31 @@ function MessageBubble({
   }
   // Agent — no bubble, plain text. Name label for context (which agent is talking).
   return (
-    <div className="group/message space-y-1">
+    <div className="group/message space-y-1.5">
       <div className="flex select-none items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
         <span>{agentName}</span>
-        {isStreaming && (
-          <span className="flex items-center gap-1 text-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Working…
-          </span>
-        )}
       </div>
-      {(message.executionTrace?.length || isStreaming) && (
+      {(message.executionTrace?.length ||
+        isStreaming ||
+        (message.checklist && message.checklist.length > 0) ||
+        message.runAnalysis ||
+        (isAnalyzing && !message.runAnalysis)) && (
         <div className="select-none">
-          <RunTimeline
-            run={buildChatRun(message.id, message.executionTrace ?? [], {
-              startedAt: message.createdAt,
-              finishedAt: isStreaming ? undefined : message.createdAt,
-              analysis: message.runAnalysis,
-              live: !!isStreaming,
-              stopped: message.runAnalysis?.summary === "Run was stopped before completion.",
-              analyzing: !!isAnalyzing && !message.runAnalysis,
-            })}
+          <ActivityFlow
+            steps={message.executionTrace ?? []}
+            plan={message.checklist}
+            liveStatus={liveStatus}
+            isStreaming={!!isStreaming}
+            analysis={message.runAnalysis}
+            analyzing={!!isAnalyzing && !message.runAnalysis}
+            stopped={
+              !!message.interrupted ||
+              message.runAnalysis?.summary === STOPPED_SUMMARY ||
+              message.runAnalysis?.summary === INTERRUPTED_SUMMARY
+            }
+            startedAt={message.createdAt}
+            onOpenProgressPanel={onOpenProgressPanel}
           />
-        </div>
-      )}
-      {message.checklist && message.checklist.length > 0 && (
-        <div className="select-none">
-          <AgentChecklist items={message.checklist} />
         </div>
       )}
       <div className="text-sm text-foreground">
@@ -2011,6 +2100,23 @@ function MessageBubble({
           <span className="text-muted-foreground italic">…</span>
         )}
       </div>
+      {message.interrupted && isLast && !isStreaming && onContinue && (
+        <div className="mt-2 flex select-none flex-col gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <AlertTriangle className="h-3 w-3 text-amber-500" />
+            {message.interrupted.reason === "stopped"
+              ? "You stopped this response."
+              : `This response was interrupted${message.interrupted.message ? ` (${message.interrupted.message})` : ""}.`}
+          </div>
+          <button
+            type="button"
+            onClick={onContinue}
+            className="inline-flex w-fit items-center gap-1.5 rounded-md bg-foreground px-2.5 py-1 text-[11px] font-medium text-background transition-opacity hover:opacity-90"
+          >
+            <Play className="h-3 w-3" /> Continue where it left off
+          </button>
+        </div>
+      )}
       {message.clarificationRequest && (
         <div className="select-none">
           <ClarificationCard
@@ -2202,78 +2308,38 @@ function Dot({ delay }: { delay: number }) {
   );
 }
 
-// ─── Right rail: preview sandbox + agent inspector ─────────────────────────
+// ─── Right rail: agent inspector + standalone progress ─────────────────────
 
 function RightRailPane({
   agent,
   showInspector,
   showData,
-  tab,
-  onTabChange,
 }: {
   agent?: Workflow;
   showInspector: boolean;
   showData: boolean;
-  tab: "preview" | "progress" | "inspector";
-  onTabChange: (t: "preview" | "progress" | "inspector") => void;
 }) {
-  const sandboxItems = useAppStore((s) => s.sandboxItems);
-  const hasResults = sandboxItems.some((i) => i.isResult);
-
-  // Build the available tabs in display order.
-  const tabs: Array<{ key: "preview" | "progress" | "inspector"; label: string }> = [];
-  if (showData) {
-    tabs.push({ key: "progress", label: "Progress" });
-    tabs.push({ key: "preview", label: "Preview" });
+  if (showInspector && agent) {
+    return <InspectorPane agent={agent} embedded />;
   }
-  if (showInspector && agent) tabs.push({ key: "inspector", label: "Agent" });
-
-  // Progress is default; only land on Preview when there are actual results.
-  const activeTab = (() => {
-    if (tab === "preview" && !hasResults) return "progress";
-    return tabs.some((t) => t.key === tab) ? tab : tabs[0]?.key;
-  })();
-
-  return (
-    <div className="flex h-full min-w-0 flex-col overflow-hidden border-l border-border">
-      {tabs.length > 1 && (
-        <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background/50 p-1">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => onTabChange(t.key)}
-              className={cn(
-                "flex-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors",
-                activeTab === t.key ? "bg-surface-active text-foreground" : "text-muted-foreground hover:bg-surface-hover",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === "preview" && showData && <SandboxPanel mode="preview" showClose={tabs.length === 1} className="border-l-0" />}
-        {activeTab === "progress" && showData && <SandboxPanel mode="progress" showClose={tabs.length === 1} className="border-l-0" />}
-        {activeTab === "inspector" && showInspector && agent && <InspectorPane agent={agent} embedded />}
-      </div>
-    </div>
-  );
+  if (showData) {
+    return <SandboxPanel mode="progress" showClose className="border-l-0" />;
+  }
+  return null;
 }
 
 // ─── Right pane: inspector ─────────────────────────────────────────────────
 
 function InspectorPane({ agent, embedded }: { agent: Workflow; embedded?: boolean }) {
-  const [section, setSection] = React.useState<"overview" | "dashboard" | "workflow" | "config" | "runs">("overview");
+  const section = useAppStore((s) => s.inspectorSection);
+  const setSection = useAppStore((s) => s.setInspectorSection);
   const status = agentStatus(agent);
   const autoPct = Math.round((agent.automaticCount / Math.max(agent.itemsProcessed, 1)) * 100);
 
   return (
     <aside className={cn("flex h-full w-full min-w-0 flex-col overflow-hidden bg-muted/30", !embedded && "border-l border-border")}>
-      {/* Section switcher — Overview / Dashboard / Workflow / Config as tabs WITHIN the right rail */}
       <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background/50 p-1">
-        {(["overview", "dashboard", "workflow", "config", "runs"] as const).map((s) => (
+        {INSPECTOR_TABS.map((s) => (
           <button
             key={s}
             onClick={() => setSection(s)}
@@ -2287,13 +2353,27 @@ function InspectorPane({ agent, embedded }: { agent: Workflow; embedded?: boolea
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {section === "overview" && <InspectorOverview agent={agent} status={status} autoPct={autoPct} onGoSection={setSection} />}
-        {section === "dashboard" && <AgentDashboard agent={agent} />}
-        {section === "workflow" && <AgentWorkflow agent={agent} />}
-        {section === "config" && <AgentConfig agent={agent} />}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {section === "overview" && (
+          <div className="h-full overflow-y-auto overscroll-contain">
+            <InspectorOverview agent={agent} status={status} autoPct={autoPct} onGoSection={setSection} />
+          </div>
+        )}
+        {section === "progress" && (
+          <SandboxPanel mode="progress" embedded showClose={false} className="border-l-0" />
+        )}
+        {section === "workflow" && (
+          <div className="h-full overflow-y-auto overscroll-contain">
+            <AgentWorkflow agent={agent} />
+          </div>
+        )}
+        {section === "config" && (
+          <div className="h-full overflow-y-auto overscroll-contain">
+            <AgentConfig agent={agent} />
+          </div>
+        )}
         {section === "runs" && (
-          <div className="p-3">
+          <div className="h-full overflow-y-auto overscroll-contain p-3">
             <AgentRunSection workflowId={agent.id} />
           </div>
         )}
@@ -2311,7 +2391,7 @@ function InspectorOverview({
   agent: Workflow;
   status: { color: string; label: string };
   autoPct: number;
-  onGoSection: (s: "overview" | "dashboard" | "workflow" | "config" | "runs") => void;
+  onGoSection: (s: (typeof INSPECTOR_TABS)[number]) => void;
 }) {
   return (
     <div className="space-y-3 p-3">
@@ -2330,10 +2410,18 @@ function InspectorOverview({
         </div>
       </div>
 
+      {/* About */}
+      {agent.description && (
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">About</div>
+          <p className="text-[11px] leading-relaxed">{agent.description}</p>
+        </div>
+      )}
+
       {/* LOUD flagged button */}
       {agent.flaggedCount > 0 && (
         <button
-          onClick={() => onGoSection("dashboard")}
+          onClick={() => onGoSection("progress")}
           className="flex w-full items-center gap-2 rounded-lg border-2 border-gate/50 bg-gate/10 p-3 text-left transition-colors hover:border-gate hover:bg-gate/15"
         >
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gate/20 text-gate">
@@ -2345,6 +2433,25 @@ function InspectorOverview({
           </div>
           <ChevronRight className="h-4 w-4 shrink-0 text-gate" />
         </button>
+      )}
+
+      {/* Schedule — edit time/frequency inline without digging into Config */}
+      {agent.trigger === 'schedule' && (
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Schedule
+            </span>
+            <button
+              type="button"
+              onClick={() => onGoSection('config')}
+              className="text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+            >
+              More settings →
+            </button>
+          </div>
+          <ScheduleEditor workflowId={agent.id} compact autoSave />
+        </div>
       )}
 
       {/* Workflow steps (summary) */}
@@ -2375,7 +2482,7 @@ function InspectorOverview({
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Stats</span>
-          <button onClick={() => onGoSection("dashboard")} className="text-[10px] text-muted-foreground hover:text-foreground hover:underline">Full dashboard →</button>
+          <button onClick={() => onGoSection("runs")} className="text-[10px] text-muted-foreground hover:text-foreground hover:underline">Run log →</button>
         </div>
         <div className="grid grid-cols-2 gap-2 text-[10px]">
           <div><div className="text-muted-foreground">Processed</div><div className="font-semibold tabular-nums">{agent.itemsProcessed.toLocaleString()}</div></div>
@@ -2397,8 +2504,8 @@ function InspectorOverview({
 
       {/* Quick links to other sections */}
       <div className="flex flex-col gap-1">
-        <button onClick={() => onGoSection("dashboard")} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-border">
-          <Activity className="h-3.5 w-3.5 text-muted-foreground" /> Full dashboard
+        <button onClick={() => onGoSection("progress")} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-border">
+          <ListChecks className="h-3.5 w-3.5 text-muted-foreground" /> View progress
           <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground" />
         </button>
         <button onClick={() => onGoSection("config")} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] hover:border-border">
@@ -2410,30 +2517,6 @@ function InspectorOverview({
   );
 }
 
-
-function AgentDashboard({ agent }: { agent: Workflow }) {
-  const autoPct = Math.round((agent.automaticCount / Math.max(agent.itemsProcessed, 1)) * 100);
-  return (
-    <div className="h-full overflow-y-auto overscroll-contain p-4">
-      <div className="mx-auto max-w-3xl space-y-4">
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
-          <StatCard label="Items processed" value={agent.itemsProcessed.toLocaleString()} icon={Activity} accent="bg-accent text-foreground" />
-          <StatCard label="Automatic" value={`${autoPct}%`} icon={CheckCircle2} accent="bg-accent text-foreground" />
-          <StatCard label="Flagged" value={agent.flaggedCount.toLocaleString()} icon={AlertTriangle} accent="bg-gate/15 text-gate" />
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About</h3>
-          <p className="mt-1.5 text-sm">{agent.description}</p>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-3">
-            <Meta label="Trigger" value={agent.trigger === "schedule" ? `Schedule · ${agent.schedule}` : "Manual"} />
-            <Meta label="Runtime" value={agent.runtime === "local" ? "Local (desktop)" : "Hosted (cloud)"} />
-          </div>
-        </div>
-        <RunLog workflowId={agent.id} title="Recent runs" limit={15} maxHeight="max-h-96" />
-      </div>
-    </div>
-  );
-}
 
 function AgentWorkflow({ agent }: { agent: Workflow }) {
   return (
@@ -2492,7 +2575,6 @@ function AgentConfig({ agent }: { agent: Workflow }) {
   const [name, setName] = React.useState(agent.name);
   const [description, setDescription] = React.useState(agent.description);
   const [trigger, setTrigger] = React.useState<"manual" | "schedule">(agent.trigger);
-  const [schedule, setSchedule] = React.useState(agent.schedule ?? "");
   const [runtime, setRuntime] = React.useState<AgentRuntime>(agent.runtime);
   const [modelPref, setModelPref] = React.useState(agent.modelPreference ?? "");
   const [availableModels, setAvailableModels] = React.useState<Array<{ id: string; name: string; provider: string }>>([]);
@@ -2523,7 +2605,6 @@ function AgentConfig({ agent }: { agent: Workflow }) {
           name: name.trim(),
           description,
           trigger,
-          schedule: trigger === "schedule" ? schedule.trim() || null : null,
           runtime,
           modelPreference: modelPref.trim() || null,
           confidenceThreshold: parseFloat(confidenceThreshold) || null,
@@ -2561,6 +2642,11 @@ function AgentConfig({ agent }: { agent: Workflow }) {
 
         <div className="rounded-lg border border-border bg-card p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Runtime &amp; schedule</h3>
+          {runtime === "local" && (
+            <div className="mb-3">
+              <DesktopStatusChip />
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label className="text-xs">Where this agent runs</Label>
             <div className="grid grid-cols-2 gap-2">
@@ -2573,7 +2659,7 @@ function AgentConfig({ agent }: { agent: Workflow }) {
                   <span className="text-xs font-semibold">Local (desktop)</span>
                   {runtime === "local" && <Check className="ml-auto h-3 w-3 text-foreground" />}
                 </div>
-                <div className="mt-1 text-[10px] text-muted-foreground">Runs on your machine via the Tauri shell. Filesystem + shell access. Private.</div>
+                <div className="mt-1 text-[10px] text-muted-foreground">Uses this computer&apos;s files and apps. Requires the desktop app running in the background; enable Remote Access in desktop Settings for web/scheduled runs.</div>
               </button>
               <button
                 onClick={() => setRuntime("hosted")}
@@ -2584,29 +2670,26 @@ function AgentConfig({ agent }: { agent: Workflow }) {
                   <span className="text-xs font-semibold">Hosted (cloud)</span>
                   {runtime === "hosted" && <Check className="ml-auto h-3 w-3 text-foreground" />}
                 </div>
-                <div className="mt-1 text-[10px] text-muted-foreground">Runs on Apical servers. Always-on, even when your desktop is offline.</div>
+                <div className="mt-1 text-[10px] text-muted-foreground">Runs entirely in Apical&apos;s cloud. No desktop filesystem or CLI access.</div>
               </button>
             </div>
           </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Trigger</Label>
-              <select
-                value={trigger}
-                onChange={(e) => setTrigger(e.target.value as "manual" | "schedule")}
-                className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
-              >
-                <option value="manual">Manual</option>
-                <option value="schedule">Schedule</option>
-              </select>
-            </div>
-            {trigger === "schedule" && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">Schedule</Label>
-                <Input value={schedule} onChange={(e) => setSchedule(e.target.value)} className="h-9 text-sm" placeholder="every 15 min · daily 9am" />
-              </div>
-            )}
+          <div className="mt-3 space-y-1.5">
+            <Label className="text-xs">Trigger</Label>
+            <select
+              value={trigger}
+              onChange={(e) => setTrigger(e.target.value as "manual" | "schedule")}
+              className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
+            >
+              <option value="manual">Manual — run on demand</option>
+              <option value="schedule">Schedule — run automatically</option>
+            </select>
           </div>
+          {trigger === "schedule" && (
+            <div className="mt-3 border-t border-border pt-3">
+              <ScheduleEditor workflowId={agent.id} autoSave />
+            </div>
+          )}
         </div>
 
         <div className="rounded-lg border border-border bg-card p-4">
@@ -2655,31 +2738,6 @@ function AgentConfig({ agent }: { agent: Workflow }) {
           </Button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function StatCard({ label, value, icon: Icon, accent }: { label: string; value: string; icon: React.ComponentType<{ className?: string }>; accent: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-          <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
-        </div>
-        <div className={cn("flex h-7 w-7 items-center justify-center rounded-md", accent)}>
-          <Icon className="h-3.5 w-3.5" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Meta({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="text-xs font-medium">{value}</div>
     </div>
   );
 }

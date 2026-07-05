@@ -2,6 +2,7 @@ import { withUser } from '@/lib/auth-helpers'
 import { deriveDesktopContext } from '@/lib/desktop/device-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { runAgent, type AgentEvent } from '@/lib/platform/agent-engine'
+import { captureClientContext } from '@/lib/platform/client-context'
 import type { PlanItem } from '@/lib/platform/agent-tools'
 
 interface ThinkBody {
@@ -22,6 +23,8 @@ interface ThinkBody {
   script?: { language: 'javascript' | 'python' | 'shell'; code: string }
   modelId?: string
   maxIterations?: number
+  /** Browser-reported time/place so the agent can reason about "today", etc. */
+  clientContext?: { timezone?: string; locale?: string }
 }
 
 // POST /api/agent/think — run the autonomous agent loop.
@@ -52,6 +55,10 @@ export const POST = withUser(async (req, { user }) => {
   }
 
   const desktop = await deriveDesktopContext(req, user.id)
+
+  // Capture the caller's timezone/locale + approximate IP geo BEFORE the loop
+  // so this turn's context block already reflects it. Best-effort, never throws.
+  await captureClientContext(req, user.id, body.clientContext)
 
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({

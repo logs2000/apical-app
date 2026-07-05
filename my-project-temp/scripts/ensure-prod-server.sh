@@ -7,13 +7,25 @@ cd "$ROOT"
 
 URL="http://127.0.0.1:3000/api/auth/desktop-ui"
 
-# Load optional env first, then pin desktop auth (must win over .env overrides).
+# Load shared secrets from repo root, then project overrides.
 if [[ -f "$ROOT/../.env" ]]; then set -a; source "$ROOT/../.env"; set +a; fi
 if [[ -f "$ROOT/.env.local" ]]; then set -a; source "$ROOT/.env.local"; set +a; fi
 
+# Parent .env may ship a CI sqlite stub — project .env.local wins for DB URLs.
+if [[ -f "$ROOT/.env.local" ]]; then
+  if grep -q '^DATABASE_URL=' "$ROOT/.env.local"; then
+    export DATABASE_URL="$(grep -E '^DATABASE_URL=' "$ROOT/.env.local" | tail -1 | cut -d= -f2- | tr -d '"')"
+  fi
+  if grep -q '^DIRECT_URL=' "$ROOT/.env.local"; then
+    export DIRECT_URL="$(grep -E '^DIRECT_URL=' "$ROOT/.env.local" | tail -1 | cut -d= -f2- | tr -d '"')"
+  fi
+fi
+
 export NODE_ENV=production
 export DESKTOP_LOCAL=true
-export DATABASE_URL="file:${ROOT}/prisma/dev.db"
+export APICAL_DESKTOP_DATA_DIR="${APICAL_DESKTOP_DATA_DIR:-$ROOT/.apical-desktop-data}"
+mkdir -p "$APICAL_DESKTOP_DATA_DIR"
+# Keep DATABASE_URL / DIRECT_URL from .env.local — Prisma targets Postgres.
 export NEXTAUTH_SECRET="${NEXTAUTH_SECRET:-dev-local-secret}"
 export NEXTAUTH_URL="${NEXTAUTH_URL:-http://127.0.0.1:3000}"
 export PORT=3000
@@ -111,16 +123,29 @@ write_standalone_env() {
   mkdir -p "$(dirname "$dest")"
   cat > "$dest" <<EOF
 DESKTOP_LOCAL=true
+APICAL_DESKTOP_DATA_DIR=${APICAL_DESKTOP_DATA_DIR}
 NODE_ENV=production
-DATABASE_URL=file:${ROOT}/prisma/dev.db
+DATABASE_URL=${DATABASE_URL}
 NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
 NEXTAUTH_URL=${NEXTAUTH_URL}
 EOF
+  if [[ -n "${DIRECT_URL:-}" ]]; then
+    echo "DIRECT_URL=${DIRECT_URL}" >> "$dest"
+  fi
+  if [[ -n "${NEXT_PUBLIC_SUPABASE_URL:-}" ]]; then
+    echo "NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}" >> "$dest"
+  fi
+  if [[ -n "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}" ]]; then
+    echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}" >> "$dest"
+  fi
   if [[ -n "${APICAL_PAT:-}" ]]; then
     echo "APICAL_PAT=${APICAL_PAT}" >> "$dest"
   fi
   if [[ -n "${OPENAI_API_KEY:-}" ]]; then
     echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> "$dest"
+  fi
+  if [[ -n "${APICAL_ADMIN_EMAILS:-}" ]]; then
+    echo "APICAL_ADMIN_EMAILS=${APICAL_ADMIN_EMAILS}" >> "$dest"
   fi
 }
 

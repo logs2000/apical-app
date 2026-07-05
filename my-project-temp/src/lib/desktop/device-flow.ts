@@ -73,6 +73,10 @@ export async function linkDesktopToCloud(
     if (poll.status === 'pending') continue
     if (poll.status === 'approved' && poll.sessionToken) {
       await getKeychainBackend().set(DEVICE_TOKEN_HANDLE, poll.sessionToken)
+      // Hand the token to the local bundled server so it can connect the
+      // desktop bridge client out to the cloud relay (the Node process cannot
+      // read the OS keychain — only the webview can).
+      await syncCloudLinkToLocalServer(base, poll.sessionToken)
       return {
         sessionToken: poll.sessionToken,
         session: poll.session ?? { id: '', label: meta.label ?? 'My Desktop' },
@@ -84,13 +88,49 @@ export async function linkDesktopToCloud(
   throw new Error('The code expired — restart the login.')
 }
 
+/**
+ * POST the cloud link to the local bundled server so its bridge client can
+ * connect out to the relay. Best-effort — hosted mode / missing route is fine.
+ */
+export async function syncCloudLinkToLocalServer(
+  cloudUrl: string,
+  sessionToken: string,
+): Promise<void> {
+  try {
+    await fetch('/api/desktop/local/cloud-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cloudUrl, sessionToken }),
+    })
+  } catch {
+    /* local server not reachable / hosted mode — ignore */
+  }
+}
+
 /** Read the stored device token from the keychain (null when not linked). */
 export async function getStoredDeviceToken(): Promise<string | null> {
   const token = await getKeychainBackend().get(DEVICE_TOKEN_HANDLE)
   return token && token.startsWith('dsk_') ? token : null
 }
 
+/**
+ * Re-sync the stored token to the local server (call at app boot so the bridge
+ * reconnects after a restart). No-op when not linked.
+ */
+export async function resyncCloudLinkAtBoot(cloudUrl: string): Promise<void> {
+  const token = await getStoredDeviceToken()
+  if (token) {
+    await syncCloudLinkToLocalServer(cloudUrl.replace(/\/+$/, ''), token)
+  }
+}
+
 /** Forget the stored device token (sign this desktop out of the cloud). */
 export async function clearStoredDeviceToken(): Promise<void> {
   await getKeychainBackend().delete(DEVICE_TOKEN_HANDLE)
+  // Also tear down the local bridge connection.
+  try {
+    await fetch('/api/desktop/local/cloud-link', { method: 'DELETE' })
+  } catch {
+    /* hosted / local server unreachable — ignore */
+  }
 }

@@ -9,6 +9,7 @@
 import path from 'path'
 import os from 'os'
 import { db } from '@/lib/db'
+import { isBundledDesktopServer } from '@/lib/desktop/desktop-paths'
 
 /** Expand ~ and normalize to an absolute path (POSIX or Windows). */
 export function normalizeGrantedPath(p: string): string {
@@ -32,6 +33,11 @@ export async function listGrantedRoots(userId: string): Promise<GrantedRoot[]> {
     orderBy: { createdAt: 'asc' },
     select: { id: true, path: true, label: true },
   })
+  // Bundled desktop: implicit home root so the file browser works out of the box.
+  if (isBundledDesktopServer() && rows.length === 0) {
+    const home = os.homedir()
+    return [{ id: '__home__', path: home, label: 'Home' }]
+  }
   return rows
 }
 
@@ -61,6 +67,9 @@ export async function checkPathsGranted(
 ): Promise<PathCheckResult> {
   const real = paths.map((p) => String(p ?? '').trim()).filter(Boolean)
   if (real.length === 0) return { ok: true }
+
+  // Tauri desktop runs on the user's machine — do not sandbox fs tools locally.
+  if (isBundledDesktopServer()) return { ok: true }
 
   const roots = await listGrantedRoots(userId)
   if (roots.length === 0) {

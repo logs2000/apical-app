@@ -8,3 +8,9 @@ export function sessionCookieName(): string {
     ? "__Secure-next-auth.session-token"
     : "next-auth.session-token";
 }
+
+/** Expire the NextAuth session cookie (stale desktop login). */
+export function clearSessionCookieHeader(): string {
+  const secure = useSecureSessionCookies();
+  return `${sessionCookieName()}=; Path=/; Max-Age=0; SameSite=Lax${secure ? "; Secure" : ""}`;
+}

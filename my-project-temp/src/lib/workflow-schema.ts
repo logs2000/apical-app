@@ -11,6 +11,11 @@
 // ({{stepId.field}} must target an EARLIER step).
 
 import { z } from 'zod'
+import {
+  toolCapability,
+  type DesktopCapability,
+} from '@/lib/desktop/desktop-settings'
+import type { WorkflowStep } from './types'
 
 // ---------------- Step sub-specs ----------------
 
@@ -272,4 +277,40 @@ export function automationFileSchemaDoc(): Record<string, unknown> {
     title: 'Apical AutomationFile',
     ...doc,
   }
+}
+
+// ---------------- Runtime inference ----------------
+
+const DESKTOP_TOOL_PREFIXES = ['fs.', 'fs_', 'desktop.fs.', 'desktop.cli.', 'script_run', 'cli_run']
+
+function stepUsesDesktopTools(step: WorkflowStep): boolean {
+  if (step.kind !== 'tool') return false
+  const tool = (step.tool ?? '').toLowerCase()
+  if (DESKTOP_TOOL_PREFIXES.some((p) => tool.startsWith(p) || tool.includes(p))) return true
+  if (step.code?.language === 'shell') return true
+  return false
+}
+
+/** Infer workflow runtime from step contents when not explicitly set. */
+export function inferRuntimeFromSteps(steps: WorkflowStep[]): 'local' | 'hosted' {
+  return steps.some(stepUsesDesktopTools) ? 'local' : 'hosted'
+}
+
+/** Desktop capabilities a workflow needs when run remotely (via bridge). */
+export function requiredDesktopCapabilitiesFromSteps(
+  steps: WorkflowStep[],
+): DesktopCapability[] {
+  const caps = new Set<DesktopCapability>()
+  for (const step of steps) {
+    if (step.kind !== 'tool') continue
+    const tool = step.tool ?? ''
+    if (tool.startsWith('desktop.')) {
+      const cap = toolCapability(tool)
+      if (cap) caps.add(cap)
+    } else if (stepUsesDesktopTools(step)) {
+      if (step.code?.language === 'shell' || tool.includes('cli')) caps.add('cli')
+      else caps.add('fs_read')
+    }
+  }
+  return Array.from(caps)
 }

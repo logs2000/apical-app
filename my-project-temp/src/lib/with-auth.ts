@@ -76,7 +76,7 @@ export function withAuth(
 ) {
   return async (
     req: Request,
-    routeCtx?: { params?: Promise<Record<string, string>> },
+    routeCtx: { params: Promise<Record<string, string>> },
   ): Promise<Response> => {
     try {
       const ctx = await resolveAuth(req)
@@ -89,7 +89,7 @@ export function withAuth(
           { status: 403 },
         )
       }
-      const params = routeCtx?.params ? await routeCtx.params : {}
+      const params = await routeCtx.params
       return await handler(req, { ...ctx, params })
     } catch (err) {
       console.error('[with-auth] handler crashed:', err)

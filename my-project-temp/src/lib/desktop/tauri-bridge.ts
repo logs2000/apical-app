@@ -16,6 +16,11 @@
 //     env vars.
 
 import { setKeychainBackend, type KeychainBackend } from '../auth/vault-interface'
+import {
+  DEFAULT_DESKTOP_SETTINGS,
+  mergeDesktopSettings,
+  type DesktopSettings,
+} from './desktop-settings'
 
 /** True when running inside the Tauri desktop shell. */
 export const IS_TAURI =
@@ -232,6 +237,151 @@ export async function onMenuAction(
   } catch (err) {
     console.error('[tauri-bridge] onMenuAction failed:', err)
     return null
+  }
+}
+
+// ─── Desktop settings (JSON in app_data_dir) ────────────────────────────────
+
+/**
+ * Read the raw desktop settings JSON string persisted by Rust. Returns "{}"
+ * when running hosted or when no settings exist yet. Callers should parse +
+ * merge defaults (see `src/lib/desktop/desktop-settings.ts`).
+ */
+export async function readDesktopSettingsRaw(): Promise<string | null> {
+  const invoke = await getInvoke()
+  if (!invoke) return null
+  try {
+    return (await invoke('read_desktop_settings')) as string
+  } catch (err) {
+    console.error('[tauri-bridge] read_desktop_settings failed:', err)
+    return null
+  }
+}
+
+/**
+ * Persist the desktop settings JSON string. This is the ONLY path that can
+ * modify the remote-access policy — it is reachable only from the Tauri
+ * webview, so no web request or the local HTTP server can change it.
+ */
+export async function writeDesktopSettingsRaw(settings: string): Promise<boolean> {
+  const invoke = await getInvoke()
+  if (!invoke) return false
+  try {
+    await invoke('write_desktop_settings', { settings })
+    return true
+  } catch (err) {
+    console.error('[tauri-bridge] write_desktop_settings failed:', err)
+    return false
+  }
+}
+
+/** Load + merge desktop settings from the native store (defaults in hosted). */
+export async function loadDesktopSettings(): Promise<DesktopSettings> {
+  const raw = await readDesktopSettingsRaw()
+  if (!raw) return { ...DEFAULT_DESKTOP_SETTINGS }
+  try {
+    return mergeDesktopSettings(JSON.parse(raw))
+  } catch {
+    return { ...DEFAULT_DESKTOP_SETTINGS }
+  }
+}
+
+/** Persist desktop settings (no-op in hosted mode). Returns success. */
+export async function saveDesktopSettings(settings: DesktopSettings): Promise<boolean> {
+  return writeDesktopSettingsRaw(JSON.stringify(settings))
+}
+
+// ─── Tray status ─────────────────────────────────────────────────────────────
+
+export interface TrayScheduledJob {
+  id: string
+  name: string
+  status: 'active' | 'paused' | string
+  nextRunLabel: string
+}
+
+export interface TrayStatus {
+  linked: boolean
+  desktopOnline: boolean
+  scheduledCount: number
+  automationsPaused: boolean
+  localOnly: boolean
+  jobs: TrayScheduledJob[]
+}
+
+/**
+ * Push the current cloud-link / schedule / pause state to the native tray so
+ * its menu reflects reality. No-op in hosted mode.
+ */
+export async function updateTrayStatus(status: TrayStatus): Promise<void> {
+  const invoke = await getInvoke()
+  if (!invoke) return
+  try {
+    await invoke('update_tray_status', { statusJson: JSON.stringify(status) })
+  } catch (err) {
+    console.error('[tauri-bridge] update_tray_status failed:', err)
+  }
+}
+
+/** Tray-originated actions forwarded from Rust via the `apical://tray` event. */
+export type TrayAction = 'automations:toggle' | `job:${string}:${string}`
+
+/** Subscribe to tray actions (e.g. the "Pause automations" checkbox). */
+export async function onTrayAction(
+  cb: (action: TrayAction) => void,
+): Promise<(() => void) | null> {
+  const listen = await getListen()
+  if (!listen) return null
+  try {
+    const unlisten = await listen('apical://tray', (event) => {
+      cb(event.payload as TrayAction)
+    })
+    return unlisten
+  } catch (err) {
+    console.error('[tauri-bridge] onTrayAction failed:', err)
+    return null
+  }
+}
+
+// ─── Autostart (launch at login) ─────────────────────────────────────────────
+
+export async function isAutostartEnabled(): Promise<boolean> {
+  if (!IS_TAURI) return false
+  try {
+    const { isEnabled } = await import('@tauri-apps/plugin-autostart')
+    return await isEnabled()
+  } catch (err) {
+    console.error('[tauri-bridge] isAutostartEnabled failed:', err)
+    return false
+  }
+}
+
+export async function setAutostart(enabled: boolean): Promise<void> {
+  if (!IS_TAURI) return
+  try {
+    const mod = await import('@tauri-apps/plugin-autostart')
+    if (enabled) await mod.enable()
+    else await mod.disable()
+  } catch (err) {
+    console.error('[tauri-bridge] setAutostart failed:', err)
+  }
+}
+
+/**
+ * Enable launch-at-login by default the FIRST time the app runs, so scheduled
+ * workflows keep firing across reboots without the user opting in. Runs exactly
+ * once — tracked via `autostartConfigured` in desktop settings — so it never
+ * overrides a user who later turns autostart off. No-op in hosted mode.
+ */
+export async function ensureAutostartDefault(): Promise<void> {
+  if (!IS_TAURI) return
+  try {
+    const settings = await loadDesktopSettings()
+    if (settings.autostartConfigured) return
+    await setAutostart(true)
+    await saveDesktopSettings({ ...settings, autostartConfigured: true })
+  } catch (err) {
+    console.error('[tauri-bridge] ensureAutostartDefault failed:', err)
   }
 }
 

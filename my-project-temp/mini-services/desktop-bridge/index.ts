@@ -22,12 +22,18 @@ import { Server, Socket } from 'socket.io'
 import { PrismaClient } from '@prisma/client'
 import { randomUUID } from 'crypto'
 
-// The desktop-bridge has its own PrismaClient pointed at the same SQLite DB.
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'file:./db/custom.db'
+// The desktop-bridge requires Postgres (same as the main app).
+if (!process.env.DATABASE_URL?.trim()) {
+  console.error(
+    '[desktop-bridge] DATABASE_URL is not set. Point it at the same Postgres as the Next.js app.',
+  )
+  process.exit(1)
+}
 
 const db = new PrismaClient()
 const PORT = 3005
 const startedAt = Date.now()
+const HEARTBEAT_INTERVAL_MS = 60_000
 
 // ---------------- MCP tool catalog ----------------
 //
@@ -238,6 +244,7 @@ const io = new Server(httpServer, {
 
 interface DesktopAuthPayload {
   sessionToken?: string
+  capabilities?: string[]
 }
 
 interface DesktopResultPayload {
@@ -282,9 +289,17 @@ io.on('connection', (socket: Socket) => {
 
       socket.data = { sessionId: session.id, userId: session.userId }
       socket.join(`desktop:${session.id}`)
+      const caps =
+        Array.isArray(payload?.capabilities) && payload.capabilities.every((c) => typeof c === 'string')
+          ? payload.capabilities
+          : []
       await db.desktopSession.update({
         where: { id: session.id },
-        data: { status: 'online', lastSeenAt: new Date() },
+        data: {
+          status: 'online',
+          lastSeenAt: new Date(),
+          capabilitiesJson: JSON.stringify(caps),
+        },
       })
       console.log(`[desktop-bridge] ${socket.id} authed as desktop ${session.id} (${session.label})`)
       socket.emit('desktop:authed', { sessionId: session.id, label: session.label })
@@ -365,8 +380,50 @@ function readJson(req: IncomingMessage): Promise<unknown> {
 
 // ---------------- listen + shutdown ----------------
 
+/** Mark stale sessions offline when no socket is in their room (relay crash recovery). */
+async function sweepStaleSessions() {
+  try {
+    const online = await db.desktopSession.findMany({
+      where: { status: 'online' },
+      select: { id: true },
+    })
+    for (const session of online) {
+      const room = `desktop:${session.id}`
+      const socketsInRoom = await io.in(room).fetchSockets()
+      if (socketsInRoom.length === 0) {
+        await db.desktopSession.update({
+          where: { id: session.id },
+          data: { status: 'offline', lastSeenAt: new Date() },
+        })
+      }
+    }
+  } catch (err) {
+    console.error('[desktop-bridge] stale session sweep failed:', err)
+  }
+}
+
+/** Heartbeat: refresh lastSeenAt for connected desktop sessions. */
+async function heartbeatTick() {
+  try {
+    for (const room of io.sockets.adapter.rooms.keys()) {
+      if (!room.startsWith('desktop:')) continue
+      const sessionId = room.slice('desktop:'.length)
+      const socketsInRoom = await io.in(room).fetchSockets()
+      if (socketsInRoom.length === 0) continue
+      await db.desktopSession.update({
+        where: { id: sessionId },
+        data: { lastSeenAt: new Date(), status: 'online' },
+      })
+    }
+  } catch (err) {
+    console.error('[desktop-bridge] heartbeat failed:', err)
+  }
+}
+
 httpServer.listen(PORT, () => {
   console.log(`Apical desktop-bridge listening on port ${PORT}`)
+  void sweepStaleSessions()
+  setInterval(() => void heartbeatTick(), HEARTBEAT_INTERVAL_MS)
 })
 
 const shutdown = (signal: string) => {

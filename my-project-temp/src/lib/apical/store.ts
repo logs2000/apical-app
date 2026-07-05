@@ -35,12 +35,10 @@ export type Mode =
   | "activity"
   | "memory";
 
-/** Which section is expanded in the right-rail inspector (desktop) or the
- *  detail slide-up (mobile). */
-export type InspectorSection = "overview" | "dashboard" | "workflow" | "config";
+/** Active tab in the right-rail inspector (desktop) or detail pane (mobile). */
+export type InspectorSection = "overview" | "progress" | "workflow" | "config" | "runs";
 export type VaultSection = "connections" | "tokens" | "integrations" | "desktop";
-export type RightRailTab = "preview" | "progress" | "inspector";
-export type MobilePane = "list" | "chat" | "detail" | "preview" | "progress";
+export type MobilePane = "list" | "chat" | "detail";
 
 /** Auto-navigate to an agent chat and send an opening prompt (edit routing or first message). */
 export interface PendingAgentHandoff {
@@ -83,13 +81,15 @@ interface AppState {
   inspectorOpen: boolean;
   setInspectorOpen: (v: boolean) => void;
   toggleInspector: () => void;
-  /** Mobile: which pane is active (list / chat / detail / preview). */
+  /** Mobile: which pane is active (list / chat / detail). */
   mobilePane: MobilePane;
   setMobilePane: (p: MobilePane) => void;
-  /** Preview/sandbox panel — tool outputs, data, code results. */
+  /** Right-rail inspector tab (Overview / Progress / Workflow / Config / Runs). */
+  inspectorSection: InspectorSection;
+  setInspectorSection: (s: InspectorSection) => void;
+  /** Sandbox panel — tool outputs, data, code results (shown on Progress tab). */
   sandboxItems: SandboxItem[];
   sandboxOpen: boolean;
-  rightRailTab: RightRailTab;
   /** True while the agent is actively working a turn — used to reveal the
    *  Progress rail immediately, before the first tool observation lands. */
   agentWorking: boolean;
@@ -97,7 +97,10 @@ interface AppState {
   addSandboxItem: (item: SandboxItem) => void;
   clearSandbox: () => void;
   setSandboxOpen: (v: boolean) => void;
-  setRightRailTab: (t: RightRailTab) => void;
+  /** A chat action row asked to reveal its matching Progress item — the panel
+   *  scrolls to and briefly highlights the item with this step id. */
+  highlightedStepId: string | null;
+  setHighlightedStepId: (id: string | null) => void;
   vaultSection: VaultSection;
   setVaultSection: (s: VaultSection) => void;
   /** Templates the user has installed from the gallery (demo-only, no backend). */
@@ -125,7 +128,7 @@ export const useAppStore = create<AppState>((set) => ({
   selectWorkflow: (id) => set({ selectedWorkflowId: id }),
   popoutConversationId: null,
   setPopoutConversation: (id) => set({ popoutConversationId: id }),
-  // Open by default so the full Agent inspector menu (overview / dashboard /
+  // Open by default so the full Agent inspector (overview / progress /
   // workflow / config / runs) shows in the right rail whenever an agent is open
   // on a wide screen. Users can still collapse it via the header toggle / ⌘I.
   inspectorOpen: true,
@@ -133,33 +136,29 @@ export const useAppStore = create<AppState>((set) => ({
   toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
   mobilePane: "list",
   setMobilePane: (p) => set({ mobilePane: p }),
+  inspectorSection: "overview",
+  setInspectorSection: (s) => set({ inspectorSection: s }),
   sandboxItems: [],
   sandboxOpen: false,
-  rightRailTab: "progress",
   agentWorking: false,
   setAgentWorking: (v) => set({ agentWorking: v }),
   addSandboxItem: (item) =>
     set((s) => {
       let items = [...s.sandboxItems];
-      // Preview shows user deliverables. Files/images accumulate; tables and
-      // other primary outputs replace the previous one (latest end result wins).
+      // Files/images accumulate; tables and other primary outputs replace the
+      // previous one (latest end result wins).
       if (item.isResult && !isAccumulatingDeliverable(item.resultFormat)) {
         items = items.filter(
           (x) => !x.isResult || isAccumulatingDeliverable(x.resultFormat),
         );
       }
       items.push(item);
-
-      const nextTab: RightRailTab = item.isResult
-        ? "preview"
-        : s.rightRailTab === "inspector"
-          ? "inspector"
-          : "progress";
-      return { sandboxItems: items, sandboxOpen: true, rightRailTab: nextTab };
+      return { sandboxItems: items, sandboxOpen: true };
     }),
   clearSandbox: () => set({ sandboxItems: [] }),
   setSandboxOpen: (v) => set({ sandboxOpen: v }),
-  setRightRailTab: (t) => set({ rightRailTab: t }),
+  highlightedStepId: null,
+  setHighlightedStepId: (id) => set({ highlightedStepId: id }),
   vaultSection: "connections",
   setVaultSection: (s) => set({ vaultSection: s }),
   installedTemplates: [],

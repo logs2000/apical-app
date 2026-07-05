@@ -6,6 +6,8 @@ import type { WorkflowStep, CodeCallSpec } from '@/lib/types'
 export const WORKFLOW_META_TOOLS = new Set([
   'workflow_freeze',
   'workflow_update',
+  'workflow_step_append',
+  'workflow_step_patch',
   'workflow_monitor',
   'workflow_improve',
   'agent_list',
@@ -35,6 +37,8 @@ export const EXPLORATION_ONLY_TOOLS = new Set([
   'tool_configure',
   'workflow_freeze',
   'workflow_update',
+  'workflow_step_append',
+  'workflow_step_patch',
   'workflow_monitor',
   'workflow_improve',
   'schedule_agent',

@@ -30,7 +30,7 @@ import { useRuns } from "@/lib/queries";
 import { useWorkflowRun } from "@/hooks/use-workflow-run";
 import { useRunSocket } from "@/hooks/use-run-socket";
 import type { Run, RunReportItem, RunStep } from "@/lib/types";
-import { RunReviewPanel } from "./run-review-panel";
+import { RunSupervisionPanel } from "./run-supervision-panel";
 
 type SortKey = "newest" | "oldest" | "status" | "agent";
 type StatusFilter = "all" | "running" | "completed" | "failed" | "cancelled";
@@ -230,13 +230,15 @@ function LiveStepTrace({ runId }: { runId: string }) {
           </div>
         );
       })}
-      {live.status === "reviewing" && (
+      {live.status === "supervising" && (
         <div className="flex items-center gap-1.5 py-1 text-[10px] text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          Agent reviewing run…
+          Agent supervising run…
         </div>
       )}
-      {live.report?.review && <RunReviewPanel review={live.report.review} />}
+      {(live.report?.supervision || live.report?.review) && (
+        <RunSupervisionPanel data={live.report.supervision ?? live.report.review!} />
+      )}
     </div>
   );
 }
@@ -255,7 +257,9 @@ function RunDetail({ run, live }: { run: Run; live?: boolean }) {
         </div>
       )}
       {run.report?.items && <ReportItems items={run.report.items} />}
-      {!live && run.report?.review && <RunReviewPanel review={run.report.review} />}
+      {!live && (run.report?.supervision || run.report?.review) && (
+        <RunSupervisionPanel data={run.report.supervision ?? run.report.review!} />
+      )}
       {run.report?.flags && run.report.flags.length > 0 && (
         <div className="mt-2 space-y-1">
           <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Flags</div>
@@ -596,9 +600,9 @@ export function AgentRunSection({ workflowId }: { workflowId: string }) {
           <>
             <Button variant="outline" size="sm" className="gap-1.5" disabled>
               <Loader2 className="h-3 w-3 animate-spin" />
-              {run.isReviewing ? "Reviewing…" : "Running…"}
+              {run.isSupervising ? "Supervising…" : "Running…"}
             </Button>
-            {!run.isReviewing && (
+            {!run.isSupervising && (
               <Button
                 variant="outline"
                 size="sm"

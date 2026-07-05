@@ -1,7 +1,6 @@
 import { withUser } from '@/lib/auth-helpers'
 import { rateLimit } from '@/lib/rate-limit'
-import { db } from '@/lib/db'
-import { generateRunReview, stepsFromChatTrace } from '@/lib/platform/run-review'
+import { runDeterministicOutcomeCheck, stepsFromChatTrace } from '@/lib/platform/run-supervision'
 import type { ExecutionStep } from '@/lib/apical/index'
 
 interface AnalyzeBody {
@@ -11,14 +10,13 @@ interface AnalyzeBody {
   agentId?: string | null
 }
 
-// POST /api/agent/analyze-run — LLM review of a completed agent chat run.
-//
-// Review only: the old "safety net" that auto-saved a workflow from the
-// client-supplied trace was removed (client data is unverifiable, and silent
-// saves violate the explicit-freeze rule). Workflows persist only via
-// workflow_freeze / workflow_update.
+// POST /api/agent/analyze-run — deterministic outcome check for a completed
+// chat run. No LLM: the old passive prose review was replaced by autonomous
+// run supervision (see run-supervision.ts). This just confirms, at zero cost,
+// whether the trace shows real success. Workflows persist only via
+// workflow_freeze / workflow_step_append / workflow_update.
 export const POST = withUser(async (req, { user }) => {
-  const rl = rateLimit(`analyze-run:${user.id}`, 30, 60_000)
+  const rl = rateLimit(`analyze-run:${user.id}`, 60, 60_000)
   if (!rl.ok) {
     return Response.json(
       { error: 'rate_limited', retryAfter: rl.retryAfter },
@@ -35,35 +33,18 @@ export const POST = withUser(async (req, { user }) => {
     return Response.json({ error: 'goal or finalAnswer is required' }, { status: 400 })
   }
 
-  let agentName = 'Agent'
-  let workflowStepsJson: string | undefined
-  let modelPreference: string | null | undefined
-
-  if (body.agentId) {
-    const wf = await db.workflow.findFirst({
-      where: { id: body.agentId, userId: user.id },
-      select: { name: true, stepsJson: true, modelPreference: true },
-    })
-    if (wf) {
-      agentName = wf.name
-      workflowStepsJson = wf.stepsJson
-      modelPreference = wf.modelPreference
-    }
-  }
-
-  const stepFailed = trace.some((s) => s.status === 'error')
-  const review = await generateRunReview({
-    userId: user.id,
-    runId: `chat-${Date.now()}`,
-    agentName,
-    agentGoal: goal || finalAnswer,
+  const steps = stepsFromChatTrace(trace)
+  const stepFailed = steps.some((s) => s.status === 'error' || s.status === 'failed')
+  const check = runDeterministicOutcomeCheck({
+    steps,
     runStatus: stepFailed ? 'failed' : 'completed',
-    reportSummary: undefined,
-    workflowStepsJson,
-    modelPreference,
-    steps: stepsFromChatTrace(trace),
-    finalAnswer,
+    workflowGoal: goal || finalAnswer,
   })
 
-  return Response.json({ ...review, workflowAutoSaved: false })
+  return Response.json({
+    success: check.ok,
+    outcomeAchieved: check.ok,
+    summary: check.summary,
+    workflowAutoSaved: false,
+  })
 })

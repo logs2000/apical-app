@@ -17,8 +17,10 @@ export interface LiveStepState {
 }
 
 export interface LiveRunState {
-  status: 'idle' | 'running' | 'reviewing' | 'completed' | 'failed' | 'cancelled'
-  reviewing?: boolean
+  status: 'idle' | 'running' | 'supervising' | 'completed' | 'failed' | 'cancelled'
+  supervising?: boolean
+  /** Live diagnosis notes as the supervisor fixes and reruns. */
+  supervisionAttempts?: { attempt: number; diagnosis: string; actions: string[] }[]
   steps: Record<string, LiveStepState>
   report?: RunReport
   stats?: {
@@ -82,10 +84,27 @@ export function useRunSocket(runId: string | null) {
         socket?.emit('run:subscribe', { runId, token })
       })
 
-      socket.on('run:reviewing', (p: { runId: string }) => {
+      const onSupervising = (p: { runId: string }) => {
         if (p.runId !== runId) return
-        setState((s) => ({ ...s, status: 'reviewing', reviewing: true }))
-      })
+        setState((s) => ({ ...s, status: 'supervising', supervising: true }))
+      }
+      socket.on('run:supervising', onSupervising)
+      // Backward compat: older runtimes emit run:reviewing.
+      socket.on('run:reviewing', onSupervising)
+
+      socket.on(
+        'run:supervision:attempt',
+        (p: { runId?: string; attempt: number; diagnosis: string; actions: string[] }) => {
+          if (p.runId && p.runId !== runId) return
+          setState((s) => ({
+            ...s,
+            supervisionAttempts: [
+              ...(s.supervisionAttempts ?? []),
+              { attempt: p.attempt, diagnosis: p.diagnosis, actions: p.actions ?? [] },
+            ],
+          }))
+        },
+      )
 
       socket.on('run:started', (p: { runId: string }) => {
         if (p.runId !== runId) return
@@ -129,7 +148,7 @@ export function useRunSocket(runId: string | null) {
 
       socket.on('run:report', (p: { runId: string; report: RunReport; stats: LiveRunState['stats'] }) => {
         if (p.runId !== runId) return
-        setState((s) => ({ ...s, report: p.report, stats: p.stats, reviewing: false }))
+        setState((s) => ({ ...s, report: p.report, stats: p.stats, supervising: false }))
       })
 
       socket.on('run:completed', (p: { runId: string; status: 'completed' | 'failed' | 'cancelled' }) => {

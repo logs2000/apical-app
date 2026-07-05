@@ -566,6 +566,15 @@ model UserProfile {
   notes         String   @default("")
   // dataSourcesJson: [{ label, kind, detail }] — services/data the user relies on
   dataSourcesJson String @default("[]")
+  // Geography/locale context so agents can reason about "today", business
+  // hours, local services, currency, etc. — and know when to ask. Captured
+  // from the browser (IANA timezone + locale) on each turn and, for hosted
+  // sessions, enriched from the request IP (approximate). Empty = unknown.
+  timezone      String   @default("")
+  locale        String   @default("")
+  country       String   @default("")
+  region        String   @default("")
+  city          String   @default("")
   // How the user prefers new agents to be named.
   //   "evocative"   → Nomi, Vexa, Kiro (short, friendly, non-human)
   //   "descriptive" → SortAgent, InvoiceAgent (derived from the job)
@@ -792,14 +801,21 @@ model ScheduledJob {
   scheduleKind  String   @default("cron")
   timezone      String   @default("UTC")
   status        String   @default("active") // "active" | "paused" | "disabled"
+  // When the tray "Pause automations" toggle paused this job (so resume-all
+  // doesn't reactivate jobs the user paused individually).
+  pausedByUserToggle Boolean @default(false)
+  // For local-runtime workflows: "skip" advances nextRunAt when desktop offline;
+  // "catch_up" holds nextRunAt until the desktop reconnects.
+  offlinePolicy String   @default("skip") // "skip" | "catch_up"
   // Next time the scheduler should fire this job (UTC).
   nextRunAt     DateTime
   lastRunAt     DateTime?
-  lastRunStatus String?  // "started" (run fired, not finished) | "success" | "failed" | "timeout"
+  lastRunStatus String?  // "started" | "success" | "failed" | "timeout" | "skipped_offline" | "skipped_policy"
   lastRunId     String?  // the Run id produced
   // How many times this job has fired + consecutive failures (for backoff).
   runCount      Int      @default(0)
   failureCount  Int      @default(0)
+  skippedCount  Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

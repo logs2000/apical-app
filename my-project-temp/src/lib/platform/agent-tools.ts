@@ -25,10 +25,11 @@ import { ingestOpenApiSpec } from '@/lib/openapi-parser'
 import { searchWeb } from '@/lib/platform/web-search'
 import { saveAsset, assetDownloadUrl } from '@/lib/platform/assets'
 import { normalizeSteps } from '@/lib/deploy'
+import { inferRuntimeFromSteps } from '@/lib/workflow-schema'
 import { buildStepsForFreeze } from '@/lib/platform/workflow-distill'
-import { saveWorkflowSteps } from '@/lib/platform/workflow-revisions'
+import { saveWorkflowSteps, appendWorkflowStep, patchWorkflowStep } from '@/lib/platform/workflow-revisions'
 import { validateWorkflowJSON } from '@/lib/workflow-schema'
-import { computeNextRun, validateSchedule, parseFixedRate, type ScheduleKind } from '@/lib/platform/cron'
+import { validateSchedule, parseFixedRate, type ScheduleKind } from '@/lib/platform/cron'
 import type { WorkflowJSON, McpServerConfig } from '@/lib/types'
 import {
   WORKFLOW_META_TOOLS,
@@ -116,6 +117,10 @@ export interface ClarificationRequest {
   question: string
   options: ClarificationOption[]
   multiple?: boolean
+  /** Show a free-text "Other" input so the user can type a custom answer. */
+  allowFreeText?: boolean
+  /** Placeholder for the free-text input, e.g. "Type a folder path…". */
+  freeTextPlaceholder?: string
   /** 'clarification' = disambiguate; 'review' = approval gate (default 'clarification'). */
   kind?: 'clarification' | 'review'
 }
@@ -321,11 +326,16 @@ async function invokeDesktopTool(
       signal: toolAbortSignal(ctx, timeoutMs + 5000),
     })
     const data = (await r.json()) as { ok: boolean; result?: unknown; error?: string }
+    const err = data.error ?? ''
+    const friendlyError =
+      err.startsWith('remote_access_denied:')
+        ? `Remote access blocked on the desktop (${err.slice('remote_access_denied:'.length)}). Open the Apical desktop app → Settings → Remote access to allow this, or run the workflow from the desktop.`
+        : err
     return {
       ok: data.ok,
       output: data.result ?? null,
-      error: data.error,
-      display: { ...opts.display, summary: data.ok ? opts.display.summary : data.error || 'failed' },
+      error: data.ok ? undefined : friendlyError || 'failed',
+      display: { ...opts.display, summary: data.ok ? opts.display.summary : friendlyError || 'failed' },
     }
   } catch (e) {
     return { ok: false, output: null, error: (e as Error).message }
@@ -678,7 +688,7 @@ const cliRun: ToolDef = {
     timeoutMs: { type: 'number', description: 'Timeout in ms (default 15000, max 30000).' },
   },
   async run(input, ctx) {
-    if (!ctx.allowCli)
+    if (!ctx.allowCli && !isLocalDesktopRuntime())
       return {
         ok: false,
         output: null,
@@ -739,7 +749,7 @@ const scriptRun: ToolDef = {
       // back to the desktop CLI when the server has no python3.
       const { runPythonScript } = await import('./script-runner')
       const res = await runPythonScript(code, packages, { data })
-      if (!res.ok && /python3|ENOENT/i.test(res.error ?? '') && ctx.allowCli && packages.length === 0) {
+      if (!res.ok && /python3|ENOENT/i.test(res.error ?? '') && (ctx.allowCli || isLocalDesktopRuntime()) && packages.length === 0) {
         return cliRun.run({ command: 'python3', args: ['-c', code], timeoutMs: 30_000 }, ctx)
       }
       return {
@@ -756,7 +766,7 @@ const scriptRun: ToolDef = {
       }
     }
     if (language === 'shell' || language === 'bash' || language === 'sh') {
-      if (!ctx.allowCli) {
+      if (!ctx.allowCli && !isLocalDesktopRuntime()) {
         return { ok: false, output: null, error: 'Shell scripts require desktop CLI access. Use javascript or python instead — both run server-side.' }
       }
       return cliRun.run({ command: 'bash', args: ['-lc', code], timeoutMs: 30_000 }, ctx)
@@ -778,7 +788,7 @@ const fsList: ToolDef = {
     path: { type: 'string', description: 'Absolute directory path to list.', required: true },
   },
   async run(input, ctx) {
-    if (!ctx.allowCli)
+    if (!ctx.allowCli && !isLocalDesktopRuntime())
       return { ok: false, output: null, error: 'Desktop access is disabled. The user must enable it in Settings → Desktop.' }
     const path = asString(input.path, 2000)
     if (!path) return { ok: false, output: null, error: 'path is required' }
@@ -797,7 +807,7 @@ const fsRead: ToolDef = {
     encoding: { type: 'string', description: "'utf8' (default) or 'base64'." },
   },
   async run(input, ctx) {
-    if (!ctx.allowCli)
+    if (!ctx.allowCli && !isLocalDesktopRuntime())
       return { ok: false, output: null, error: 'Desktop access is disabled. The user must enable it in Settings → Desktop.' }
     const path = asString(input.path, 2000)
     if (!path) return { ok: false, output: null, error: 'path is required' }
@@ -818,7 +828,7 @@ const fsWrite: ToolDef = {
     encoding: { type: 'string', description: "'utf8' (default) or 'base64'." },
   },
   async run(input, ctx) {
-    if (!ctx.allowCli)
+    if (!ctx.allowCli && !isLocalDesktopRuntime())
       return { ok: false, output: null, error: 'Desktop access is disabled. The user must enable it in Settings → Desktop.' }
     const path = asString(input.path, 2000)
     if (!path) return { ok: false, output: null, error: 'path is required' }
@@ -839,7 +849,7 @@ const fsMove: ToolDef = {
     to: { type: 'string', description: 'Absolute destination path.', required: true },
   },
   async run(input, ctx) {
-    if (!ctx.allowCli)
+    if (!ctx.allowCli && !isLocalDesktopRuntime())
       return { ok: false, output: null, error: 'Desktop access is disabled. The user must enable it in Settings → Desktop.' }
     const from = asString(input.from, 2000)
     const to = asString(input.to, 2000)
@@ -1295,7 +1305,7 @@ const toolConfigure: ToolDef = {
 const workflowFreeze: ToolDef = {
   name: 'workflow_freeze',
   description:
-    'Phase 3 — DESIGN: Freeze an n8n-style production automation after you accomplished the task (Phase 1) and learned what is needed (Phase 2). Distills into 2–8 deterministic nodes (code, HTTP, MCP, integrations, gates) that run WITHOUT an agent. Optional "steps" array if you already designed the automation. Exploration tools are never saved.',
+    'Freeze an n8n-style production automation: tie together the proven steps from the work you just did into 2–8 deterministic nodes (code, HTTP, MCP, integrations, gates) that the runtime replays without an agent. Prefer workflow_step_append to capture single steps as you go during first-time work; call workflow_freeze to tie several steps together or to make the initial save. Optional "steps" array if you already designed the automation. Exploration tools are never saved.',
   inputSchema: {
     name: { type: 'string', description: 'A name for the agent (e.g. "Sorter", "InvoiceChaser").', required: true },
     description: { type: 'string', description: 'One-line description of what the agent does.', required: true },
@@ -1447,7 +1457,7 @@ async function findOwnedWorkflow(
 const workflowUpdate: ToolDef = {
   name: 'workflow_update',
   description:
-    "Phase 4 — OVERSEE: Update THIS agent's saved automation after a run failed or requirements changed. Pass the COMPLETE new steps array (n8n-style nodes: code, HTTP, MCP, integrations, gates). Use after workflow_monitor surfaces problems. Only valid when you ARE a specific agent.",
+    "Replace THIS agent's saved automation with a COMPLETE new steps array (n8n-style nodes: code, HTTP, MCP, integrations, gates). Use for a broad restructure; prefer workflow_step_patch for a single-node fix. Only valid when you ARE a specific agent.",
   inputSchema: {
     steps: { type: 'array', description: 'The complete new workflow steps array (replaces the current one).', items: { type: 'object' }, required: true },
     description: { type: 'string', description: 'Optional updated one-line description of what the workflow does.' },
@@ -1488,6 +1498,109 @@ const workflowUpdate: ToolDef = {
         display: {
           title: 'Updated workflow',
           summary: `${steps.length} steps`,
+          kind: 'workflow',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 13c. workflow_step_append — add ONE proven step to the agent's living
+//      workflow. Lets the agent build up an automation incrementally as it
+//      solves subproblems, instead of only via a big workflow_freeze at the end.
+const workflowStepAppend: ToolDef = {
+  name: 'workflow_step_append',
+  description:
+    "Add ONE proven step to THIS agent's living workflow. Use when you solve a subproblem (script_run, http_request, fs_*, etc.) that should run the same way next time — capture it immediately as a node instead of waiting to freeze everything at the end. Pass a single step object with kind, label, and an executable spec (tool+inputs, http, mcp, or code). An id is auto-assigned if omitted. Only valid when acting as a specific agent.",
+  inputSchema: {
+    step: {
+      type: 'object',
+      description:
+        'One WorkflowStep: { kind: "tool"|"reason"|"gate", label, and one of tool+inputs / http / mcp / code }.',
+      required: true,
+    },
+    note: { type: 'string', description: 'Short note on why this step was added.' },
+  },
+  async run(input, ctx) {
+    if (!ctx.agentId)
+      return {
+        ok: false,
+        output: null,
+        error: 'workflow_step_append only works when acting as a specific agent.',
+      }
+    const step = input.step
+    if (!step || typeof step !== 'object' || Array.isArray(step))
+      return { ok: false, output: null, error: 'a single step object is required' }
+    const owned = await findOwnedWorkflow(ctx.agentId, ctx.userId)
+    if (!owned) return { ok: false, output: null, error: 'workflow not found or not owned by you' }
+    try {
+      const [normalized] = normalizeSteps([step as Record<string, unknown>])
+      if (!normalized)
+        return { ok: false, output: null, error: 'step could not be normalized into a workflow node' }
+      const { stepCount, addedStepId } = await appendWorkflowStep(ctx.agentId, normalized, {
+        author: 'agent',
+        note: asString(input.note, 500) || 'workflow_step_append',
+      })
+      return {
+        ok: true,
+        output: { agentId: ctx.agentId, addedStepId, stepCount },
+        display: {
+          title: 'Added workflow step',
+          summary: `${normalized.label} · ${stepCount} steps total`,
+          kind: 'workflow',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 13d. workflow_step_patch — surgically fix ONE node by id without rewriting
+//      the whole workflow. The supervisor and the agent both use this to repair
+//      a broken step in place.
+const workflowStepPatch: ToolDef = {
+  name: 'workflow_step_patch',
+  description:
+    "Surgically update ONE step in THIS agent's workflow by id (partial fields are merged into the existing node). Prefer this over workflow_update for single-node fixes — e.g. fixing a URL, credentialId, or code node after a run failed. Only valid when acting as a specific agent.",
+  inputSchema: {
+    stepId: { type: 'string', description: 'The id of the step to patch.', required: true },
+    changes: {
+      type: 'object',
+      description: 'Partial WorkflowStep fields to merge into the existing step.',
+      required: true,
+    },
+    note: { type: 'string', description: 'Short note on what changed + why.' },
+  },
+  async run(input, ctx) {
+    if (!ctx.agentId)
+      return {
+        ok: false,
+        output: null,
+        error: 'workflow_step_patch only works when acting as a specific agent.',
+      }
+    const stepId = asString(input.stepId, 200)
+    if (!stepId) return { ok: false, output: null, error: 'stepId is required' }
+    const changes = input.changes
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes))
+      return { ok: false, output: null, error: 'a changes object is required' }
+    const owned = await findOwnedWorkflow(ctx.agentId, ctx.userId)
+    if (!owned) return { ok: false, output: null, error: 'workflow not found or not owned by you' }
+    try {
+      const { stepCount } = await patchWorkflowStep(
+        ctx.agentId,
+        stepId,
+        changes as Record<string, unknown>,
+        { author: 'agent', note: asString(input.note, 500) || 'workflow_step_patch' },
+      )
+      return {
+        ok: true,
+        output: { agentId: ctx.agentId, stepId, stepCount },
+        display: {
+          title: 'Patched workflow step',
+          summary: `${stepId} · ${stepCount} steps`,
           kind: 'workflow',
         },
       }
@@ -1543,17 +1656,24 @@ const updatePlanTool: ToolDef = {
 const askClarificationTool: ToolDef = {
   name: 'ask_clarification',
   description:
-    'Ask the user a MULTIPLE-CHOICE clarifying question when the request is genuinely ambiguous and you cannot safely proceed (unclear scope, target, source, format, destination, etc.). Renders clickable option buttons in the chat — the user\'s selection is sent back to you as the next message, so this ENDS your current turn. Provide 2–5 concrete options. Do NOT use this for things you can reasonably infer or look up yourself; prefer doing the work over over-asking.',
+    'Ask the user a clarifying question when a quick answer would prevent wasted or wrong work (unclear destination, format, scope, target, or a missing value). Renders an interactive card in the chat — the user\'s answer is sent back as the next message, so this ENDS your current turn. Provide 2–5 concrete options when the choices are enumerable, OR ask a fill-in-the-blank question (few/no options + allowFreeText) when the answer is an open value like a name, path, or number. A free-text "Other" input is shown by default so the user can always type their own answer. Ask as often as genuinely needed to get it right — but never ask what you can reasonably infer, look up, or safely default.',
   inputSchema: {
     question: { type: 'string', description: 'The clarifying question to ask.', required: true },
     options: {
       type: 'array',
       description:
-        '2–5 options the user can click. Each: { key (short slug), label (button text), description? (one-line detail) }.',
-      required: true,
+        '0–5 options the user can click. Each: { key (short slug), label (button text), description? (one-line detail) }. Omit or leave short for a fill-in-the-blank question.',
       items: { type: 'object' },
     },
     multiple: { type: 'boolean', description: 'Allow selecting more than one option (default false).' },
+    allowFreeText: {
+      type: 'boolean',
+      description: 'Show a free-text "Other" input so the user can type their own answer (default true).',
+    },
+    freeTextPlaceholder: {
+      type: 'string',
+      description: 'Placeholder for the free-text input, e.g. "Type a folder path…".',
+    },
   },
   async run(input, ctx) {
     const question = asString(input.question, 500)
@@ -1569,13 +1689,18 @@ const askClarificationTool: ToolDef = {
         }
       })
       .filter((o) => o.label)
-    if (options.length < 2)
-      return { ok: false, output: null, error: 'provide at least 2 options the user can choose from' }
+    const allowFreeText = input.allowFreeText !== false
+    // A pure fill-in-the-blank question (0–1 options) is valid when free text is
+    // on; otherwise require at least 2 clickable options.
+    if (options.length < 2 && !allowFreeText)
+      return { ok: false, output: null, error: 'provide at least 2 options, or set allowFreeText to let the user type an answer' }
     ctx.clarification = {
       id: `clarify-${Date.now()}`,
       question,
       options,
       multiple: Boolean(input.multiple),
+      allowFreeText,
+      freeTextPlaceholder: asString(input.freeTextPlaceholder, 120) || undefined,
       kind: 'clarification',
     }
     return {
@@ -1713,7 +1838,7 @@ const credentialRequestTool: ToolDef = {
 const workflowMonitor: ToolDef = {
   name: 'workflow_monitor',
   description:
-    'Phase 4 — OVERSEE: Review recent automated runs for YOUR workflow. Returns run status, per-run report summaries, and the REAL step errors of failed runs. Pass review=true to also batch-audit recent run outputs for silent quality problems. Call this when the user asks how automation is going, or before workflow_update / workflow_improve. When you are a specific agent, workflowId defaults to your own workflow.',
+    'Inspect recent automated runs for YOUR workflow: run status, per-run report summaries, and the REAL step errors of failed runs. Failed runs are already auto-supervised (diagnosed, patched, and rerun) by the runtime, so use this mainly when the user asks how the automation is doing, or as an optional health check — pass review=true to batch-audit recent outputs for silent quality problems. When you are a specific agent, workflowId defaults to your own workflow.',
   inputSchema: {
     workflowId: { type: 'string', description: 'The workflow id to monitor. Defaults to YOUR OWN workflow when you are a specific agent.' },
     limit: { type: 'number', description: 'Max runs to return (default 10).' },
@@ -1791,8 +1916,8 @@ const workflowMonitor: ToolDef = {
       // Optional batch output review — catches "green but garbage" runs.
       let batchReview: import('./oversight').BatchReviewResult | undefined
       if (input.review === true || input.review === 'true') {
-        const { batchReviewRuns } = await import('./oversight')
-        batchReview = await batchReviewRuns(workflowId, ctx.userId, 5)
+        const { batchQualityAudit } = await import('./oversight')
+        batchReview = await batchQualityAudit(workflowId, ctx.userId, 5)
       }
 
       const failedCount = runs.filter((r) => r.status === 'failed').length
@@ -1831,7 +1956,7 @@ const workflowMonitor: ToolDef = {
 const workflowImprove: ToolDef = {
   name: 'workflow_improve',
   description:
-    'Phase 4 — OVERSEE: Fix YOUR automation after workflow_monitor shows failures. Pass improvement description and optionally the complete newSteps array (n8n-style nodes). The runtime will use the updated automation on the next run — you do not re-execute the job manually.',
+    'Improve YOUR automation. Pass an improvement description and optionally the complete newSteps array (n8n-style nodes). The runtime uses the updated automation on the next run — you do not re-execute the job manually. Prefer workflow_step_patch for a single broken node.',
   inputSchema: {
     workflowId: { type: 'string', description: 'The workflow id to improve. Defaults to YOUR OWN workflow when you are a specific agent.' },
     improvement: { type: 'string', description: 'A plain-English description of the improvement (e.g. "add retry to s3", "replace s2 tool").', required: true },
@@ -1949,7 +2074,7 @@ const agentList: ToolDef = {
 const agentCreate: ToolDef = {
   name: 'agent_create',
   description:
-    "Phase 3 — DESIGN (orchestrator only): Create a dedicated agent that owns a recurring job AFTER Phases 1–2 (accomplish + learn). Pass n8n-style workflow steps (code, HTTP, MCP, integrations, gates). Include contextForAgent with everything learned. The app opens the new agent's chat automatically. Call schedule_agent next for recurring jobs. Do NOT create before proving the approach works.",
+    "Orchestrator only: Create a dedicated agent that owns a recurring job after you have accomplished it and learned what is needed. Pass n8n-style workflow steps (code, HTTP, MCP, integrations, gates). Include contextForAgent with everything learned. The app opens the new agent's chat automatically. Call schedule_agent next for recurring jobs. Do NOT create before proving the approach works.",
   inputSchema: {
     name: { type: 'string', description: 'Specific, descriptive agent name (e.g. "Lead Scout", "HubSpot Pipeline Builder"). NOT generic placeholders.', required: true },
     description: { type: 'string', description: 'One-line description of what the agent does.', required: true },
@@ -1973,6 +2098,7 @@ const agentCreate: ToolDef = {
       const steps = normalizeSteps(rawSteps)
       const scheduleLabel = asString(input.schedule, 200) || null
       const contextForAgent = asString(input.contextForAgent, 8000)
+      const runtime = inferRuntimeFromSteps(steps)
       const created = await db.workflow.create({
         data: {
           userId: ctx.userId,
@@ -1983,6 +2109,7 @@ const agentCreate: ToolDef = {
           schedule: scheduleLabel,
           status: 'active',
           origin: 'agent',
+          runtime,
         },
       })
       await saveWorkflowSteps(created.id, { version: 1, steps }, {
@@ -1999,7 +2126,7 @@ const agentCreate: ToolDef = {
         contextForAgent ? `**Setup context:**\n${contextForAgent}` : '',
         scheduleLabel ? `**Schedule:** ${scheduleLabel}` : '',
         `**Workflow:** ${steps.length} step${steps.length === 1 ? '' : 's'} configured — see the Config tab for the full process.`,
-        `Your lifecycle: Phase 1 accomplish tasks when asked → Phase 2 learn what's needed → Phase 3 design automation (workflow_freeze) → Phase 4 oversee runs (workflow_monitor + workflow_update). The runtime executes your saved automation — you manage it, not re-run it every cycle.`,
+        `How you work: accomplish tasks with real tools, capture proven steps into a living workflow (workflow_step_append / workflow_freeze), then supervise its runs — the runtime replays your saved steps cheaply, and when one fails you patch it (workflow_step_patch / workflow_update), rerun, and verify. You manage the automation; you do not re-run it by hand every cycle.`,
       ].filter(Boolean)
       await db.agentMessage.create({
         data: {
@@ -2041,7 +2168,7 @@ const agentCreate: ToolDef = {
 const scheduleAgent: ToolDef = {
   name: 'schedule_agent',
   description:
-    'Phase 3 — DESIGN: Schedule the automation to run without an agent. Requires workflow_freeze first (production nodes saved). Pass agentId and cron ("0 9 * * *") or fixed_rate ("fixed_rate:3600"). Returns next run time.',
+    'Schedule the automation to run on a cadence. Requires workflow_freeze first (production nodes saved). Pass agentId and cron ("0 9 * * *") or fixed_rate ("fixed_rate:3600"). Returns next run time.',
   inputSchema: {
     agentId: { type: 'string', description: 'The agent (workflow) id to schedule.', required: true },
     schedule: { type: 'string', description: 'A 5-field cron expression, or "fixed_rate:<seconds>".', required: true },
@@ -2063,7 +2190,7 @@ const scheduleAgent: ToolDef = {
     try {
       const wf = await db.workflow.findFirst({
         where: { id: agentId, OR: [{ userId: ctx.userId }, { userId: null }] },
-        select: { id: true, name: true, stepsJson: true },
+        select: { id: true, name: true, stepsJson: true, runtime: true },
       })
       if (!wf) return { ok: false, output: null, error: 'agent not found (or not owned by this user)' }
       if (!savedWorkflowHasExecutableSteps(wf.stepsJson)) {
@@ -2074,20 +2201,27 @@ const scheduleAgent: ToolDef = {
             'Cannot schedule — this agent has no production automation yet. Call workflow_freeze first to save deterministic nodes (code, HTTP, MCP, integrations).',
         }
       }
-      const nextRunAt = computeNextRun(schedule, kind, 'UTC')
-      const job = await db.scheduledJob.create({
-        data: {
-          userId: ctx.userId,
-          workflowId: agentId,
-          schedule,
-          scheduleKind: kind,
-          timezone: 'UTC',
-          status: 'active',
-          nextRunAt,
-          runCount: 0,
-          failureCount: 0,
-        },
+      const warnings: string[] = []
+      if (wf.runtime === 'local') {
+        const { userHasDesktopSession } = await import('./scheduler-guards')
+        const hasDesktop = await userHasDesktopSession(db, ctx.userId)
+        if (!hasDesktop) {
+          warnings.push(
+            'Link your desktop in Settings → Desktop and keep Apical running in the menu bar for scheduled runs to succeed.',
+          )
+        }
+      }
+      const { upsertScheduledJob } = await import('./scheduler-jobs')
+      // Idempotent: one ScheduledJob per (user, workflow). Re-running
+      // schedule_agent updates the existing job instead of creating duplicates.
+      const job = await upsertScheduledJob({
+        userId: ctx.userId,
+        workflowId: agentId,
+        schedule,
+        scheduleKind: kind,
+        timezone: 'UTC',
       })
+      const nextRunAt = job.nextRunAt
       // Reflect the recurring trigger on the agent itself.
       await db.workflow.update({
         where: { id: agentId },
@@ -2101,6 +2235,7 @@ const scheduleAgent: ToolDef = {
           schedule,
           scheduleKind: kind,
           nextRunAt: nextRunAt.toISOString(),
+          warnings: warnings.length ? warnings : undefined,
           note: `Scheduled. ${wf.name} will run automatically; next run ${nextRunAt.toISOString()}.`,
         },
         display: { title: `Scheduled ${wf.name}`, summary: `${schedule} · next ${nextRunAt.toISOString()}`, kind: 'workflow' },
@@ -2117,7 +2252,7 @@ const scheduleAgent: ToolDef = {
 const watchFolder: ToolDef = {
   name: 'watch_folder',
   description:
-    'Phase 3 — DESIGN: Trigger the automation whenever a NEW file appears in a desktop folder (e.g. "when a scan lands in ~/Scans, file it"). Requires workflow_freeze first and the folder must be inside the user\'s granted folder roots. Pass agentId, path, and an optional filename pattern like "*.pdf". Runs receive {{trigger.newFiles}}.',
+    'Trigger the automation whenever a NEW file appears in a desktop folder (e.g. "when a scan lands in ~/Scans, file it"). Requires workflow_freeze first and the folder must be inside the user\'s granted folder roots. Pass agentId, path, and an optional filename pattern like "*.pdf". Runs receive {{trigger.newFiles}}.',
   inputSchema: {
     agentId: { type: 'string', description: 'The agent (workflow) id to trigger.', required: true },
     path: { type: 'string', description: 'Absolute folder path to watch (must be granted).', required: true },
@@ -2377,6 +2512,8 @@ export const AGENT_TOOLS: ToolDef[] = [
   watchFolder,
   workflowFreeze,
   workflowUpdate,
+  workflowStepAppend,
+  workflowStepPatch,
   workflowMonitor,
   workflowImprove,
   updatePlanTool,

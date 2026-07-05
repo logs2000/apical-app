@@ -7,9 +7,9 @@
 // executed via `Run.revisionId` (see resolveActiveRevision).
 
 import { db } from '@/lib/db'
-import { serializeWorkflowJSON } from '@/lib/apical-server'
+import { serializeWorkflowJSON, parseWorkflowJSON } from '@/lib/apical-server'
 import { validateWorkflowJSON } from '@/lib/workflow-schema'
-import type { WorkflowJSON } from '@/lib/types'
+import type { WorkflowJSON, WorkflowStep } from '@/lib/types'
 import type { WorkflowRevision } from '@prisma/client'
 
 export type RevisionAuthor = 'user' | 'agent' | 'import' | 'rollback' | 'system'
@@ -115,6 +115,75 @@ export async function resolveActiveRevision(
     })
     return again?.activeRevisionId ?? null
   }
+}
+
+/**
+ * Append ONE step to a workflow's living step list. Auto-assigns a unique id
+ * when the step has none (or collides). Validates + saves as a new revision.
+ */
+export async function appendWorkflowStep(
+  workflowId: string,
+  step: WorkflowStep,
+  opts: SaveStepsOptions = {},
+): Promise<{ revision: WorkflowRevision; stepCount: number; addedStepId: string }> {
+  const wf = await db.workflow.findUnique({
+    where: { id: workflowId },
+    select: { stepsJson: true },
+  })
+  if (!wf) throw new Error('workflow not found')
+
+  const current = parseWorkflowJSON(wf.stepsJson)
+  const existingIds = new Set(current.steps.map((s) => s.id))
+
+  let id = typeof step.id === 'string' && step.id ? step.id : ''
+  if (!id || existingIds.has(id)) {
+    let n = current.steps.length + 1
+    while (existingIds.has(`s${n}`)) n += 1
+    id = `s${n}`
+  }
+  const added: WorkflowStep = { ...step, id }
+  const next: WorkflowJSON = {
+    version: current.version ?? 1,
+    steps: [...current.steps, added],
+  }
+  const revision = await saveWorkflowSteps(workflowId, next, {
+    author: opts.author ?? 'agent',
+    note: opts.note ?? 'workflow_step_append',
+  })
+  return { revision, stepCount: next.steps.length, addedStepId: id }
+}
+
+/**
+ * Surgically patch ONE step by id (shallow merge of `changes`). Validates +
+ * saves as a new revision. Throws if the step id is not found.
+ */
+export async function patchWorkflowStep(
+  workflowId: string,
+  stepId: string,
+  changes: Record<string, unknown>,
+  opts: SaveStepsOptions = {},
+): Promise<{ revision: WorkflowRevision; stepCount: number }> {
+  const wf = await db.workflow.findUnique({
+    where: { id: workflowId },
+    select: { stepsJson: true },
+  })
+  if (!wf) throw new Error('workflow not found')
+
+  const current = parseWorkflowJSON(wf.stepsJson)
+  const idx = current.steps.findIndex((s) => s.id === stepId)
+  if (idx === -1) throw new Error(`step "${stepId}" not found`)
+
+  // Shallow-merge, but never let a patch change the step id.
+  const merged = { ...current.steps[idx], ...changes, id: stepId } as WorkflowStep
+  const steps = [...current.steps]
+  steps[idx] = merged
+  const next: WorkflowJSON = { version: current.version ?? 1, steps }
+
+  const revision = await saveWorkflowSteps(workflowId, next, {
+    author: opts.author ?? 'agent',
+    note: opts.note ?? 'workflow_step_patch',
+  })
+  return { revision, stepCount: next.steps.length }
 }
 
 /**

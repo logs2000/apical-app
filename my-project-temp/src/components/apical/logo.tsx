@@ -111,11 +111,11 @@ export function ApicalWordmark({ className, compact = false }: { className?: str
   );
 }
 
-/** Agent initials circle — HSL colors for Safari 15 / Tauri WebView contrast. */
+/** Agent initials circle — light gray fill, dark text for consistent contrast. */
 export function AgentAvatar({
   name,
   className,
-  textClassName = "text-[9px] font-semibold",
+  textClassName = "text-[9px] font-semibold text-neutral-900",
 }: {
   name: string;
   className?: string;
@@ -128,10 +128,12 @@ export function AgentAvatar({
         "flex shrink-0 items-center justify-center rounded-full",
         className,
       )}
-      style={style}
+      style={{ backgroundColor: style.backgroundColor }}
       aria-hidden
     >
-      <span className={textClassName}>{agentInitials(name)}</span>
+      <span className={textClassName} style={{ color: style.color }}>
+        {agentInitials(name)}
+      </span>
     </div>
   );
 }

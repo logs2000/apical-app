@@ -1,7 +1,8 @@
 'use client'
 
 import type { AgentEvent, WorkflowJSON } from '@/lib/types'
-import type { ChatMessage, ExecutionStep, CredentialRequestInfo, CredentialRequestState, RunAnalysis, ChatRun, ChatRunStatus, PlanItem, ClarificationRequestInfo } from './index'
+import type { ChatMessage, ExecutionStep, CredentialRequestInfo, CredentialRequestState, RunAnalysis, PlanItem, ClarificationRequestInfo } from './index'
+import { stepKind } from './index'
 import { traceStepLabel, sanitizeTraceInput } from '@/lib/platform/workflow-trace'
 import {
   sandboxItemFromObservation,
@@ -9,6 +10,19 @@ import {
   type SandboxDisplayHint,
   type SandboxItem,
 } from './sandbox'
+
+/** The browser's IANA timezone + locale, so the agent can resolve "today",
+ *  business hours, currency, etc. Safe to call anywhere (guards for SSR). */
+export function readClientContext(): { timezone?: string; locale?: string } {
+  try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
+    const locale =
+      (typeof navigator !== 'undefined' && navigator.language) || undefined
+    return { timezone, locale }
+  } catch {
+    return {}
+  }
+}
 
 // ─── SSE parsing ─────────────────────────────────────────────────────────────
 
@@ -74,11 +88,28 @@ function normalizeMessagesResponse(data: unknown): Array<{
   return []
 }
 
+// Interruption markers persisted via runAnalysis.summary so a stopped/errored
+// turn survives reloads and can be resumed. Kept as exact strings for
+// backward-compat detection.
+export const STOPPED_SUMMARY = 'Run was stopped before completion.'
+export const INTERRUPTED_SUMMARY = 'Run was interrupted before it finished.'
+
+/** Derive the resume marker from a (possibly reconstructed) run analysis. */
+export function interruptionFromAnalysis(
+  analysis?: RunAnalysis,
+): ChatMessage['interrupted'] {
+  if (!analysis || analysis.success !== false) return undefined
+  if (analysis.summary === STOPPED_SUMMARY) return { reason: 'stopped' }
+  if (analysis.summary === INTERRUPTED_SUMMARY) return { reason: 'error' }
+  return undefined
+}
+
 export function mapPersistedMessages(
   rows: ReturnType<typeof normalizeMessagesResponse>,
 ): ChatMessage[] {
   return rows.map((m) => {
     const cards = interactiveCardsFromEvents(m.events)
+    const runAnalysis = runAnalysisFromEvents(m.events)
     return {
       id: m.id,
       serverId: m.id,
@@ -86,7 +117,8 @@ export function mapPersistedMessages(
       content: m.content,
       events: m.events,
       executionTrace: executionTraceFromEvents(m.events),
-      runAnalysis: runAnalysisFromEvents(m.events),
+      runAnalysis,
+      interrupted: interruptionFromAnalysis(runAnalysis),
       ...cards,
       createdAt: m.createdAt,
     }
@@ -125,6 +157,7 @@ export function executionTraceFromEvents(events?: AgentEvent[]): ExecutionStep[]
       steps.push({
         id: `e${steps.length + 1}`,
         action: e.content.slice(0, 120),
+        kind: 'thought',
         tool: 'reason',
         status: 'done',
         timestamp: new Date().toISOString(),
@@ -138,6 +171,7 @@ export function executionTraceFromEvents(events?: AgentEvent[]): ExecutionStep[]
       steps.push({
         id: `e${steps.length + 1}`,
         action: typeof e.input === 'string' ? e.input : e.tool,
+        kind: 'tool',
         tool: e.tool,
         toolInput: inputParams,
         status: e.status === 'calling' ? 'running' : e.status === 'error' ? 'error' : 'done',
@@ -165,8 +199,8 @@ export function runAnalysisFromEvents(events?: AgentEvent[]): RunAnalysis | unde
 /** Full trace events to persist alongside an agent reply. */
 export function traceEventsFromTrace(trace?: ExecutionStep[]): AgentEvent[] {
   if (!trace?.length) return []
-  return trace.map((s) => {
-    if (s.tool === 'reason') {
+  return trace.filter((s) => !s.id.startsWith('__')).map((s) => {
+    if (stepKind(s) === 'thought') {
       return { type: 'reasoning' as const, content: (s.result || s.action).trim() }
     }
     return {
@@ -252,7 +286,6 @@ export interface ThinkStreamResult {
   }>
 }
 
-const STATUS_STEP_ID = '__live_status__'
 const LIVE_THOUGHT_ID = '__live_thought__'
 
 function statusStepLabel(status: string): string {
@@ -275,28 +308,14 @@ function applyThinkEvent(
   event: Record<string, unknown>,
   onSandboxItem?: (item: SandboxItem) => void,
 ): void {
-  if (event.type === 'status') {
-    const status = String(event.status ?? 'thinking')
-    const step: ExecutionStep = {
-      id: STATUS_STEP_ID,
-      action: statusStepLabel(status),
-      tool: 'reason',
-      status: 'running',
-      timestamp: new Date().toISOString(),
-    }
-    const idx = trace.findIndex((s) => s.id === STATUS_STEP_ID)
-    if (idx >= 0) trace[idx] = step
-    else trace.push(step)
-    return
-  }
+  // status events are surfaced as a transient live label via onStatusUpdate in
+  // streamAgentThink — they never enter the trace.
 
   // Live, token-by-token chain-of-thought. Accumulate into a single running
   // reason step so the user watches the thought form in real time.
   if (event.type === 'thought_delta') {
     const chunk = String(event.text ?? '')
     if (!chunk) return
-    const statusIdx = trace.findIndex((s) => s.id === STATUS_STEP_ID)
-    if (statusIdx >= 0) trace.splice(statusIdx, 1)
     const live = trace.find((s) => s.id === LIVE_THOUGHT_ID)
     if (live) {
       live.result = (live.result ?? '') + chunk
@@ -305,6 +324,7 @@ function applyThinkEvent(
       trace.push({
         id: LIVE_THOUGHT_ID,
         action: chunk.slice(0, 120),
+        kind: 'thought',
         tool: 'reason',
         status: 'running',
         timestamp: new Date().toISOString(),
@@ -316,8 +336,6 @@ function applyThinkEvent(
 
   if (event.type === 'thought') {
     const thought = String(event.text ?? '')
-    const statusIdx = trace.findIndex((s) => s.id === STATUS_STEP_ID)
-    if (statusIdx >= 0) trace.splice(statusIdx, 1)
     // Finalize the live thought step if we were streaming it; else push fresh.
     const live = trace.find((s) => s.id === LIVE_THOUGHT_ID)
     if (live) {
@@ -325,11 +343,13 @@ function applyThinkEvent(
       live.result = thought || live.result
       live.action = (thought || live.result || '').slice(0, 120)
       live.status = 'done'
+      live.durationMs = Math.max(0, Date.now() - new Date(live.timestamp).getTime())
       return
     }
     trace.push({
       id: `e${trace.length + 1}`,
       action: thought.slice(0, 120),
+      kind: 'thought',
       tool: 'reason',
       status: 'done',
       timestamp: new Date().toISOString(),
@@ -344,6 +364,7 @@ function applyThinkEvent(
     if (live && live.status === 'running') {
       live.id = `e${trace.length}`
       live.status = 'done'
+      live.durationMs = Math.max(0, Date.now() - new Date(live.timestamp).getTime())
     }
     // plan + clarification are rendered as dedicated cards, not trace steps.
     if (event.type === 'plan' || event.type === 'clarification') return
@@ -355,6 +376,7 @@ function applyThinkEvent(
     trace.push({
       id: `e${trace.length + 1}`,
       action: traceStepLabel(tool, input),
+      kind: 'tool',
       tool,
       toolInput: input,
       status: 'running',
@@ -370,21 +392,22 @@ function applyThinkEvent(
     const output = event.output
     const errMsg = event.error != null ? String(event.error) : undefined
 
-    if (shouldPreviewObservation(tool, ok, display, output)) {
-      onSandboxItem?.(
-        sandboxItemFromObservation(tool, ok, output, display, errMsg),
-      )
+    const lastStep = [...trace].reverse().find((s) => s.tool === tool && s.status === 'running')
+    if (lastStep) {
+      lastStep.status = ok ? 'done' : 'error'
+      lastStep.durationMs = Math.max(0, Date.now() - new Date(lastStep.timestamp).getTime())
+      if (ok) {
+        const outStr = typeof output === 'string' ? output : JSON.stringify(output)
+        lastStep.result = outStr.slice(0, 4000)
+      } else {
+        lastStep.result = errMsg ?? 'failed'
+      }
     }
 
-    const lastStep = [...trace].reverse().find((s) => s.tool === tool && s.status === 'running')
-    if (!lastStep) return
-    lastStep.status = ok ? 'done' : 'error'
-    lastStep.durationMs = 200
-    if (ok) {
-      const outStr = typeof output === 'string' ? output : JSON.stringify(output)
-      lastStep.result = outStr.slice(0, 4000)
-    } else {
-      lastStep.result = errMsg ?? 'failed'
+    if (shouldPreviewObservation(tool, ok, display, output)) {
+      const item = sandboxItemFromObservation(tool, ok, output, display, errMsg)
+      if (lastStep) item.stepId = lastStep.id
+      onSandboxItem?.(item)
     }
   }
 }
@@ -410,6 +433,8 @@ export async function streamAgentThink(
     signal?: AbortSignal
     onTraceUpdate: (trace: ExecutionStep[]) => void
     onSandboxItem?: (item: SandboxItem) => void
+    /** Fired with a friendly transient status label (from server status events). */
+    onStatusUpdate?: (label: string) => void
     /** Fired once the server accepts the stream (before the first model event). */
     onStreamOpen?: () => void
     /** Fired with each chunk of the final answer as it streams in. */
@@ -447,6 +472,7 @@ export async function streamAgentThink(
       attachments: opts.attachments,
       script: opts.script,
       maxIterations: opts.maxIterations ?? 64,
+      clientContext: readClientContext(),
     }),
   })
 
@@ -459,6 +485,12 @@ export async function streamAgentThink(
   await readSseStream(res, (event) => {
     if (event.type === 'error') {
       throw new Error(String(event.message ?? 'Agent loop failed'))
+    }
+
+    // Transient status → a single live label, never a trace step.
+    if (event.type === 'status') {
+      opts.onStatusUpdate?.(statusStepLabel(String(event.status ?? 'thinking')))
+      return
     }
 
     // Stream the final answer token-by-token into the message body.
@@ -494,7 +526,6 @@ export async function streamAgentThink(
 
     applyThinkEvent(trace, event, opts.onSandboxItem)
     if (
-      event.type === 'status' ||
       event.type === 'thought' ||
       event.type === 'thought_delta' ||
       event.type === 'tool_call' ||
@@ -519,6 +550,15 @@ export async function streamAgentThink(
     }
   }, opts.signal)
 
+  // Finalize any leftover live-thought sentinel so implementation ids never
+  // persist or render.
+  trace.forEach((s, i) => {
+    if (s.id.startsWith('__')) {
+      s.id = `e${i + 1}`
+      if (s.status === 'running') s.status = 'done'
+    }
+  })
+
   return {
     finalAnswer,
     proposedWorkflow,
@@ -533,18 +573,7 @@ export async function streamAgentThink(
   }
 }
 
-// ─── Run timeline helpers ───────────────────────────────────────────────────
-
-export function inferRunStatus(
-  steps: ExecutionStep[],
-  opts?: { live?: boolean; stopped?: boolean; analyzing?: boolean },
-): ChatRunStatus {
-  if (opts?.live) return 'running'
-  if (opts?.stopped) return 'stopped'
-  if (opts?.analyzing) return 'analyzing'
-  if (steps.some((s) => s.status === 'error')) return 'failed'
-  return 'completed'
-}
+// ─── Run helpers ─────────────────────────────────────────────────────────────
 
 const META_AUTOMATION_TOOLS = new Set(['workflow_freeze', 'schedule_agent', 'agent_create'])
 
@@ -557,31 +586,6 @@ export function automationSaveSucceeded(
   return !trace.some(
     (s) => s.status === 'error' && META_AUTOMATION_TOOLS.has(s.tool ?? ''),
   )
-}
-
-export function buildChatRun(
-  id: string,
-  steps: ExecutionStep[],
-  opts?: {
-    startedAt?: string
-    finishedAt?: string
-    goal?: string
-    analysis?: RunAnalysis
-    live?: boolean
-    stopped?: boolean
-    analyzing?: boolean
-  },
-): ChatRun {
-  return {
-    id,
-    status: inferRunStatus(steps, opts),
-    startedAt: opts?.startedAt ?? new Date().toISOString(),
-    finishedAt: opts?.live ? undefined : opts?.finishedAt,
-    steps,
-    goal: opts?.goal,
-    analysis: opts?.analysis,
-    analyzing: opts?.analyzing,
-  }
 }
 
 export function eventsForPersistedMessage(msg: ChatMessage): AgentEvent[] {

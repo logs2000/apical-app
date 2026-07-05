@@ -1,10 +1,14 @@
 'use client'
 
 import * as React from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useWorkflows, useCreateWorkflow, useDeleteWorkflow } from '@/lib/queries'
+import { prefetchRecentAgentMessages } from '@/lib/apical/chat-cache'
 import type { Workflow as ApiWorkflow } from '@/lib/types'
 import type { Conversation, Workflow } from './index'
 import { useAppStore } from './store'
+import { useAgentRingState } from '@/hooks/use-agent-ring-state'
+import type { AgentRingState } from '@/lib/apical/agent-display'
 
 /** Ephemeral draft conversation — not shown in the sidebar until the first message. */
 export const NEW_CHAT_CONVERSATION_ID = 'new-chat'
@@ -35,6 +39,7 @@ type AgentsDataContextValue = {
   workflows: Workflow[]
   conversations: Conversation[]
   isLoading: boolean
+  ringState: AgentRingState
   createConversationFromMessage: (message: string) => Promise<Workflow>
   deleteAgent: (workflowId: string) => Promise<void>
   isCreating: boolean
@@ -45,6 +50,7 @@ type AgentsDataContextValue = {
 const AgentsDataContext = React.createContext<AgentsDataContextValue | null>(null)
 
 export function AgentsDataProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient()
   const { data, isLoading } = useWorkflows()
   const createMutation = useCreateWorkflow()
   const deleteMutation = useDeleteWorkflow()
@@ -61,10 +67,26 @@ export function AgentsDataProvider({ children }: { children: React.ReactNode }) 
     [data],
   )
 
+  const ringState = useAgentRingState(workflows)
+
   const conversations = React.useMemo(
     () => conversationsFromWorkflows(workflows, pinnedConversationIds),
     [workflows, pinnedConversationIds],
   )
+
+  // Warm chat caches for recent conversations in the background.
+  React.useEffect(() => {
+    if (workflows.length === 0) return
+    const recentIds = [...workflows]
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt ?? b.createdAt).getTime() -
+          new Date(a.updatedAt ?? a.createdAt).getTime(),
+      )
+      .slice(0, 10)
+      .map((w) => w.id)
+    void prefetchRecentAgentMessages(queryClient, recentIds)
+  }, [workflows, queryClient])
 
   const createConversationFromMessage = React.useCallback(
     async (message: string) => {
@@ -118,6 +140,7 @@ export function AgentsDataProvider({ children }: { children: React.ReactNode }) 
       workflows,
       conversations,
       isLoading,
+      ringState,
       createConversationFromMessage,
       deleteAgent,
       isCreating: createMutation.isPending,
@@ -128,6 +151,7 @@ export function AgentsDataProvider({ children }: { children: React.ReactNode }) 
       workflows,
       conversations,
       isLoading,
+      ringState,
       createConversationFromMessage,
       deleteAgent,
       createMutation.isPending,

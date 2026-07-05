@@ -1,26 +1,76 @@
 // Apical — auth helpers for API routes + server components.
 //
-// Three modes of identifying "the current user":
+// Four modes of identifying "the current user":
 //   1. Unified API key → Authorization: Bearer ap_pat_... / ap_sk_...
 //      (workspace-scoped keys; see src/lib/api-key-auth.ts).
 //   2. Desktop device token → Authorization: Bearer dsk_...
 //      (a DesktopSession minted via the device-authorization login).
-//   3. Supabase session (Google or Credentials login).
+//   3. Supabase session (Google or Credentials login on the web app).
+//   4. NextAuth JWT cookie (desktop shell HTML login at /api/auth/desktop-login).
 //
 // There is NO production auth bypass — every request authenticates for real.
 // In development only, an opt-in auto sign-in (src/lib/dev-login.ts) can resolve
 // a configured DEV_AUTH_EMAIL account as a final fallback. It is inert unless
 // NODE_ENV !== 'production' and DEV_AUTH_EMAIL is set in .env.local.
 
+import { getToken } from 'next-auth/jwt'
+import { cookies } from 'next/headers'
 import { db } from './db'
 import { createSupabaseServerClient } from './supabase/server'
 import { authenticateApiKey, getWorkspaceForUser } from './api-key-auth'
 import { authenticateDesktopToken } from './desktop/device-auth'
 import { getDevAutoLoginUser } from './dev-login'
+import { sessionCookieName } from '@/lib/desktop/session-cookie'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import type { User } from '@prisma/client'
 
 export { getWorkspaceForUser }
+
+/** True when the request originates from the desktop app (bundled server or dsk token). */
+export async function isDesktopClientRequest(req?: Request): Promise<boolean> {
+  if (process.env.DESKTOP_LOCAL === 'true') return true
+  if (!req) return false
+  const desktopAuth = await authenticateDesktopToken(req)
+  return !!desktopAuth
+}
+
+/** Resolve a Prisma user from the NextAuth JWT session cookie (desktop shell). */
+async function getUserFromNextAuthSession(): Promise<User | null> {
+  const secret = process.env.NEXTAUTH_SECRET
+  if (!secret) return null
+
+  try {
+    const cookieStore = await cookies()
+    const token = await getToken({
+      req: {
+        cookies: Object.fromEntries(
+          cookieStore.getAll().map((c) => [c.name, c.value]),
+        ),
+      } as Parameters<typeof getToken>[0]['req'],
+      secret,
+      cookieName: sessionCookieName(),
+    })
+    if (!token?.email && !token?.sub) return null
+
+    const userId =
+      (typeof token.userId === 'string' && token.userId) ||
+      (typeof token.sub === 'string' && token.sub) ||
+      null
+    const email =
+      typeof token.email === 'string' ? token.email.toLowerCase() : null
+
+    if (userId) {
+      const byId = await db.user.findUnique({ where: { id: userId } })
+      if (byId) return byId
+    }
+    if (email) {
+      return db.user.findUnique({ where: { email } })
+    }
+  } catch (err) {
+    console.error('[auth-helpers] NextAuth session lookup failed:', err)
+  }
+  return null
+}
 
 // ---------------- Session user ----------------
 
@@ -45,6 +95,12 @@ export async function getCurrentUser(req?: Request): Promise<User | null> {
     if (desktopAuth) return desktopAuth.user
   }
 
+  // Desktop bundled server — NextAuth cookie wins over stale Supabase cookies.
+  if (process.env.DESKTOP_LOCAL === 'true') {
+    const desktopUser = await getUserFromNextAuthSession()
+    if (desktopUser) return desktopUser
+  }
+
   // 3. Supabase session — resolve the Supabase auth user, then mirror it into
   //    the Prisma `User` table (the app's data anchor) on first use.
   try {
@@ -53,13 +109,23 @@ export async function getCurrentUser(req?: Request): Promise<User | null> {
       const {
         data: { user: supaUser },
       } = await supabase.auth.getUser()
-      if (supaUser) return await syncSupabaseUser(supaUser)
+      if (supaUser) {
+        try {
+          return await syncSupabaseUser(supaUser)
+        } catch (err) {
+          console.error('[auth-helpers] syncSupabaseUser failed:', err)
+        }
+      }
     }
   } catch (err) {
     console.error('[auth-helpers] getCurrentUser session lookup failed:', err)
   }
 
-  // 4. Dev-only auto sign-in (final fallback). Inert in production and unless
+  // 4. NextAuth JWT session (desktop shell HTML login).
+  const nextAuthUser = await getUserFromNextAuthSession()
+  if (nextAuthUser) return nextAuthUser
+
+  // 5. Dev-only auto sign-in (final fallback). Inert in production and unless
   //    DEV_AUTH_EMAIL is configured — a real session above always wins.
   return await getDevAutoLoginUser()
 }

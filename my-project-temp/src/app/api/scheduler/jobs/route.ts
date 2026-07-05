@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
-import { computeNextRun, validateSchedule } from '@/lib/platform/cron'
+import { validateSchedule } from '@/lib/platform/cron'
+import { dedupeUserScheduledJobs, upsertScheduledJob } from '@/lib/platform/scheduler-jobs'
 import type { ScheduledJob } from '@prisma/client'
 
 // API routes for /api/scheduler/jobs.
@@ -29,6 +30,8 @@ interface JobDto {
   lastRunId: string | null
   runCount: number
   failureCount: number
+  skippedCount: number
+  offlinePolicy: string
   createdAt: string
   updatedAt: string
 }
@@ -49,6 +52,8 @@ function mapJob(row: ScheduledJob, workflowName: string | null): JobDto {
     lastRunId: row.lastRunId,
     runCount: row.runCount,
     failureCount: row.failureCount,
+    skippedCount: row.skippedCount,
+    offlinePolicy: row.offlinePolicy,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -71,6 +76,8 @@ async function loadWorkflowNames(
 
 // GET /api/scheduler/jobs — list the user's scheduled jobs.
 export const GET = withUser(async (_req, { user }) => {
+  // Self-heal any legacy duplicate rows (one job per workflow) before listing.
+  await dedupeUserScheduledJobs(user.id).catch(() => 0)
   const rows = await db.scheduledJob.findMany({
     where: { userId: user.id },
     orderBy: { nextRunAt: 'asc' },
@@ -113,7 +120,7 @@ export const POST = withUser(async (req, { user }) => {
   // to schedule them in dev mode — otherwise reject.
   const workflow = await db.workflow.findUnique({
     where: { id: workflowId },
-    select: { id: true, name: true, userId: true },
+    select: { id: true, name: true, userId: true, runtime: true, stepsJson: true },
   })
   if (!workflow) {
     return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
@@ -122,21 +129,29 @@ export const POST = withUser(async (req, { user }) => {
     return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
   }
 
-  const nextRunAt = computeNextRun(schedule, scheduleKind, timezone)
+  const warnings: string[] = []
+  if (workflow.runtime === 'local') {
+    const { userHasDesktopSession } = await import('@/lib/platform/scheduler-guards')
+    const hasDesktop = await userHasDesktopSession(db, user.id)
+    if (!hasDesktop) {
+      warnings.push(
+        'This workflow runs on your desktop. Link your desktop in Settings → Desktop and keep Apical running in the menu bar for scheduled runs to succeed.',
+      )
+    }
+  }
 
-  const created = await db.scheduledJob.create({
-    data: {
-      userId: user.id,
-      workflowId,
-      schedule,
-      scheduleKind,
-      timezone,
-      status: 'active',
-      nextRunAt,
-      runCount: 0,
-      failureCount: 0,
-    },
+  // Idempotent: one ScheduledJob per (user, workflow). Re-scheduling updates
+  // the existing job rather than stacking duplicates.
+  const created = await upsertScheduledJob({
+    userId: user.id,
+    workflowId,
+    schedule,
+    scheduleKind,
+    timezone,
   })
 
-  return NextResponse.json(mapJob(created, workflow.name), { status: 201 })
+  return NextResponse.json(
+    { ...mapJob(created, workflow.name), warnings: warnings.length ? warnings : undefined },
+    { status: 201 },
+  )
 })

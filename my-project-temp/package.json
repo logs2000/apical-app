@@ -26,7 +26,8 @@
     "tauri:dev": "tauri dev",
     "tauri:dev:local": "tauri dev --config '{\"build\":{\"beforeDevCommand\":\"bash scripts/ensure-dev-server.sh\"}}'",
     "tauri:dev:prod": "tauri dev --config '{\"build\":{\"beforeDevCommand\":\"bash scripts/ensure-prod-server.sh\",\"devUrl\":\"http://127.0.0.1:3000/api/auth/desktop-ui\"}}'",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "icons:generate": "node scripts/generate-brand-icons.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -69,6 +70,7 @@
     "@tanstack/react-query": "^5.82.0",
     "@tanstack/react-table": "^8.21.3",
     "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-shell": "^2.0.1",

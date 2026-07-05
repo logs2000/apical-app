@@ -52,7 +52,28 @@ export async function GET(req: Request, { params }: RouteCtx) {
       orderBy: { createdAt: 'desc' },
       take: 200,
     })
-    return NextResponse.json(rows.reverse().map(mapAgentMessage))
+    const messages = rows.reverse().map(mapAgentMessage)
+
+    // Bundled desktop: mirror to disk cache for instant restore.
+    if (process.env.DESKTOP_LOCAL === 'true') {
+      try {
+        const { writeChatCacheToDisk } = await import('@/lib/desktop/desktop-paths')
+        writeChatCacheToDisk(
+          id,
+          messages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            createdAt: m.createdAt,
+            events: m.events,
+          })),
+        )
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    return NextResponse.json(messages)
   } catch (err) {
     console.error('[api/agents/[id]/messages] GET failed:', err)
     return NextResponse.json({ error: 'Failed to load messages' }, { status: 500 })
@@ -89,7 +110,32 @@ export async function POST(req: Request, { params }: RouteCtx) {
       where: { id },
       data: { updatedAt: new Date() },
     })
-    return NextResponse.json(mapAgentMessage(created))
+    const saved = mapAgentMessage(created)
+
+    // Bundled desktop: append to disk cache so restore survives DB issues.
+    if (process.env.DESKTOP_LOCAL === 'true') {
+      try {
+        const { readChatCacheFromDisk, writeChatCacheToDisk } = await import(
+          '@/lib/desktop/desktop-paths'
+        )
+        const existing = readChatCacheFromDisk(id)
+        const prior = existing?.messages ?? []
+        writeChatCacheToDisk(id, [
+          ...prior,
+          {
+            id: saved.id,
+            role: saved.role,
+            content: saved.content,
+            createdAt: saved.createdAt,
+            events: saved.events,
+          },
+        ])
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    return NextResponse.json(saved)
   } catch (err) {
     console.error('[api/agents/[id]/messages] POST failed:', err)
     return NextResponse.json({ error: 'Failed to save message' }, { status: 500 })

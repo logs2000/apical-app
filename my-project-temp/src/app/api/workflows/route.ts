@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/auth-helpers'
 import { mapWorkflow } from '@/lib/mappers'
 import { serializeWorkflowJSON } from '@/lib/apical-server'
 import { saveWorkflowSteps } from '@/lib/platform/workflow-revisions'
+import { inferRuntimeFromSteps } from '@/lib/workflow-schema'
 import type { WorkflowJSON } from '@/lib/types'
 
 // GET /api/workflows?workspaceId=... — list the current user's workflows
@@ -92,6 +93,11 @@ export async function POST(req: Request) {
         ? body.origin
         : 'agent'
 
+    const runtime =
+      body.runtime === 'local' || body.runtime === 'hosted'
+        ? body.runtime
+        : inferRuntimeFromSteps(steps.steps)
+
     const created = await db.workflow.create({
       data: {
         userId: user.id,
@@ -103,7 +109,7 @@ export async function POST(req: Request) {
         status: 'active',
         origin,
         workspaceId,
-        runtime: body.runtime === 'local' ? 'local' : 'hosted',
+        runtime,
       },
     })
     // Revision 1 — every workflow starts with an immutable snapshot.

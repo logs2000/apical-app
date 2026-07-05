@@ -190,13 +190,13 @@ WORKING STYLE: When you act on the user's existing resources, orient first with 
 
 CHECKLISTS: For any task with 2+ steps, call update_plan first with a short checklist (3–7 short imperative items), and update it as you go (always pass the full list). If a plan is already in progress, continue that same list — mark finished items done and keep going; do NOT start a new one. Skip the checklist for trivial single-step requests and pure questions.
 
-CLARIFICATION & REVIEW: Ask at most one clarifying question up front (ask_clarification) only when the request is genuinely ambiguous and guessing would waste real work — otherwise default sensibly and proceed. Prefer reversible actions (draft not send, new file not overwrite, stage not delete). Only gate a genuinely high-stakes, irreversible action (deleting user data, spending money, mass/external sends, public posts) with request_review. Both tools end your turn.
+CLARIFICATION & REVIEW: When a quick answer from the user would prevent wasted or wrong work, ask via ask_clarification — early in the task, before doing work that a wrong assumption would ruin. Give 2–5 concrete clickable options when the choices are enumerable, or ask a fill-in-the-blank free-text question when the answer is an open value (a name, path, number, etc.); a free-text "Other" box is always available too. Ask as often as genuinely needed to get it right, but never ask what you can reasonably infer, look up, or safely default. Prefer reversible actions (draft not send, new file not overwrite, stage not delete). Only gate a genuinely high-stakes, irreversible action (deleting user data, spending money, mass/external sends, public posts) with request_review. Both tools end your turn.
 
 CREDENTIALS: The only way to obtain a secret is credential_request — one call per key, always with a docsUrl deep link to the page where the user creates that key. Never ask the user to paste a secret into chat and never point them at the Vault. The secure input boxes appear automatically under your message — don't describe them; just say in one line why you need each key, then stop. Afterward, pass the credentialId to http_request/web_read; the secret never enters your context.
 
 SCRIPTS run on Apical (server sandbox or the desktop bridge), NOT on the user's machine — never hand the user a script to download/run or tell them to install packages. Use script_run, passing packages:[...] to auto-install npm/PyPI deps. If a script is part of an automation, bake it into the workflow as a code node.
 
-AUTOMATIONS: Do the user's job NOW with real tools first — never propose an abstract workflow before doing the work. When multi-step work succeeds and would plausibly run again, save it as a reusable workflow with workflow_freeze: short human labels, inputs parameterized from the trigger ({{trigger.field}}) or earlier steps ({{stepId.output}}), and output GENERATED at runtime — never a snapshot of one run's data. Then tell the user you saved it. For recurring jobs add schedule_agent (a cron or fixed_rate cadence); for new-file triggers use watch_folder. If you already own a saved workflow, monitor its runs (workflow_monitor) and fix nodes (workflow_update / workflow_improve) instead of redoing the job by hand — and confirm the specific changes with the user before updating an existing automation.
+WORKFLOWS AS LIVING TOOLS: You own the outcome — workflows are accelerators you build and improve, not handoffs to a dumb runner. On first-time tasks, do the real work with tools; whenever a sub-step would plausibly repeat, capture it immediately with workflow_step_append (a script becomes a code node, an API call becomes an http node, a file operation becomes an fs tool node) — parameterize per-run values with {{trigger.field}} / {{stepId.output}} and generate output at runtime, never a snapshot of one run's data. When several steps work together, tie them into a named automation with workflow_freeze; for recurring jobs add schedule_agent (cron or fixed_rate), and for new-file triggers use watch_folder. On repeat runs the runtime replays the saved steps cheaply; when a step fails YOU fix it (workflow_step_patch for one node, workflow_update for a broad rewrite), rerun, and verify success — never leave a failure as a suggestion or a review comment. If recovery is genuinely impossible (auth revoked, resource deleted, gate rejected), fail honestly and say why. Prefer building tools over repeating manual work. Do not notify the user about automatic workflow fixes unless they ask; when the user explicitly asks you to change an existing automation, confirm the specific changes first.
 
 HONESTY (non-negotiable): Never claim success, "done", or "workflow saved" if any tool returned an error this run. State exactly what succeeded and what failed. Your final answer must match the observed tool results, not your intent.`
 
@@ -277,7 +277,7 @@ function buildObservationText(tool: string, result: ToolResult, def: ToolDef): s
   }
   return (
     `Error: ${result.error}. Required params for ${tool}: ${JSON.stringify(def.inputSchema)}` +
-    ' IMPORTANT: This step FAILED. Do not claim success or say the workflow was saved until this succeeds.'
+    ' IMPORTANT: This step FAILED. Retry with a different approach, or patch the workflow node (workflow_step_patch) if this is a recurring automation step. Do not end your turn claiming success or that the workflow was saved until this succeeds.'
   )
 }
 
@@ -689,14 +689,14 @@ async function runNativeLoop(
     // --- No tool calls → final answer. ---
     if (turnToolCalls.length === 0) {
       const failures = collectRunFailures(ctx)
-      if (failures.length > 0 && failureHonestyNudges < 1) {
+      if (failures.length > 0 && failureHonestyNudges < 2) {
         failureHonestyNudges += 1
         messages.push({
           role: 'user',
           content:
             `BLOCKED — ${failures.length} tool step(s) FAILED this run:\n${failures.map((f) => `- ${f}`).join('\n')}\n\n` +
-            'Do NOT claim success or say the workflow/automation was saved if a step failed. ' +
-            'Either retry until the failed steps succeed, OR give a final answer that honestly states what failed, what worked, and what needs user review.',
+            'You own the outcome — do NOT finish on a failure. Fix it and retry: try a different approach, or patch the workflow node (workflow_step_patch) if this is a recurring automation step, then run it again and verify. ' +
+            'Only if recovery is genuinely impossible (auth revoked, resource deleted), give a final answer that honestly states what failed, what worked, and what needs user review. Never claim success or that the workflow was saved when a step failed.',
         })
         onEvent({ type: 'status', status: 'thinking' })
         continue
@@ -950,15 +950,15 @@ async function runLegacyLoop(
 
     if (parsed.final) {
       const failures = collectRunFailures(ctx)
-      if (failures.length > 0 && failureHonestyNudges < 1) {
+      if (failures.length > 0 && failureHonestyNudges < 2) {
         failureHonestyNudges += 1
         messages.push({ role: 'assistant', content: raw })
         messages.push({
           role: 'user',
           content:
             `BLOCKED — ${failures.length} tool step(s) FAILED this run:\n${failures.map((f) => `- ${f}`).join('\n')}\n\n` +
-            'Do NOT claim success or say the workflow/automation was saved if a step failed. ' +
-            'Either retry until the failed steps succeed, OR emit a final answer that honestly states what failed, what worked, and what needs user review.',
+            'You own the outcome — do NOT finish on a failure. Fix it and retry: try a different approach, or patch the workflow node (workflow_step_patch) if this is a recurring automation step, then run it again and verify. ' +
+            'Only if recovery is genuinely impossible (auth revoked, resource deleted), emit a final answer that honestly states what failed, what worked, and what needs user review. Never claim success or that the workflow was saved when a step failed.',
         })
         onEvent({ type: 'status', status: 'thinking' })
         continue
@@ -1275,7 +1275,7 @@ export async function runAgent(
                     `  - ${r.startedAt.toISOString().slice(0, 16)} · ${r.status} · ${r.itemsProcessed} items${r.flaggedCount ? ` · ${r.flaggedCount} flagged` : ''}`,
                 )
                 .join('\n') +
-              `\nCall workflow_monitor(workflowId="${effectiveAgentId}") to inspect run results and failures, then workflow_update to fix broken automation nodes.\n\n`
+              `\nIf any recent run failed, diagnose it, patch the broken node (workflow_step_patch / workflow_update), rerun, and verify — autonomously.\n\n`
           }
         } catch {
           // non-fatal
@@ -1288,14 +1288,14 @@ export async function runAgent(
             (row.schedule ? `Schedule: ${row.schedule} (${row.trigger})\n` : '') +
             `YOUR SAVED AUTOMATION (you own this):\n` +
             `${stepsJson}\n\n` +
-            `The runtime executes this automation without you. Monitor its runs (workflow_monitor) and update nodes when they fail or requirements change (workflow_update / workflow_improve). Do NOT re-explore on every repeat unless a run failed or the user asked for changes.\n` +
+            `The runtime replays these steps for speed; you supervise and improve them. On repeat tasks, let the saved steps run first and intervene only when they fail or the user requests changes. When a run fails, diagnose, patch the node (workflow_step_patch for one step, workflow_update for a rewrite), rerun, and verify success — do not leave a failure unaddressed. Grow the workflow with workflow_step_append as you learn better steps.\n` +
             recentRunsBlock
         } else if (wf.steps.length > 0) {
           ownWorkflowBlock =
             `YOU ARE THIS AGENT: "${row.name}".\n` +
             `What you do: ${row.description}\n` +
             `YOUR AUTOMATION: INVALID — saved steps lack executable parameters. Treat as empty.\n\n` +
-            `Accomplish the job with real tool calls (full arguments), learn what worked, then workflow_freeze a proper automation.\n` +
+            `Do the job with real tool calls (full arguments), capturing each proven step with workflow_step_append, then tie them together with workflow_freeze.\n` +
             recentRunsBlock
         } else {
           ownWorkflowBlock =
@@ -1303,7 +1303,7 @@ export async function runAgent(
             `What you do: ${row.description}\n` +
             `YOUR AUTOMATION: not designed yet.\n\n` +
             `You are a general intelligent assistant with full user context — answer any question naturally. ` +
-            `For automatable jobs: accomplish with tools → learn → workflow_freeze → monitor.\n` +
+            `For automatable jobs: do the work with tools, capture each proven step as a node (workflow_step_append), then tie them together (workflow_freeze) and supervise future runs.\n` +
             recentRunsBlock
         }
         if ((ctx.executionTrace?.length ?? 0) > 0) {

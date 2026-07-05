@@ -108,7 +108,7 @@ async function resolveOutcomes(): Promise<void> {
     try {
       const run = await prisma.run.findUnique({
         where: { id: job.lastRunId! },
-        select: { status: true, startedAt: true },
+        select: { status: true, startedAt: true, reportJson: true },
       })
       if (!run) {
         await prisma.scheduledJob.update({
@@ -135,13 +135,28 @@ async function resolveOutcomes(): Promise<void> {
         continue
       }
 
-      if (run.status === 'completed') {
+      // A run that failed initially but was recovered by supervision counts as
+      // success for the schedule (the runtime already flips its status, but we
+      // also honor supervision.outcome defensively).
+      let recovered = false
+      if (run.status !== 'completed' && run.reportJson) {
+        try {
+          const report = JSON.parse(run.reportJson) as {
+            supervision?: { outcome?: string }
+          }
+          recovered = report.supervision?.outcome === 'recovered'
+        } catch {
+          // ignore malformed report
+        }
+      }
+
+      if (run.status === 'completed' || recovered) {
         await prisma.scheduledJob.update({
           where: { id: job.id },
           data: { lastRunStatus: 'success', failureCount: 0 },
         })
         console.log(
-          `[scheduler ${ts()}] ✓ job ${job.id}: run ${job.lastRunId} completed`,
+          `[scheduler ${ts()}] ✓ job ${job.id}: run ${job.lastRunId} ${recovered ? 'recovered by supervision' : 'completed'}`,
         )
       } else {
         // failed | cancelled — the run did not do its work.
@@ -212,9 +227,67 @@ async function processJob(job: {
   timezone: string
   failureCount: number
   runCount: number
+  offlinePolicy: string
+  skippedCount: number
 }): Promise<void> {
   const kind = (job.scheduleKind === 'fixed_rate' ? 'fixed_rate' : 'cron') as ScheduleKind
   const now = new Date()
+
+  const workflow = await prisma.workflow.findUnique({
+    where: { id: job.workflowId },
+    select: { id: true, userId: true, name: true, runtime: true, stepsJson: true },
+  })
+  if (!workflow || !workflow.userId) {
+    console.warn(`[scheduler ${ts()}] job ${job.id}: workflow missing or unowned — skipping`)
+    return
+  }
+
+  // Local-runtime workflows need an online desktop with sufficient remote policy.
+  if (workflow.runtime === 'local') {
+    const { checkDesktopReadiness } = await import('../../src/lib/platform/scheduler-guards')
+    const readiness = await checkDesktopReadiness(prisma, workflow.userId, workflow.stepsJson)
+
+    if (!readiness.online) {
+      const policy = job.offlinePolicy === 'catch_up' ? 'catch_up' : 'skip'
+      if (policy === 'catch_up') {
+        console.log(
+          `[scheduler ${ts()}] ⏸ job ${job.id} waiting — desktop offline (catch_up); nextRunAt unchanged`,
+        )
+        return
+      }
+      const nextRunAt = computeNextRun(job.schedule, kind, job.timezone, now)
+      await prisma.scheduledJob.update({
+        where: { id: job.id },
+        data: {
+          lastRunAt: now,
+          lastRunStatus: 'skipped_offline',
+          skippedCount: { increment: 1 },
+          nextRunAt,
+        },
+      })
+      console.log(
+        `[scheduler ${ts()}] ⏭ job ${job.id} skipped_offline — desktop not connected; next at ${nextRunAt.toISOString()}`,
+      )
+      return
+    }
+
+    if (readiness.blockedCapability) {
+      const nextRunAt = computeNextRun(job.schedule, kind, job.timezone, now)
+      await prisma.scheduledJob.update({
+        where: { id: job.id },
+        data: {
+          lastRunAt: now,
+          lastRunStatus: 'skipped_policy',
+          skippedCount: { increment: 1 },
+          nextRunAt,
+        },
+      })
+      console.log(
+        `[scheduler ${ts()}] ⏭ job ${job.id} skipped_policy — remote access blocked (${readiness.blockedCapability})`,
+      )
+      return
+    }
+  }
 
   // Overlap lock: if this workflow still has a live run (from this job or
   // anywhere else), skip this fire entirely — scheduled runs never stack.

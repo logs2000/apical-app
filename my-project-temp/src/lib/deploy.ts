@@ -12,6 +12,8 @@ import { db } from './db'
 import { serializeWorkflowJSON } from './apical-server'
 import { mapWorkflow } from './mappers'
 import { saveWorkflowSteps } from './platform/workflow-revisions'
+import { computeNextRun, validateSchedule, type ScheduleKind } from './platform/cron'
+import { inferRuntimeFromSteps } from './workflow-schema'
 import type {
   AutomationFile,
   HttpCallSpec,
@@ -195,6 +197,8 @@ export interface DeployResult {
   agent: Workflow
   integrationsCreated: number
   credentialsCreated: number
+  scheduledJobCreated?: boolean
+  scheduleWarning?: string
 }
 
 /**
@@ -333,6 +337,7 @@ export async function deployAutomationFile(
 
   const triggerType = file.trigger?.type === 'schedule' ? 'schedule' : 'manual'
   const schedule = file.trigger?.label ?? file.trigger?.cron ?? null
+  const runtime = inferRuntimeFromSteps(steps)
 
   const created = await db.workflow.create({
     data: {
@@ -345,6 +350,7 @@ export async function deployAutomationFile(
       status: 'active',
       origin,
       workspaceId: options.workspaceId ?? null,
+      runtime,
     },
   })
   await saveWorkflowSteps(created.id, { version: 1, steps }, {
@@ -352,10 +358,41 @@ export async function deployAutomationFile(
     note: 'Imported from AutomationFile.',
   })
 
+  let scheduledJobCreated = false
+  let scheduleWarning: string | undefined
+  if (triggerType === 'schedule' && schedule) {
+    const kind: ScheduleKind =
+      schedule.startsWith('fixed_rate:') ? 'fixed_rate' : 'cron'
+    const scheduleError = validateSchedule(schedule, kind)
+    if (scheduleError) {
+      scheduleWarning =
+        `Trigger schedule "${schedule}" is a label only — no ScheduledJob created (${scheduleError}). Use schedule_agent or POST /api/scheduler/jobs for a valid cron.`
+    } else if (options.userId) {
+      const nextRunAt = computeNextRun(schedule, kind, 'UTC')
+      await db.scheduledJob.create({
+        data: {
+          userId: options.userId,
+          workspaceId: options.workspaceId ?? null,
+          workflowId: created.id,
+          schedule,
+          scheduleKind: kind,
+          timezone: 'UTC',
+          status: 'active',
+          nextRunAt,
+          runCount: 0,
+          failureCount: 0,
+        },
+      })
+      scheduledJobCreated = true
+    }
+  }
+
   return {
     agent: mapWorkflow(created),
     integrationsCreated,
     credentialsCreated,
+    scheduledJobCreated,
+    scheduleWarning,
   }
 }
 

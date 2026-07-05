@@ -7,6 +7,7 @@ import { parseConfig } from '@/lib/apical-server'
 import { db } from '@/lib/db'
 import { buildSecureHeaders } from '@/lib/platform/agent-credentials'
 import { getAgentTool, type ToolContext } from '@/lib/platform/agent-tools'
+import { isLocalDesktopRuntime } from '@/lib/platform/desktop-local-runtime'
 import { agentToolName, EXPLORATION_ONLY_TOOLS } from '@/lib/platform/workflow-trace'
 import type { AgentRuntime, WorkflowStep } from '@/lib/types'
 import type { FrozenArtifact } from '@/lib/auth/freeze-artifact'
@@ -216,7 +217,7 @@ export async function executeProductionStep(
   const toolCtx: ToolContext = {
     userId: ctx.userId,
     agentId: ctx.workflowId,
-    allowCli: ctx.runtime === 'local',
+    allowCli: ctx.runtime === 'local' || isLocalDesktopRuntime(),
     maxFetchBytes: 50_000,
     executionTrace: [],
     usedCredentialIds: [],

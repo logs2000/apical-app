@@ -28,6 +28,8 @@ tauri-plugin-process = "2"
 tauri-plugin-notification = "2"
 # Global (OS-level) keyboard shortcuts — e.g. summon Apical from anywhere.
 tauri-plugin-global-shortcut = "2"
+# Launch-at-login so scheduled/recurring workflows keep running in the tray.
+tauri-plugin-autostart = "2"
 # OS keychain — F2 vault in local mode. macOS Keychain / Windows Credential
 # Manager / libsecret on Linux. The Next.js runtime calls these via IPC.
 keyring = "3"

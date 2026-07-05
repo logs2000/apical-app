@@ -3,7 +3,8 @@
 // Resolves the current user via getCurrentUser(), which checks (in order):
 //   1. Unified API key (Authorization: Bearer ap_pat_... / ap_sk_...).
 //   2. Desktop device token (Authorization: Bearer dsk_...).
-//   3. Supabase auth session (the production login path).
+//   3. Supabase auth session (the web-app login path).
+//   4. NextAuth JWT cookie (desktop shell HTML login).
 //
 // Returns a NextAuth-compatible shape ({ user, expires }) so the client
 // SupabaseSessionProvider/useSession() hook can consume it unchanged. Returns

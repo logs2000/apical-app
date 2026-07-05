@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { withUser } from '@/lib/auth-helpers'
+import { withUser, isDesktopClientRequest } from '@/lib/auth-helpers'
 import { workspaceIdForUser } from '@/lib/integration-scope'
 import { normalizeGrantedPath } from '@/lib/platform/granted-folders'
 
@@ -27,6 +27,16 @@ export const GET = withUser(async (_req, { user }) => {
 })
 
 export const POST = withUser(async (req, { user }) => {
+  if (!(await isDesktopClientRequest(req))) {
+    return NextResponse.json(
+      {
+        error:
+          'Folder grants must be created from the Apical desktop app (Settings → Desktop → Grant folder). Web sessions cannot grant filesystem access.',
+      },
+      { status: 403 },
+    )
+  }
+
   let body: { path?: string; label?: string } = {}
   try {
     body = (await req.json()) as typeof body

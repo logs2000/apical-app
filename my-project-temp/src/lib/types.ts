@@ -11,6 +11,15 @@ export type IntegrationKind = 'mcp' | 'api' | 'http'
 
 /** Where an agent runs. Local = desktop app (fs/cli/net access). Hosted = Apical server. */
 export type AgentRuntime = 'local' | 'hosted'
+/**
+ * Where workflow steps execute:
+ * - `hosted`: runs entirely on Apical's cloud server. No desktop fs/cli tools.
+ * - `local`: cloud-managed and cloud-scheduled, but desktop steps (fs, cli,
+ *   scripts) execute on the user's machine via the desktop bridge when the app
+ *   is running in the background. Inside the desktop app itself (DESKTOP_LOCAL),
+ *   tools run directly on the host. Requires the desktop app linked and online
+ *   for remote/scheduled triggers; local manual runs work without the bridge.
+ */
 
 export type WorkflowStatus = 'draft' | 'active' | 'paused'
 
@@ -265,7 +274,7 @@ export interface RunReportItem {
   detail: string
 }
 
-/** Post-run agent review — success, outcome, efficiency, improvements. */
+/** @deprecated Post-run passive review — replaced by RunSupervision. */
 export interface RunReview {
   success: boolean
   outcomeAchieved: boolean
@@ -276,10 +285,36 @@ export interface RunReview {
   workflowAutoSaved?: boolean
 }
 
+export type SupervisionOutcome = 'passed' | 'recovered' | 'failed'
+
+export interface SupervisionAttempt {
+  attempt: number
+  /** What triggered this attempt, e.g. "step s2 failed: 401 Unauthorized". */
+  reason: string
+  /** The supervisor's diagnosis of the root cause. */
+  diagnosis: string
+  /** Concrete actions taken, e.g. ["patched step s2 credentialId", "rerun from s2"]. */
+  actions: string[]
+  rerunId?: string
+  result: 'success' | 'failed' | 'skipped'
+}
+
+/** Post-run supervision — the agent auto-fixes and reruns until success or provable failure. */
+export interface RunSupervision {
+  outcome: SupervisionOutcome
+  attempts: SupervisionAttempt[]
+  /** 1-2 sentence summary for the UI. */
+  summary: string
+  /** The rerun that finally succeeded, when outcome is 'recovered'. */
+  recoveredRunId?: string
+}
+
 export interface RunReport {
   summary: string
   items: RunReportItem[]
   flags: { stepId: string; reason: string; item: string }[]
+  supervision?: RunSupervision
+  /** @deprecated use supervision */
   review?: RunReview
 }
 

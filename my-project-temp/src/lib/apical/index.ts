@@ -126,6 +126,11 @@ export interface ChatMessage {
   deliveryError?: { message: string; retryable: boolean };
   /** Original send payload — used by Retry on deliveryError messages. */
   retryPayload?: { text: string; attachments?: ChatAttachment[] };
+  /** Set when a turn ended before finishing (user stopped it, or an error /
+   *  disconnect / token-limit cut it off). The partial answer + trace are kept
+   *  and a "Continue" affordance resumes from where it left off. Round-trips
+   *  through the persisted runAnalysis so it survives reloads. */
+  interrupted?: { reason: "stopped" | "error"; message?: string };
   createdAt: string;
 }
 
@@ -143,6 +148,10 @@ export interface ClarificationRequestInfo {
   question: string;
   options: Array<{ key: string; label: string; description?: string }>;
   multiple?: boolean;
+  /** Show a free-text "Other" input so the user can type a custom answer. */
+  allowFreeText?: boolean;
+  /** Placeholder for the free-text input. */
+  freeTextPlaceholder?: string;
   /** 'clarification' = disambiguate; 'review' = approval gate. */
   kind?: "clarification" | "review";
 }
@@ -203,6 +212,9 @@ export interface ExecutionStep {
   id: string;
   /** What the agent did — plain English, e.g. "Listed 12 files in /Scan Inbox" */
   action: string;
+  /** Whether this step is the agent thinking or running a tool. New field —
+   *  legacy steps rely on `tool === "reason"` and are handled by `stepKind`. */
+  kind?: "thought" | "tool";
   /** The tool or capability used, e.g. "files.list", "ocr.read", "gmail.send" */
   tool?: string;
   /** Full tool arguments captured at call time (for workflow replay). */
@@ -215,6 +227,12 @@ export interface ExecutionStep {
   /** If flagged/gated, what the agent needs from the human */
   question?: string;
   timestamp: string;
+}
+
+/** Classify a step as thinking vs a tool call, tolerating legacy rows that
+ *  only set `tool: "reason"` for thoughts. */
+export function stepKind(s: ExecutionStep): "thought" | "tool" {
+  return s.kind ?? (s.tool === "reason" ? "thought" : "tool");
 }
 
 // ─── Step-kind metadata ─────────────────────────────────────────────────────
@@ -264,18 +282,18 @@ export function agentAvatarLightness(name: string): number {
   return 0.45 + (h % 100) / 380;
 }
 
-/** Safari 15–safe avatar colors (HSL neutrals). Light text on mid-gray bg. */
+/** Consistent light-gray avatars with dark initials (readable in light + dark UI). */
 export function agentAvatarStyle(name: string): {
-  backgroundColor: string;
-  color: string;
+  backgroundColor: string
+  color: string
 } {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  const lightness = 38 + (h % 16); // 38–54%
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  const lightness = 74 + (h % 10) // 74–83% neutral gray
   return {
     backgroundColor: `hsl(0, 0%, ${lightness}%)`,
-    color: lightness > 46 ? "#171717" : "#fafafa",
-  };
+    color: '#171717',
+  }
 }
 
 /** Neutral avatar surface (replaces green-tinted oklch). */
