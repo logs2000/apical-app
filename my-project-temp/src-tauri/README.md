@@ -101,7 +101,7 @@ installer for the host OS.
 ## Production bundle
 
 The production bundle ships the Next.js standalone server as a Tauri sidecar
-(see `tauri.conf.json` → `plugins.shell.scope`). On first launch, Tauri
+(see `capabilities/default.json` → `shell:allow-execute`). On first launch, Tauri
 spawns the server, waits for it to come up on port 3000, then loads the
 webview. The user sees a native window with the full Apical app — no
 browser tab needed.

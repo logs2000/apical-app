@@ -18,6 +18,9 @@ const PUBLIC = path.join(ROOT, 'public')
 const TAURI_ICONS = path.join(ROOT, 'src-tauri', 'icons')
 
 const ICON_BG = '#0d0d0d'
+/** Desktop app / installer icon — square, extra inset so Windows masks don't clip the mark. */
+const APP_ICON_BG = '#000000'
+const APP_ICON_INSET = 0.22
 const MARK_PATHS = [
   'M231 0 L465 341 L373 341 L231 136 L91 341 L0 341 Z',
   'M231 249 L293 341 L169 341 Z',
@@ -39,9 +42,9 @@ function squircleRadius(size) {
  * @param {string|null} opts.bg - background fill, or null for transparent
  * @param {boolean} opts.rounded - clip background to squircle
  */
-function buildIconSvg({ size, fill, bg = ICON_BG, rounded = true }) {
-  const inset = size * 0.16
-  const avail = size - inset * 2
+function buildIconSvg({ size, fill, bg = ICON_BG, rounded = true, inset = 0.16 }) {
+  const pad = size * inset
+  const avail = size - pad * 2
   const scale = Math.min(avail / LOGO.w, avail / LOGO.h)
   const drawW = LOGO.w * scale
   const drawH = LOGO.h * scale
@@ -109,9 +112,19 @@ async function generateTrayIcons() {
 }
 
 async function generateTauriIcons() {
-  const master = path.join(PUBLIC, 'apical-full.png')
+  // Square white-on-black master sized like the macOS dock icon (inset mark, not edge-to-edge).
+  const appIconSvg = buildIconSvg({
+    size: 1024,
+    fill: '#ffffff',
+    bg: APP_ICON_BG,
+    rounded: false,
+    inset: APP_ICON_INSET,
+  })
+  const appIconMaster = path.join(PUBLIC, 'apical-app-icon.png')
+  await renderSvgToPng(appIconSvg, appIconMaster, 1024)
+
   try {
-    execSync(`npx tauri icon "${master}" -o "${TAURI_ICONS}"`, {
+    execSync(`npx tauri icon "${appIconMaster}" -o "${TAURI_ICONS}"`, {
       cwd: ROOT,
       stdio: 'inherit',
     })

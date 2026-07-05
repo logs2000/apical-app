@@ -199,6 +199,8 @@ jobs:
           path: artifacts/apical-windows
 
       - uses: actions/download-artifact@v4
+        continue-on-error: true
+        id: download-linux
         if: needs.build-linux.result == 'success'
         with:
           name: apical-linux
