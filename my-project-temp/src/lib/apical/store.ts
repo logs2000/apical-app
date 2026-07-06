@@ -117,6 +117,10 @@ interface AppState {
   pinnedConversationIds: string[];
   hydratePinnedConversations: () => void;
   togglePinConversation: (id: string) => void;
+  /** Long-task mode: the next send runs as a DURABLE agent run (survives
+   *  tab close; executed by the agent-worker). Persisted in localStorage. */
+  durableMode: boolean;
+  setDurableMode: (v: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -194,4 +198,15 @@ export const useAppStore = create<AppState>((set) => ({
       writePinnedConversationIds(next);
       return { pinnedConversationIds: next };
     }),
+  durableMode:
+    typeof window !== "undefined" &&
+    window.localStorage?.getItem("apical.durableMode") === "1",
+  setDurableMode: (v) => {
+    try {
+      window.localStorage?.setItem("apical.durableMode", v ? "1" : "0");
+    } catch {
+      // private mode — in-memory only
+    }
+    set({ durableMode: v });
+  },
 }));

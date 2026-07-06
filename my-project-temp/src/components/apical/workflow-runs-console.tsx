@@ -651,6 +651,133 @@ export function RunLog({
 /** @deprecated Use RunLog */
 export const WorkflowRunsConsole = RunLog;
 
+interface DurableAgentRun {
+  id: string;
+  agentId: string | null;
+  origin: string;
+  status: string;
+  goal: string;
+  iterations: number;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+function agentRunStatusMeta(status: string) {
+  switch (status) {
+    case "running":
+      return { label: "Running", className: "text-primary", icon: Loader2, spin: true };
+    case "queued":
+      return { label: "Queued", className: "text-muted-foreground", icon: Clock, spin: false };
+    case "completed":
+      return { label: "Done", className: "text-emerald-600", icon: CheckCircle2, spin: false };
+    case "failed":
+      return { label: "Failed", className: "text-destructive", icon: AlertTriangle, spin: false };
+    case "cancelling":
+      return { label: "Stopping", className: "text-muted-foreground", icon: Loader2, spin: true };
+    case "cancelled":
+      return { label: "Stopped", className: "text-muted-foreground", icon: Square, spin: false };
+    case "awaiting_input":
+      return { label: "Awaiting input", className: "text-gate", icon: ShieldCheck, spin: false };
+    default:
+      return { label: status, className: "text-muted-foreground", icon: Activity, spin: false };
+  }
+}
+
+/**
+ * Durable agent runs — long-task ("keep going if I close the tab") executions
+ * owned by the agent-worker, distinct from deterministic workflow runs above.
+ * Polls while any run is active; lets the user stop one.
+ */
+export function AgentRunsPanel({ agentId }: { agentId?: string | null }) {
+  const [runs, setRuns] = React.useState<DurableAgentRun[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const load = React.useCallback(async () => {
+    const qs = agentId ? `?agentId=${agentId}&limit=20` : "?limit=20";
+    const data = await fetch(`/api/agent-runs${qs}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ runs?: DurableAgentRun[] }>) : null))
+      .catch(() => null);
+    if (data?.runs) setRuns(data.runs);
+    setLoading(false);
+  }, [agentId]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const hasActive = runs.some((r) => ["running", "queued", "cancelling"].includes(r.status));
+  React.useEffect(() => {
+    if (!hasActive) return;
+    const t = setInterval(() => void load(), 4000);
+    return () => clearInterval(t);
+  }, [hasActive, load]);
+
+  async function cancel(id: string) {
+    await fetch(`/api/agent-runs/${id}/cancel`, { method: "POST" }).catch(() => {});
+    void load();
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-1.5 px-3 py-4 text-[11px] text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading agent runs…
+      </div>
+    );
+  }
+  if (runs.length === 0) {
+    return (
+      <div className="px-3 py-4 text-[11px] text-muted-foreground">
+        No long-task runs yet. Toggle “Long task” in the composer to run work that survives closing the tab.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {runs.map((run) => {
+        const meta = agentRunStatusMeta(run.status);
+        const Icon = meta.icon;
+        const active = ["running", "queued"].includes(run.status);
+        return (
+          <div key={run.id} className="rounded-lg border border-border bg-card p-2.5">
+            <div className="flex items-start gap-2">
+              <Icon className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", meta.className, meta.spin && "animate-spin")} />
+              <div className="min-w-0 flex-1">
+                <div className="line-clamp-2 text-[11px] text-foreground/90">{run.goal}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <span className={meta.className}>{meta.label}</span>
+                  <span>·</span>
+                  <span>{run.iterations} iter</span>
+                  {run.origin !== "chat" && (
+                    <>
+                      <span>·</span>
+                      <span>{run.origin}</span>
+                    </>
+                  )}
+                  <span>·</span>
+                  <span>{relativeTime(run.startedAt ?? run.createdAt)}</span>
+                </div>
+                {run.error && <div className="mt-0.5 text-[10px] text-destructive line-clamp-2">{run.error}</div>}
+              </div>
+              {active && (
+                <button
+                  type="button"
+                  onClick={() => void cancel(run.id)}
+                  className="shrink-0 rounded-md border border-border px-1.5 py-1 text-[10px] text-muted-foreground hover:text-destructive"
+                >
+                  <Square className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AgentRunSection({ workflowId }: { workflowId: string }) {
   const run = useWorkflowRun(workflowId);
 

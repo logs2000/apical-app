@@ -140,6 +140,32 @@ export interface AgentRunOptions {
    * response nobody will see.
    */
   signal?: AbortSignal
+  /**
+   * Durable runs: called after every loop iteration with a resumable snapshot.
+   * The agent-worker persists it so a crashed/restarted worker can continue
+   * the run instead of losing it. Native loop only.
+   */
+  onCheckpoint?: (checkpoint: EngineCheckpoint) => void
+  /** Durable runs: continue from a persisted snapshot instead of starting fresh. */
+  resumeFrom?: EngineCheckpoint
+}
+
+/** A resumable snapshot of an in-flight native loop. JSON-serializable. */
+export interface EngineCheckpoint {
+  /** Full transcript including the system prompt and tool results. */
+  messages: GatewayMessage[]
+  iterations: number
+  toolCalls: number
+  tokensUsed: number
+  answerText: string
+  /** ToolContext state that must survive a resume. */
+  ctxState?: {
+    plan?: PlanItem[]
+    executionTrace?: ToolContext['executionTrace']
+    findings?: ToolContext['findings']
+    producedAssets?: ToolContext['producedAssets']
+    usedCredentialIds?: string[]
+  }
 }
 
 export interface AgentRunResult {
@@ -628,7 +654,7 @@ async function runNativeLoop(
   const toolSpecs = toolSpecsForLLM(allowCli)
   const systemPrompt = SYSTEM_PROMPT.replace('{{RUNTIME}}', runtimeBlock)
 
-  const messages: GatewayMessage[] = [{ role: 'system', content: systemPrompt }]
+  let messages: GatewayMessage[] = [{ role: 'system', content: systemPrompt }]
   for (const h of state.history) {
     messages.push({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })
   }
@@ -645,6 +671,45 @@ async function runNativeLoop(
   let answerText = ''
   let lastError: string | null = null
   let failureHonestyNudges = 0
+
+  // Durable resume: continue the persisted transcript instead of starting over.
+  const resume = opts.resumeFrom
+  if (resume && Array.isArray(resume.messages) && resume.messages.length > 0) {
+    messages = resume.messages
+    iterations = resume.iterations || 0
+    toolCalls = resume.toolCalls || 0
+    tokensUsed = resume.tokensUsed || 0
+    answerText = resume.answerText || ''
+    if (resume.ctxState) {
+      if (resume.ctxState.plan) ctx.plan = resume.ctxState.plan
+      if (resume.ctxState.executionTrace) ctx.executionTrace = resume.ctxState.executionTrace
+      if (resume.ctxState.findings) ctx.findings = resume.ctxState.findings
+      if (resume.ctxState.producedAssets) ctx.producedAssets = resume.ctxState.producedAssets
+      if (resume.ctxState.usedCredentialIds) ctx.usedCredentialIds = resume.ctxState.usedCredentialIds
+    }
+  }
+
+  const emitCheckpoint = () => {
+    if (!opts.onCheckpoint) return
+    try {
+      opts.onCheckpoint({
+        messages,
+        iterations,
+        toolCalls,
+        tokensUsed,
+        answerText,
+        ctxState: {
+          plan: ctx.plan,
+          executionTrace: ctx.executionTrace,
+          findings: ctx.findings,
+          producedAssets: ctx.producedAssets,
+          usedCredentialIds: ctx.usedCredentialIds,
+        },
+      })
+    } catch (e) {
+      console.warn('[agent-engine] checkpoint failed:', (e as Error).message)
+    }
+  }
 
   onEvent({ type: 'status', status: 'thinking' })
 
@@ -872,6 +937,7 @@ async function runNativeLoop(
       }
     }
 
+    emitCheckpoint()
     onEvent({ type: 'status', status: 'thinking' })
   }
 

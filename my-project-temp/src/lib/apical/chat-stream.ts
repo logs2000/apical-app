@@ -312,7 +312,7 @@ function statusStepLabel(status: string): string {
   }
 }
 
-function applyThinkEvent(
+export function applyThinkEvent(
   trace: ExecutionStep[],
   event: Record<string, unknown>,
   onSandboxItem?: (item: SandboxItem) => void,
@@ -450,6 +450,14 @@ export async function streamAgentThink(
     onAnswerDelta?: (fullAnswerSoFar: string) => void
     /** Fired whenever the agent's live checklist changes. */
     onPlanUpdate?: (items: PlanItem[]) => void
+    /**
+     * Durable mode: the loop runs in the agent-worker and survives tab close /
+     * disconnect. Events arrive via the run's catch-up stream (no keystroke
+     * deltas — thoughts/tools/answer land as complete events).
+     */
+    durable?: boolean
+    /** Durable mode: fired with the AgentRun id as soon as it's enqueued. */
+    onAgentRunId?: (agentRunId: string) => void
   },
 ): Promise<ThinkStreamResult> {
   const trace: ExecutionStep[] = []
@@ -483,16 +491,16 @@ export async function streamAgentThink(
       script: opts.script,
       maxIterations: opts.maxIterations ?? 64,
       clientContext: readClientContext(),
+      ...(opts.durable ? { durable: true } : {}),
     }),
   })
 
-  if (!res.ok || !res.body) {
+  if (!res.ok || (!opts.durable && !res.body)) {
     const err = await res.json().catch(() => ({}))
     throw new Error((err as { error?: string }).error || `HTTP ${res.status}`)
   }
-  opts.onStreamOpen?.()
 
-  await readSseStream(res, (event) => {
+  const handleEvent = (event: Record<string, unknown>) => {
     if (event.type === 'error') {
       throw new Error(String(event.message ?? 'Agent loop failed'))
     }
@@ -560,10 +568,155 @@ export async function streamAgentThink(
       const finalClarify = (event as { clarification?: ClarificationRequestInfo }).clarification
       if (finalClarify) clarificationRequest = finalClarify
     }
-  }, opts.signal)
+  }
+
+  if (opts.durable) {
+    const accepted = (await res.json()) as { agentRunId?: string }
+    if (!accepted.agentRunId) throw new Error('durable run was not enqueued')
+    opts.onAgentRunId?.(accepted.agentRunId)
+    opts.onStreamOpen?.()
+    await followAgentRun(accepted.agentRunId, handleEvent, opts.signal)
+  } else {
+    opts.onStreamOpen?.()
+    await readSseStream(res, handleEvent, opts.signal)
+  }
 
   // Finalize any leftover live-thought sentinel so implementation ids never
   // persist or render.
+  trace.forEach((s, i) => {
+    if (s.id.startsWith('__')) {
+      s.id = `e${i + 1}`
+      if (s.status === 'running') s.status = 'done'
+    }
+  })
+
+  return {
+    finalAnswer,
+    proposedWorkflow,
+    workflowSavedToAgentId,
+    createdAgentId,
+    createdAgentName,
+    credentialRequests,
+    connectionRequests,
+    checklist,
+    clarificationRequest,
+    trace,
+    attachments,
+  }
+}
+
+/**
+ * Follow a durable AgentRun's event stream to completion, reconnecting across
+ * the catch-up stream's ~5-minute windows. Safe to call after a page reload —
+ * it replays everything from the beginning (afterSeq=-1) unless told otherwise.
+ */
+export async function followAgentRun(
+  agentRunId: string,
+  onEvent: (event: Record<string, unknown>) => void,
+  signal?: AbortSignal,
+  startAfterSeq = -1,
+): Promise<void> {
+  let afterSeq = startAfterSeq
+  let terminal = false
+  while (!terminal) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    const res = await fetch(`/api/agent-runs/${agentRunId}/stream?afterSeq=${afterSeq}`, { signal })
+    await readSseStream(
+      res,
+      (event) => {
+        const seq = (event as { __seq?: number }).__seq
+        if (typeof seq === 'number') afterSeq = Math.max(afterSeq, seq)
+        if (event.type === 'final' || event.type === 'error') terminal = true
+        onEvent(event)
+      },
+      signal,
+    )
+    if (!terminal) {
+      // Stream window closed without a final — check status before re-opening.
+      const st = await fetch(`/api/agent-runs/${agentRunId}`)
+        .then((r) => (r.ok ? (r.json() as Promise<{ status?: string }>) : null))
+        .catch(() => null)
+      const status = st?.status
+      if (status && ['completed', 'failed', 'cancelled', 'awaiting_input'].includes(status)) {
+        terminal = true
+      } else {
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+    }
+  }
+}
+
+/**
+ * Re-attach to an in-flight durable run (page reload / new tab): replays all
+ * persisted events into the same UI callbacks streamAgentThink uses, then
+ * follows the run to completion. Returns the same result shape.
+ * Note: durable catch-up carries no keystroke deltas — the answer arrives
+ * complete on the final event.
+ */
+export async function attachToAgentRun(
+  agentRunId: string,
+  opts: {
+    signal?: AbortSignal
+    onTraceUpdate: (trace: ExecutionStep[]) => void
+    onSandboxItem?: (item: SandboxItem) => void
+    onStatusUpdate?: (label: string) => void
+    onAnswerDelta?: (fullAnswerSoFar: string) => void
+    onPlanUpdate?: (items: PlanItem[]) => void
+  },
+): Promise<ThinkStreamResult> {
+  const trace: ExecutionStep[] = []
+  let finalAnswer = ''
+  let proposedWorkflow: WorkflowJSON | undefined
+  let workflowSavedToAgentId: string | undefined
+  let createdAgentId: string | undefined
+  let createdAgentName: string | undefined
+  let credentialRequests: CredentialRequestInfo[] | undefined
+  let connectionRequests: ConnectionRequestInfo[] | undefined
+  let checklist: PlanItem[] | undefined
+  let clarificationRequest: ClarificationRequestInfo | undefined
+  let attachments: ThinkStreamResult['attachments']
+
+  await followAgentRun(
+    agentRunId,
+    (event) => {
+      if (event.type === 'error') {
+        throw new Error(String(event.message ?? 'Agent run failed'))
+      }
+      if (event.type === 'status') {
+        opts.onStatusUpdate?.(statusStepLabel(String(event.status ?? 'thinking')))
+        return
+      }
+      if (event.type === 'plan') {
+        const items = ((event as { items?: PlanItem[] }).items ?? []) as PlanItem[]
+        checklist = items
+        opts.onPlanUpdate?.(items)
+      }
+      if (event.type === 'clarification') {
+        clarificationRequest = (event as { question?: ClarificationRequestInfo }).question
+      }
+      applyThinkEvent(trace, event, opts.onSandboxItem)
+      if (trace.length > 0) opts.onTraceUpdate([...trace])
+      if (event.type === 'final') {
+        finalAnswer = String((event as { answer?: string }).answer ?? '')
+        if (finalAnswer) opts.onAnswerDelta?.(finalAnswer)
+        proposedWorkflow = (event as { proposedWorkflow?: WorkflowJSON }).proposedWorkflow
+        workflowSavedToAgentId = (event as { workflowSavedToAgentId?: string }).workflowSavedToAgentId
+        createdAgentId = (event as { createdAgentId?: string }).createdAgentId
+        createdAgentName = (event as { createdAgentName?: string }).createdAgentName
+        const creds = (event as { credentialRequests?: CredentialRequestInfo[] }).credentialRequests
+        if (creds && creds.length > 0) credentialRequests = creds
+        const conns = (event as { connectionRequests?: ConnectionRequestInfo[] }).connectionRequests
+        if (conns && conns.length > 0) connectionRequests = conns
+        attachments = (event as { attachments?: ThinkStreamResult['attachments'] }).attachments
+        const finalPlan = (event as { plan?: PlanItem[] }).plan
+        if (finalPlan) checklist = finalPlan
+        const finalClarify = (event as { clarification?: ClarificationRequestInfo }).clarification
+        if (finalClarify) clarificationRequest = finalClarify
+      }
+    },
+    opts.signal,
+  )
+
   trace.forEach((s, i) => {
     if (s.id.startsWith('__')) {
       s.id = `e${i + 1}`

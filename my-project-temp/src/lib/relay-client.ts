@@ -90,3 +90,13 @@ export function broadcastRun(
     console.error('[apical-relay] broadcast failed:', err)
   }
 }
+
+/**
+ * Broadcast a durable agent-run event. Rooms reuse the relay's `run:` prefix
+ * with a namespaced id (`run:agentrun:<id>`), so the relay service needs no
+ * changes — browsers subscribe with runId `agentrun:<id>` and a token minted
+ * for that same id.
+ */
+export function broadcastAgentRun(agentRunId: string, event: string, data: unknown): void {
+  broadcastRun(`agentrun:${agentRunId}`, event, data)
+}

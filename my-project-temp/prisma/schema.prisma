@@ -22,8 +22,8 @@ datasource db {
 // ---------------- NextAuth: User + Account + VerificationToken ----------------
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
+  id            String    @id @default(cuid())
+  email         String    @unique
   name          String?
   emailVerified DateTime?
   image         String?
@@ -31,9 +31,9 @@ model User {
   passwordHash  String?
   // Which auth provider the user signed up with: "google" | "credentials".
   // (Used so the login page can route them to the right provider on re-login.)
-  provider      String   @default("credentials")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  provider      String    @default("credentials")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   accounts             Account[]
   workflows            Workflow[]
@@ -95,89 +95,89 @@ model VerificationToken {
 /// are legacy registry-style rows kept until the backfill copies them into
 /// the catalog; new instances are always workspace-scoped.
 model Integration {
-  id          String   @id @default(cuid())
+  id           String   @id @default(cuid())
   // Tenant. Required at the app layer for private instances; null only for
   // legacy builtin/public template rows (treated as registry entries).
-  workspaceId String?
+  workspaceId  String?
   // Optional link back to the registry entry this instance was installed from.
   registrySlug String?
-  name        String
-  kind        String   // "mcp" | "api" | "http"
-  description String
+  name         String
+  kind         String // "mcp" | "api" | "http"
+  description  String
   // config holds connection details as JSON: { url, specUrl?, auth: {...} }
-  config      String
+  config       String
   // tools is a JSON array of { id, name, description, inputSchema? }
-  tools       String
-  status      String   @default("connected") // "connected" | "error" | "draft"
-  category    String   @default("general")   // "files" | "email" | "database" | "documents" | "messaging" | "finance" | "general"
-  color       String   @default("emerald")
+  tools        String
+  status       String   @default("connected") // "connected" | "error" | "draft"
+  category     String   @default("general") // "files" | "email" | "database" | "documents" | "messaging" | "finance" | "general"
+  color        String   @default("emerald")
   // source: where this integration came from
-  source      String   @default("builtin") // "builtin" | "private" | "public"
+  source       String   @default("builtin") // "builtin" | "private" | "public"
   // visibility: user's choice for their own custom integrations
-  visibility  String   @default("private") // "private" | "public"
-  authorLabel String?  // who contributed a public one (e.g. "community", "@jane")
-  installs    Int      @default(0) // install count for public library entries
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  visibility   String   @default("private") // "private" | "public"
+  authorLabel  String? // who contributed a public one (e.g. "community", "@jane")
+  installs     Int      @default(0) // install count for public library entries
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([workspaceId])
 }
 
 model Workflow {
-  id            String   @id @default(cuid())
+  id                     String             @id @default(cuid())
   // Who owns this workflow. Optional so existing seed rows survive; new
   // records should always set it (the auth layer attaches the current user).
-  userId        String?
-  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  name          String
-  description   String
+  userId                 String?
+  user                   User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name                   String
+  description            String
   // stepsJson: the full workflow JSON (see shared types). List of step objects.
-  stepsJson     String
-  trigger       String   @default("manual") // "manual" | "schedule"
-  schedule      String?  // cron-like human string, e.g. "Every weekday at 9am"
-  status        String   @default("active") // "draft" | "active" | "paused"
+  stepsJson              String
+  trigger                String             @default("manual") // "manual" | "schedule"
+  schedule               String? // cron-like human string, e.g. "Every weekday at 9am"
+  status                 String             @default("active") // "draft" | "active" | "paused"
   // (The old "employee" fields — department + title — were dropped in the
   // terminology migration. Workflows are automations, not hires.)
   // Tenant. Required at the app layer; nullable in the schema until the
   // workspace backfill script has run against every environment.
-  workspaceId   String?
+  workspaceId            String?
   // Where this agent runs: local (desktop app, fs/cli/net access) or hosted (Apical server).
-  runtime       String   @default("hosted") // "local" | "hosted"
+  runtime                String             @default("hosted") // "local" | "hosted"
   // Parent agent id — if this is a subagent spawned by another agent's "spawn" step.
-  parentAgentId String?
-  runsCount     Int      @default(0)
-  itemsProcessed Int     @default(0)
-  automaticCount Int     @default(0)
-  flaggedCount  Int      @default(0)
-  aiCallsSaved  Int      @default(0)
-  estCostSavedCents Int  @default(0)
+  parentAgentId          String?
+  runsCount              Int                @default(0)
+  itemsProcessed         Int                @default(0)
+  automaticCount         Int                @default(0)
+  flaggedCount           Int                @default(0)
+  aiCallsSaved           Int                @default(0)
+  estCostSavedCents      Int                @default(0)
   // origin: how this workflow was created — "agent" (from chat) or "manual"
-  origin        String   @default("agent")
+  origin                 String             @default("agent")
   // ---- Per-agent config (Phase 3 revamp) ----
   // Which AI model this agent prefers: 'default' | 'fast' | 'thinking' | a custom id. Null = inherit workspace default.
-  modelPreference    String?
+  modelPreference        String?
   // Default confidence threshold for reason steps that don't override (0-1).
-  confidenceThreshold Float?
+  confidenceThreshold    Float?
   // Auto-harden a reason step after N consistent runs (0 = off).
-  autoHardenAfter    Int?
+  autoHardenAfter        Int?
   // JSON array of tool ids this agent is allowed to use. Null = all connected tools.
-  allowedToolsJson   String?
+  allowedToolsJson       String?
   // JSON array of credential ids this agent can access. Null = all.
   allowedCredentialsJson String?
   // The currently-active revision (see WorkflowRevision). stepsJson is kept
   // in sync as a denormalized copy of the active revision's steps.
-  activeRevisionId String?
+  activeRevisionId       String?
   // Inbound trigger secret: POST /v1/hooks/w/{id}/{secret} starts a run.
   // Null = inbound trigger URL disabled. Minted/rotated via the API.
-  triggerSecret String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  runs          Run[]
-  patterns      ExecutionPattern[]
-  agentMessages AgentMessage[]
-  agentData     AgentData[]
-  assets        UserAsset[]
-  revisions     WorkflowRevision[]
+  triggerSecret          String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  runs                   Run[]
+  patterns               ExecutionPattern[]
+  agentMessages          AgentMessage[]
+  agentData              AgentData[]
+  assets                 UserAsset[]
+  revisions              WorkflowRevision[]
 }
 
 // Immutable snapshots of a workflow's steps. Every save (freeze, update,
@@ -207,15 +207,15 @@ model WorkflowRevision {
 // Per-agent chat messages (Phase 3 revamp). Persists the conversation thread
 // for each agent so the right-side chat rail can restore history on mount.
 model AgentMessage {
-  id          String   @id @default(cuid())
-  agentId     String
-  role        String   // "user" | "agent"
-  content     String
+  id         String   @id @default(cuid())
+  agentId    String
+  role       String // "user" | "agent"
+  content    String
   // JSON array of AgentEvent (tool_call, reasoning, task_list, status, action_complete, error).
   // Token events are NOT persisted — they accumulate into `content`.
-  eventsJson  String?
-  createdAt   DateTime @default(now())
-  agent       Workflow @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  eventsJson String?
+  createdAt  DateTime @default(now())
+  agent      Workflow @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@index([agentId, createdAt])
 }
@@ -268,31 +268,31 @@ model UserAsset {
 }
 
 model Run {
-  id             String   @id @default(cuid())
-  workflowId     String
-  workflow       Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  status         String   @default("running") // "running" | "completed" | "failed" | "awaiting_gate" | "cancelled"
-  trigger        String   @default("manual")  // "manual" | "schedule" | "hook" | "watch" | "rerun"
+  id                 String    @id @default(cuid())
+  workflowId         String
+  workflow           Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status             String    @default("running") // "running" | "completed" | "failed" | "awaiting_gate" | "cancelled"
+  trigger            String    @default("manual") // "manual" | "schedule" | "hook" | "watch" | "rerun"
   // Optional end-customer scope: when set, credential resolution prefers
   // credentials bound to this ConnectedAccount (multi-tenant runs).
   connectedAccountId String?
   // The workflow revision this run executed (pinned at start).
-  revisionId     String?
+  revisionId         String?
   // Client-supplied idempotency key: retried POSTs with the same key return
   // the original run instead of creating a duplicate.
-  idempotencyKey String?
+  idempotencyKey     String?
   // For reruns: the failed run this one was re-executed from.
-  rerunOfRunId   String?
-  itemsProcessed Int      @default(0)
-  automaticCount Int      @default(0)
-  flaggedCount   Int      @default(0)
-  aiCallsUsed    Int      @default(0)
-  aiCallsSaved   Int      @default(0)
-  durationMs     Int      @default(0)
-  reportJson     String?  // structured report: { summary, items[], flags[] }
-  startedAt      DateTime @default(now())
-  finishedAt     DateTime?
-  steps          RunStep[]
+  rerunOfRunId       String?
+  itemsProcessed     Int       @default(0)
+  automaticCount     Int       @default(0)
+  flaggedCount       Int       @default(0)
+  aiCallsUsed        Int       @default(0)
+  aiCallsSaved       Int       @default(0)
+  durationMs         Int       @default(0)
+  reportJson         String? // structured report: { summary, items[], flags[] }
+  startedAt          DateTime  @default(now())
+  finishedAt         DateTime?
+  steps              RunStep[]
 
   @@unique([workflowId, idempotencyKey])
 }
@@ -301,18 +301,18 @@ model Run {
 // natural-language spec, an LLM designs a WorkflowJSON, it passes the same
 // validate pipeline as POST /v1/workflows, and the result lands here.
 model GenerateJob {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   userId      String?
-  spec        String   // the natural-language description of the automation
+  spec        String // the natural-language description of the automation
   name        String?
-  status      String   @default("pending") // "pending" | "running" | "completed" | "failed"
+  status      String    @default("pending") // "pending" | "running" | "completed" | "failed"
   // On success: the created workflow id.
   workflowId  String?
   error       String?
   // JSON array of validation issues from the last failed attempt, if any.
   issuesJson  String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   completedAt DateTime?
 
   @@index([workspaceId])
@@ -325,7 +325,7 @@ model GrantedFolder {
   id          String   @id @default(cuid())
   userId      String
   workspaceId String?
-  path        String   // absolute path on the user's machine
+  path        String // absolute path on the user's machine
   label       String?
   createdAt   DateTime @default(now())
 
@@ -337,19 +337,19 @@ model GrantedFolder {
 // `workflowId` with { trigger: { newFiles, path } } as the run input.
 // Poll-based: the local desktop runtime diffs directory listings.
 model WatchedFolder {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   userId         String
   workspaceId    String?
   workflowId     String
   path           String
   // Optional filename filter, e.g. "*.pdf" (simple glob: * matches any chars).
   pattern        String?
-  status         String   @default("active") // "active" | "paused"
+  status         String    @default("active") // "active" | "paused"
   lastScanAt     DateTime?
   // JSON array of filenames seen at the last scan.
-  knownFilesJson String   @default("[]")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  knownFilesJson String    @default("[]")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([status])
   @@index([userId])
@@ -360,32 +360,32 @@ model WatchedFolder {
 // SHA-256 over `${timestamp}.${body}` using `secret`
 // (header: X-Apical-Signature: t=<unix>,v1=<hex>).
 model WebhookEndpoint {
-  id          String   @id @default(cuid())
+  id          String            @id @default(cuid())
   workspaceId String
   url         String
   // HMAC signing secret (whsec_...). Shown once at creation.
   secret      String
   // JSON array of subscribed events; empty = all events.
-  eventsJson  String   @default("[]")
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  eventsJson  String            @default("[]")
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
   deliveries  WebhookDelivery[]
 }
 
 // Delivery log per webhook attempt. Failed deliveries are retried with
 // backoff up to a max attempt count, then dead-lettered (status "failed").
 model WebhookDelivery {
-  id             String   @id @default(cuid())
+  id             String          @id @default(cuid())
   endpointId     String
   endpoint       WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
-  event          String   // "run.completed" | "run.failed" | "step.failed"
+  event          String // "run.completed" | "run.failed" | "step.failed"
   payloadJson    String
-  status         String   @default("pending") // "pending" | "delivered" | "failed"
-  attempts       Int      @default(0)
+  status         String          @default("pending") // "pending" | "delivered" | "failed"
+  attempts       Int             @default(0)
   responseStatus Int?
   lastError      String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime        @default(now())
   deliveredAt    DateTime?
 }
 
@@ -393,31 +393,31 @@ model WebhookDelivery {
 // custom widgets (stats, tables, charts, alerts) that render on its detail
 // page. Agents populate/update these during their runs.
 model AgentWidget {
-  id          String   @id @default(cuid())
-  agentId     String   // Workflow.id
-  type        String   // "stat" | "table" | "list" | "chart" | "alert" | "progress"
-  title       String
-  dataJson    String   // widget-specific data (see WidgetData type)
-  col         Int      @default(0)  // column position on the dashboard
-  ord         Int      @default(0)  // order within the column
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  agentId   String // Workflow.id
+  type      String // "stat" | "table" | "list" | "chart" | "alert" | "progress"
+  title     String
+  dataJson  String // widget-specific data (see WidgetData type)
+  col       Int      @default(0) // column position on the dashboard
+  ord       Int      @default(0) // order within the column
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model RunStep {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   runId       String
-  run         Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
-  stepId      String   // matches step.id in the workflow JSON
-  kind        String   // "tool" | "reason" | "gate"
+  run         Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stepId      String // matches step.id in the workflow JSON
+  kind        String // "tool" | "reason" | "gate"
   label       String
-  status      String   @default("pending") // "pending" | "running" | "completed" | "flagged" | "skipped" | "awaiting" | "failed"
-  outputJson  String?  // step output (resolved variables, AI answer, etc.)
-  aiTokens    Int      @default(0)
-  aiCostCents Int      @default(0)
+  status      String    @default("pending") // "pending" | "running" | "completed" | "flagged" | "skipped" | "awaiting" | "failed"
+  outputJson  String? // step output (resolved variables, AI answer, etc.)
+  aiTokens    Int       @default(0)
+  aiCostCents Int       @default(0)
   startedAt   DateTime?
   finishedAt  DateTime?
-  order       Int      @default(0)
+  order       Int       @default(0)
 }
 
 // Self-optimization: tracks how consistently a `reason` step resolves,
@@ -429,10 +429,10 @@ model ExecutionPattern {
   stepId      String
   // signature: a fingerprint of the input that produced an output, e.g. "letterhead:smith-llp"
   signature   String
-  outputJson  String   // the consistent output this signature maps to
+  outputJson  String // the consistent output this signature maps to
   occurrences Int      @default(1)
   hardened    Boolean  @default(false)
-  ruleJson    String?  // when hardened, the deterministic rule applied
+  ruleJson    String? // when hardened, the deterministic rule applied
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -440,39 +440,39 @@ model ExecutionPattern {
 // AI-auth vault preview: credentials an agent can provision / retrieve / pay with.
 // Kept separate so it can run independently of the workflow engine.
 model Credential {
-  id          String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   // Owning user. Optional for backward compat with existing seed rows.
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId             String?
+  user               User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   // Tenant. Required at the app layer; nullable until the backfill has run.
-  workspaceId String?
+  workspaceId        String?
   // Optional link to a ConnectedAccount (external end-user of a SaaS builder).
   // When set, credential resolution prefers this account's vault.
   connectedAccountId String?
-  service     String   // e.g. "gmail", "stripe", "quickbooks"
-  label       String   // human label
-  kind        String   // "oauth" | "apikey" | "payment" | "mcp_token" | "pipedream"
-  status      String   @default("active") // "provisioning" | "active" | "expired" | "revoked"
+  service            String // e.g. "gmail", "stripe", "quickbooks"
+  label              String // human label
+  kind               String // "oauth" | "apikey" | "payment" | "mcp_token" | "pipedream"
+  status             String    @default("active") // "provisioning" | "active" | "expired" | "revoked"
   // metaJson: non-secret metadata, e.g. { scopes, account, last4 }
-  metaJson    String   @default("{}")
+  metaJson           String    @default("{}")
   // agentProvisioned: did the agent open this account itself, or did a human add it?
-  agentProvisioned Boolean @default(false)
-  canPay      Boolean  @default(false)
+  agentProvisioned   Boolean   @default(false)
+  canPay             Boolean   @default(false)
   // For OAuth-connected credentials: the provider key + token info.
   // oauthProvider is the canonical key from OAuthProvider ("google", "github", ...).
   // oauthAccessToken/oauthRefreshToken are AES-256-GCM vault-encrypted at rest
   // (legacy plaintext rows still resolve via decryptOAuthToken's fallback).
-  oauthProvider    String?
-  oauthAccessToken String?
-  oauthRefreshToken String?
-  oauthExpiresAt   DateTime?
+  oauthProvider      String?
+  oauthAccessToken   String?
+  oauthRefreshToken  String?
+  oauthExpiresAt     DateTime?
   // For kind="pipedream": the Pipedream Connect account reference ("apn_...")
   // and app slug. Tokens for these rows live in Pipedream's vault, NOT here —
   // oauthAccessToken stays null and all calls route through Pipedream.
   pipedreamAccountId String?
   pipedreamApp       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([pipedreamAccountId])
 }
@@ -482,42 +482,42 @@ model Credential {
 // endpoints and scopes (pulled from their docs) plus Apical's own OAuth client
 // credentials (empty in dev — users bring their own or use demo mode).
 model OAuthProvider {
-  id              String   @id @default(cuid())
+  id                  String   @id @default(cuid())
   // Canonical provider key: "google", "github", "slack", "notion", etc.
-  key             String   @unique
-  name            String   // Display name: "Google", "GitHub"
-  icon            String   @default("") // emoji or icon name
-  category        String   @default("general") // "email", "dev", "crm", "finance", etc.
-  description     String   @default("")
+  key                 String   @unique
+  name                String // Display name: "Google", "GitHub"
+  icon                String   @default("") // emoji or icon name
+  category            String   @default("general") // "email", "dev", "crm", "finance", etc.
+  description         String   @default("")
   // OAuth 2.0 endpoints (from the provider's docs).
-  authorizationUrl String  // e.g. "https://accounts.google.com/o/oauth2/v2/auth"
-  tokenUrl         String  // e.g. "https://oauth2.googleapis.com/token"
-  scopes           String  // space-separated, e.g. "https://mail.google.com/ openid profile"
+  authorizationUrl    String // e.g. "https://accounts.google.com/o/oauth2/v2/auth"
+  tokenUrl            String // e.g. "https://oauth2.googleapis.com/token"
+  scopes              String // space-separated, e.g. "https://mail.google.com/ openid profile"
   // Apical's OAuth credentials for this provider (empty in dev → user brings their own).
-  clientId         String  @default("")
-  clientSecret     String  @default("")
+  clientId            String   @default("")
+  clientSecret        String   @default("")
   // Whether this provider supports "bring your own credentials".
-  supportsCustomCreds Boolean @default(true)
+  supportsCustomCreds Boolean  @default(true)
   // Whether this is available in demo mode (simulated connection).
-  demoMode         Boolean @default(true)
-  status           String  @default("active") // "active" | "coming_soon"
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  demoMode            Boolean  @default(true)
+  status              String   @default("active") // "active" | "coming_soon"
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model Conversation {
-  id          String   @id @default(cuid())
+  id           String   @id @default(cuid())
   // Owning user. Optional for backward compat with existing seed rows.
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  title       String   @default("New conversation")
-  workspaceId String?  // which workspace this conversation belongs to
-  messagesJson String  @default("[]") // [{ role, content, ...cards }]
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  title        String   @default("New conversation")
+  workspaceId  String? // which workspace this conversation belongs to
+  messagesJson String   @default("[]") // [{ role, content, ...cards }]
   // summaryJson: a short profile the agent builds of what this conversation is about
   summaryJson  String   @default("{}")
-  pinned      Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  pinned       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 // A workspace is THE core tenant of Apical. Every resource (workflows,
@@ -526,25 +526,25 @@ model Conversation {
 // WorkspaceMember rows. Billing (plan + prepaid balance) lives here too —
 // it absorbed the old DeveloperAccount model.
 model Workspace {
-  id          String   @id @default(cuid())
+  id               String   @id @default(cuid())
   // Legacy owning user (pre-members). Kept while the backfill migrates
   // ownership into WorkspaceMember rows; new code reads members.
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  name        String
-  description String   @default("")
-  color       String   @default("emerald") // accent for the workspace switcher
+  userId           String?
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name             String
+  description      String   @default("")
+  color            String   @default("emerald") // accent for the workspace switcher
   // ---- Billing (absorbed from DeveloperAccount) ----
-  plan             String  @default("free") // "free" | "starter" | "pro" | "scale"
-  balanceCents     Int     @default(0)      // prepaid credits for run costs
+  plan             String   @default("free") // "free" | "starter" | "pro" | "scale"
+  balanceCents     Int      @default(0) // prepaid credits for run costs
   billingEmail     String?
   stripeCustomerId String?
-  status           String  @default("active") // "active" | "suspended" | "closed"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status           String   @default("active") // "active" | "suspended" | "closed"
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  members  WorkspaceMember[]
-  apiKeys  ApiKey[]
+  members   WorkspaceMember[]
+  apiKeys   ApiKey[]
   auditLogs McpAuditLog[]
 }
 
@@ -565,33 +565,33 @@ model WorkspaceMember {
 // A lightweight company/user profile the agent uses to tailor suggestions and
 // remember data sources, industry, and preferences. Singleton (one row).
 model UserProfile {
-  id            String   @id @default(cuid())
+  id                    String   @id @default(cuid())
   // Owning user. Optional for backward compat with existing seed rows.
-  userId        String?  @unique
-  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  companyName   String   @default("")
-  industry      String   @default("")
-  notes         String   @default("")
+  userId                String?  @unique
+  user                  User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  companyName           String   @default("")
+  industry              String   @default("")
+  notes                 String   @default("")
   // dataSourcesJson: [{ label, kind, detail }] — services/data the user relies on
-  dataSourcesJson String @default("[]")
+  dataSourcesJson       String   @default("[]")
   // Geography/locale context so agents can reason about "today", business
   // hours, local services, currency, etc. — and know when to ask. Captured
   // from the browser (IANA timezone + locale) on each turn and, for hosted
   // sessions, enriched from the request IP (approximate). Empty = unknown.
-  timezone      String   @default("")
-  locale        String   @default("")
-  country       String   @default("")
-  region        String   @default("")
-  city          String   @default("")
+  timezone              String   @default("")
+  locale                String   @default("")
+  country               String   @default("")
+  region                String   @default("")
+  city                  String   @default("")
   // How the user prefers new agents to be named.
   //   "evocative"   → Nomi, Vexa, Kiro (short, friendly, non-human)
   //   "descriptive" → SortAgent, InvoiceAgent (derived from the job)
-  agentNameStyle String @default("descriptive")
+  agentNameStyle        String   @default("descriptive")
   // notificationPrefsJson: { gate, flagged, daily_brief, weekly_brief, schedule, billing } → boolean.
   // Drives which email notifications the user receives. Empty = all on.
-  notificationPrefsJson String @default("{}")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  notificationPrefsJson String   @default("{}")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 // ---------------- Unified API keys ----------------
@@ -602,29 +602,29 @@ model UserProfile {
 // raw tokens still authenticate because their hashes were migrated in.
 
 model ApiKey {
-  id            String    @id @default(cuid())
-  workspaceId   String
-  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   // The user who created the key (the "actor" for audit purposes).
-  createdById   String?
+  createdById     String?
   // The label the user gave the key (e.g. "Production", "Local dev", "Cursor").
-  label         String    @default("Default")
+  label           String        @default("Default")
   // SHA-256 hex of the raw key. Never store the raw key (shown once).
-  keyHash       String    @unique
+  keyHash         String        @unique
   // First 12 chars (ap_sk_xxxx / ap_pat_xxxx) shown in the UI.
-  keyPrefix     String
+  keyPrefix       String
   // JSON array of scopes: ["workflows:read","workflows:write","runs:execute",
   // "credentials:manage","registry:read","usage:read"]. Empty = all scopes
   // (legacy migrated keys).
-  scopesJson    String    @default("[]")
+  scopesJson      String        @default("[]")
   // Per-key spend limit in cents (0 = no limit). Enforced on run execution.
-  spendLimitCents Int     @default(0)
-  spentCents      Int     @default(0)
-  lastUsedAt    DateTime?
-  lastUsedFrom  String?   // IP or "mcp" / "rest"
-  status        String    @default("active") // "active" | "revoked"
-  createdAt     DateTime  @default(now())
-  logs          McpAuditLog[]
+  spendLimitCents Int           @default(0)
+  spentCents      Int           @default(0)
+  lastUsedAt      DateTime?
+  lastUsedFrom    String? // IP or "mcp" / "rest"
+  status          String        @default("active") // "active" | "revoked"
+  createdAt       DateTime      @default(now())
+  logs            McpAuditLog[]
 
   @@index([workspaceId])
   // Fresh table (the legacy "ApiKey" table had a developerId FK; mapping to a
@@ -636,23 +636,23 @@ model ApiKey {
 // Append-only audit log of every MCP + REST API call made with a key.
 // Used for usage tracking, billing, and security forensics.
 model McpAuditLog {
-  id            String    @id @default(cuid())
-  workspaceId   String
-  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  apiKeyId      String?
-  apiKey        ApiKey?   @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  apiKeyId    String?
+  apiKey      ApiKey?   @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
   // What was called: "mcp:deploy", "rest:run", etc.
-  action        String
+  action      String
   // The target (workflow id, run id, etc.)
-  target        String?
+  target      String?
   // Whether it succeeded.
-  success       Boolean  @default(true)
+  success     Boolean   @default(true)
   // Cost in cents charged for this call (0 for reads, >0 for runs).
-  costCents     Int      @default(0)
+  costCents   Int       @default(0)
   // Short detail / error message.
-  detail        String?
-  source        String   @default("rest") // "mcp" | "rest" | "web"
-  createdAt     DateTime @default(now())
+  detail      String?
+  source      String    @default("rest") // "mcp" | "rest" | "web"
+  createdAt   DateTime  @default(now())
 
   @@index([workspaceId, createdAt])
   // Fresh table for the same reason as WorkspaceApiKey (legacy McpAuditLog
@@ -671,59 +671,59 @@ model McpAuditLog {
 // Plans: "free" | "pro" | "enterprise". Free = local-only + limited hosted
 // credits; Pro/Enterprise = included tokens + overrun billing + more agents.
 model Subscription {
-  id                   String   @id @default(cuid())
-  userId               String   @unique
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan                 String   @default("free") // "free" | "pro" | "enterprise"
-  status               String   @default("active") // "active" | "trialing" | "past_due" | "canceled"
+  id                    String    @id @default(cuid())
+  userId                String    @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                  String    @default("free") // "free" | "pro" | "enterprise"
+  status                String    @default("active") // "active" | "trialing" | "past_due" | "canceled"
   // Stripe customer + subscription ids (null for free / BYOK-only users).
-  stripeCustomerId     String?
-  stripeSubscriptionId String?
+  stripeCustomerId      String?
+  stripeSubscriptionId  String?
   // Price id the user subscribed to (so webhooks can map events → plan).
-  stripePriceId        String?
+  stripePriceId         String?
   // Current period end (ISO). Token allowance resets here.
-  currentPeriodEnd     DateTime?
+  currentPeriodEnd      DateTime?
   // Monthly token allowance (0 = unlimited for enterprise, or the free quota).
-  tokenAllowanceMonthly Int     @default(0)
+  tokenAllowanceMonthly Int       @default(0)
   // Tokens used this billing period (prompt + completion, across all models).
-  tokenUsedMonthly      Int     @default(0)
+  tokenUsedMonthly      Int       @default(0)
   // Overage tokens this period (for overrun billing).
-  tokenOverageMonthly   Int     @default(0)
+  tokenOverageMonthly   Int       @default(0)
   // Whether the user opted into pay-as-you-go overrun billing.
-  overrunEnabled        Boolean @default(false)
+  overrunEnabled        Boolean   @default(false)
   // Overage rate in cents per 1M tokens (snapshot at opt-in; can be 0).
-  overrunRateCentsPer1M Int     @default(0)
+  overrunRateCentsPer1M Int       @default(0)
   // Dollars (cents) of overage accrued this period, settled on next invoice.
-  overageAccruedCents   Int     @default(0)
+  overageAccruedCents   Int       @default(0)
   // Seat count (enterprise).
-  seats                 Int     @default(1)
+  seats                 Int       @default(1)
   canceledAt            DateTime?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 }
 
 // ---------------- Token metering ----------------
 // Append-only ledger of every LLM call. Written by recordUsage() in the LLM
 // gateway. Drives the usage dashboard + overrun billing.
 model TokenUsageRecord {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Which model/provider served the call: "apical:default", "openai:gpt-4o",
   // "anthropic:claude-3-5-sonnet", "byok:openai", "local:ollama:llama3", ...
-  modelId         String
-  provider        String   // "apical" | "openai" | "anthropic" | "google" | "byok" | "local"
+  modelId          String
+  provider         String // "apical" | "openai" | "anthropic" | "google" | "byok" | "local"
   // Token breakdown.
-  promptTokens    Int      @default(0)
-  completionTokens Int     @default(0)
-  totalTokens     Int      @default(0)
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
   // Cost in cents (0 for free/local/BYOK where the user pays the provider directly).
-  costCents       Int      @default(0)
+  costCents        Int      @default(0)
   // Where the call originated: "chat" | "agent" | "workflow" | "reason" | "research".
-  source          String   @default("chat")
+  source           String   @default("chat")
   // Optional reference: conversationId, workflowId, runId.
-  refId           String?
-  createdAt       DateTime @default(now())
+  refId            String?
+  createdAt        DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([userId, provider])
@@ -735,12 +735,12 @@ model TokenUsageRecord {
 // select a BYOK model. Keys are encrypted at rest (AES-256-GCM) using a key
 // derived from APICAL_VAULT_KEY; the plaintext is never persisted.
 model ByokKey {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // "openai" | "anthropic" | "google" | "azure_openai" | "openrouter" | "mistral" | "groq" | "together"
   provider      String
-  label         String   @default("Default")
+  label         String    @default("Default")
   // AES-256-GCM ciphertext, base64. Format: "<iv>:<authTag>:<ciphertext>".
   encryptedKey  String
   // First/last 4 chars for UI display (e.g. "sk-…ab12"). Never the full key.
@@ -749,13 +749,13 @@ model ByokKey {
   baseUrl       String?
   // Default model id to use with this key (e.g. "gpt-4o-mini").
   defaultModel  String?
-  status        String   @default("active") // "active" | "disabled"
+  status        String    @default("active") // "active" | "disabled"
   lastUsedAt    DateTime?
   // Last validation result (so the UI can show a green check / red x).
-  lastStatus    String?  // "valid" | "invalid" | "rate_limited" | null
+  lastStatus    String? // "valid" | "invalid" | "rate_limited" | null
   lastCheckedAt DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@unique([userId, provider, label])
 }
@@ -764,30 +764,30 @@ model ByokKey {
 // User-added models that appear in the model picker. Either backed by a BYOK
 // key (online API) or a self-hosted endpoint (Ollama / llama.cpp / vLLM).
 model CustomModel {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name          String   // display name e.g. "GPT-4o (mine)"
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                 String // display name e.g. "GPT-4o (mine)"
   // "online" (BYOK API) | "offline" (self-hosted) | "hosted" (Apical-managed)
-  type          String   @default("online")
+  type                 String   @default("online")
   // Underlying provider: "openai" | "anthropic" | "google" | "ollama" | "llamacpp" | "vllm" | "openrouter"
-  provider      String
+  provider             String
   // The model id passed to the API: "gpt-4o", "claude-3-5-sonnet-20241022", "llama3.1:8b"
-  modelId       String
+  modelId              String
   // Base URL for OpenAI-compatible endpoints.
-  baseUrl       String?
+  baseUrl              String?
   // Link to a BYOK key (for "online" type). Null for offline/hosted.
-  byokKeyId     String?
+  byokKeyId            String?
   // Whether this model is the user's default.
-  isDefault     Boolean  @default(false)
+  isDefault            Boolean  @default(false)
   // Whether the user has enabled this model in the picker.
-  enabled       Boolean  @default(true)
+  enabled              Boolean  @default(true)
   // Context window + cost (cents per 1M tokens) for display + budgeting.
-  contextWindow Int      @default(128000)
-  inputCostCentsPer1M  Int @default(0)
-  outputCostCentsPer1M Int @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  contextWindow        Int      @default(128000)
+  inputCostCentsPer1M  Int      @default(0)
+  outputCostCentsPer1M Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   @@index([userId])
 }
@@ -797,35 +797,35 @@ model CustomModel {
 // mini-service (mini-services/scheduler/) polls this table for due jobs and
 // triggers runs via the Next.js API.
 model ScheduledJob {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String    @id @default(cuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Tenant. Required at the app layer; nullable until the backfill has run.
-  workspaceId   String?
-  workflowId    String
+  workspaceId        String?
+  workflowId         String
   // Cron expression (6-field: sec min hour day month weekday) OR "fixed_rate:<seconds>".
-  schedule      String
+  schedule           String
   // "cron" | "fixed_rate"
-  scheduleKind  String   @default("cron")
-  timezone      String   @default("UTC")
-  status        String   @default("active") // "active" | "paused" | "disabled"
+  scheduleKind       String    @default("cron")
+  timezone           String    @default("UTC")
+  status             String    @default("active") // "active" | "paused" | "disabled"
   // When the tray "Pause automations" toggle paused this job (so resume-all
   // doesn't reactivate jobs the user paused individually).
-  pausedByUserToggle Boolean @default(false)
+  pausedByUserToggle Boolean   @default(false)
   // For local-runtime workflows: "skip" advances nextRunAt when desktop offline;
   // "catch_up" holds nextRunAt until the desktop reconnects.
-  offlinePolicy String   @default("skip") // "skip" | "catch_up"
+  offlinePolicy      String    @default("skip") // "skip" | "catch_up"
   // Next time the scheduler should fire this job (UTC).
-  nextRunAt     DateTime
-  lastRunAt     DateTime?
-  lastRunStatus String?  // "started" | "success" | "failed" | "timeout" | "skipped_offline" | "skipped_policy"
-  lastRunId     String?  // the Run id produced
+  nextRunAt          DateTime
+  lastRunAt          DateTime?
+  lastRunStatus      String? // "started" | "success" | "failed" | "timeout" | "skipped_offline" | "skipped_policy"
+  lastRunId          String? // the Run id produced
   // How many times this job has fired + consecutive failures (for backoff).
-  runCount      Int      @default(0)
-  failureCount  Int      @default(0)
-  skippedCount  Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  runCount           Int       @default(0)
+  failureCount       Int       @default(0)
+  skippedCount       Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([nextRunAt, status])
   @@index([userId])
@@ -836,33 +836,33 @@ model ScheduledJob {
 // has a schema (columns) and many rows (JSON). Used by workflows to stash
 // scraped leads, device inventories, compliance calendars, etc.
 model DataTable {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String         @id @default(cuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Tenant. Required at the app layer; nullable until the backfill has run.
-  workspaceId   String?
-  name          String
-  description   String   @default("")
+  workspaceId      String?
+  name             String
+  description      String         @default("")
   // columnsJson: [{ name, type ("string"|"number"|"boolean"|"date"|"json"), required }]
-  columnsJson   String   @default("[]")
+  columnsJson      String         @default("[]")
   // Optional: which workflow/agent created this table.
   sourceWorkflowId String?
-  rowCount      Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  rows          DataTableRow[]
+  rowCount         Int            @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  rows             DataTableRow[]
 
   @@index([userId])
 }
 
 model DataTableRow {
-  id            String   @id @default(cuid())
-  tableId       String
-  table         DataTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  id        String    @id @default(cuid())
+  tableId   String
+  table     DataTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
   // rowJson: the row data keyed by column name.
-  rowJson       String   @default("{}")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  rowJson   String    @default("{}")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([tableId])
 }
@@ -872,24 +872,24 @@ model DataTableRow {
 // the data plugin layer. Config (connection string, API key, base id) is
 // encrypted at rest like BYOK keys.
 model DataConnection {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Tenant. Required at the app layer; nullable until the backfill has run.
-  workspaceId   String?
+  workspaceId     String?
   // "supabase" | "airtable" | "postgres" | "mysql" | "sqlite_local" | "google_sheets" | "notion"
-  kind          String
-  name          String
+  kind            String
+  name            String
   // AES-256-GCM encrypted config JSON: { host, port, database, user, encryptedPassword, ... }
   // OR { apiKey, baseId } for Airtable, { url, serviceKey } for Supabase, etc.
   encryptedConfig String
   // Non-secret metadata for display: { host, baseName, tables: [...] }
-  metaJson      String   @default("{}")
-  status        String   @default("active") // "active" | "error" | "disabled"
-  lastStatus    String?  // "connected" | "failed"
-  lastCheckedAt DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  metaJson        String    @default("{}")
+  status          String    @default("active") // "active" | "error" | "disabled"
+  lastStatus      String? // "connected" | "failed"
+  lastCheckedAt   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([userId, kind])
 }
@@ -898,21 +898,21 @@ model DataConnection {
 // Outbound email log. The notification service writes here + sends via SMTP
 // (or a transactional provider). Drives the in-app notification center too.
 model EmailLog {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  toAddress     String
-  subject       String
-  body          String   @default("")
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toAddress    String
+  subject      String
+  body         String    @default("")
   // "gate" | "flagged" | "daily_brief" | "weekly_brief" | "schedule" | "billing" | "system"
-  kind          String   @default("system")
+  kind         String    @default("system")
   // "queued" | "sent" | "failed" | "skipped"
-  status        String   @default("queued")
+  status       String    @default("queued")
   // Optional reference (runId, workflowId, gateId).
-  refId         String?
-  errorMessage  String?
-  sentAt        DateTime?
-  createdAt     DateTime @default(now())
+  refId        String?
+  errorMessage String?
+  sentAt       DateTime?
+  createdAt    DateTime  @default(now())
 
   @@index([userId, createdAt])
   @@index([status])
@@ -924,23 +924,23 @@ model EmailLog {
 // bridge MCP tools (desktop.fs.*, desktop.cli.*, desktop.net.*) which route
 // to the connected desktop over a secure WebSocket tunnel.
 model DesktopSession {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // A human label for this desktop ("MacBook Pro", "Office Windows PC").
-  label         String   @default("My Desktop")
+  label            String    @default("My Desktop")
   // OS + arch reported by the desktop app.
-  platform      String?  // "macos" | "windows" | "linux"
-  arch          String?  // "arm64" | "x86_64"
-  appVersion    String?
+  platform         String? // "macos" | "windows" | "linux"
+  arch             String? // "arm64" | "x86_64"
+  appVersion       String?
   // Session token the desktop app presents on reconnect (rotates on re-auth).
-  sessionToken  String   @unique
-  status        String   @default("offline") // "online" | "offline"
-  lastSeenAt    DateTime?
+  sessionToken     String    @unique
+  status           String    @default("offline") // "online" | "offline"
+  lastSeenAt       DateTime?
   // Capabilities the desktop exposes (which MCP tool groups are available).
-  capabilitiesJson String @default("[]") // ["fs","cli","net","notify","secrets"]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  capabilitiesJson String    @default("[]") // ["fs","cli","net","notify","secrets"]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([userId, status])
 }
@@ -980,55 +980,55 @@ model DeviceAuthRequest {
 /// can be connected via MCP, REST API, or OAuth. Users install from this catalog
 /// to create Integration instances.
 model ConnectorCatalogEntry {
-  id              String   @id @default(cuid())
+  id               String   @id @default(cuid())
   // Unique slug for the connector: "gmail", "google-drive", "stripe", etc.
-  slug            String   @unique
-  name            String   // Display name: "Gmail", "Google Drive"
+  slug             String   @unique
+  name             String // Display name: "Gmail", "Google Drive"
   // "mcp" | "api" | "oauth" | "pipedream" — how this connector authenticates
-  kind            String
+  kind             String
   // Category for filtering: "email", "files", "messaging", "finance", "crm", "dev", "documents", "project-mgmt", "e-commerce", "marketing", "local"
-  category        String   @default("general")
-  description     String
+  category         String   @default("general")
+  description      String
   // Short description for cards
-  shortDesc       String   @default("")
+  shortDesc        String   @default("")
   // Emoji or icon name for display
-  icon            String   @default("")
+  icon             String   @default("")
   // Connection configuration schema as JSON: { authType, fields: [...], endpoints: [...] }
-  configSchemaJson String  @default("{}")
+  configSchemaJson String   @default("{}")
   // The tools/capabilities this connector provides: [{ id, name, description, inputSchema }]
-  toolsJson       String   @default("[]")
+  toolsJson        String   @default("[]")
   // Status of this connector in the catalog
-  status          String   @default("live") // "live" | "beta" | "coming_soon" | "deprecated"
+  status           String   @default("live") // "live" | "beta" | "coming_soon" | "deprecated"
   // Source: how this connector was discovered/added
-  source          String   @default("internal") // "internal" | "community" | "crawled" | "partner" | "pipedream"
+  source           String   @default("internal") // "internal" | "community" | "crawled" | "partner" | "pipedream"
   // Who contributed this connector (for community ones)
-  authorLabel     String?
+  authorLabel      String?
   // How many users have installed this connector
-  installCount    Int      @default(0)
+  installCount     Int      @default(0)
   // Link to the OAuthProvider if kind = "oauth"
   oauthProviderKey String? // references OAuthProvider.key
   // API base URL for REST connectors
-  apiBaseUrl      String?
+  apiBaseUrl       String?
   // MCP server URL for MCP connectors
-  mcpServerUrl    String?
+  mcpServerUrl     String?
   // Pipedream app name_slug when source = "pipedream" (e.g. "gmail", "slack").
-  pipedreamAppSlug String? @unique
+  pipedreamAppSlug String?  @unique
   // Auth type reported by Pipedream: "oauth" | "keys" | "none"
-  authType        String?
+  authType         String?
   // Logo image URL (Pipedream img_src). `icon` stays emoji/name for direct entries.
-  imgSrc          String?
+  imgSrc           String?
   // Documentation URL
-  docsUrl         String?
+  docsUrl          String?
   // Tags for search
-  tags            String   @default("[]") // JSON array of strings
+  tags             String   @default("[]") // JSON array of strings
   // Whether this connector supports "bring your own credentials" (BYOC)
-  supportsByoc    Boolean  @default(true)
+  supportsByoc     Boolean  @default(true)
   // Whether this connector has a demo/sandbox mode
-  hasDemoMode     Boolean  @default(true)
+  hasDemoMode      Boolean  @default(true)
   // Version of the connector schema
-  version         Int      @default(1)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  version          Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@index([category])
   @@index([kind])
@@ -1079,32 +1079,32 @@ model ConnectedAccount {
 /// their behalf. Kept for existing rows; not offered in the UI when Pipedream
 /// is configured.
 model IntegrationSession {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // The service this session is for (references ConnectorCatalogEntry.slug)
-  serviceSlug     String
+  serviceSlug   String
   // Session type: "oauth" | "api_key" | "credentials" | "browser_login"
-  sessionType     String
+  sessionType   String
   // Encrypted session data (tokens, cookies, etc.)
   // For OAuth: { access_token, refresh_token, expires_at }
   // For API key: { api_key, api_secret }
   // For credentials: { username, password } (encrypted!)
   // For browser_login: { cookies, session_token }
-  encryptedData   String
+  encryptedData String
   // Non-secret metadata: { account_name, scopes, expiry, ... }
-  metaJson        String   @default("{}")
+  metaJson      String    @default("{}")
   // Status
-  status          String   @default("active") // "active" | "expired" | "revoked" | "failed"
+  status        String    @default("active") // "active" | "expired" | "revoked" | "failed"
   // When the session/tokens expire
-  expiresAt       DateTime?
+  expiresAt     DateTime?
   // Last time this session was used successfully
-  lastUsedAt      DateTime?
+  lastUsedAt    DateTime?
   // Whether the user explicitly approved this session
-  userApproved    Boolean  @default(false)
-  approvedAt      DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  userApproved  Boolean   @default(false)
+  approvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([userId, serviceSlug])
   @@index([status])
@@ -1114,8 +1114,65 @@ model IntegrationSession {
 // Key/value store for operator-configurable platform knobs (token limits, etc.).
 model PlatformSetting {
   key       String   @id
-  value     String   // JSON-encoded payload
+  value     String // JSON-encoded payload
   updatedBy String?
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+// ---------------- Durable agent runs ----------------
+// An AgentRun is one execution of the ReAct loop owned by the agent-worker
+// mini-service instead of an HTTP request: it survives client disconnects,
+// checkpoints after every iteration, and is resumable after a worker crash.
+model AgentRun {
+  id             String          @id @default(cuid())
+  userId         String
+  workspaceId    String?
+  // The agent (Workflow row) this run belongs to; null = orchestrator chat.
+  agentId        String?
+  // "chat" | "spawn" | "schedule" | "api" | "oversight"
+  origin         String          @default("chat")
+  // Workflow Run id or parent AgentRun id (spawn/oversight runs).
+  parentRunId    String?
+  // "queued" | "running" | "awaiting_input" | "completed" | "failed" | "cancelling" | "cancelled"
+  status         String          @default("queued")
+  goal           String
+  // Serialized subset of AgentRunOptions (history, attachments, modelId,
+  // allowCli, maxIterations, context, outputShape for spawn runs).
+  optsJson       String          @default("{}")
+  // EngineCheckpoint snapshot — replaced after every iteration.
+  checkpointJson String?
+  // The terminal 'final' AgentEvent payload (answer, plan, attachments, ...).
+  finalJson      String?
+  error          String?
+  // Worker lease (crash recovery): claimed rows whose lease expired are
+  // reclaimed and resumed from the checkpoint.
+  claimedBy      String?
+  leaseUntil     DateTime?
+  iterations     Int             @default(0)
+  createdAt      DateTime        @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  events         AgentRunEvent[]
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([agentId, createdAt])
+  @@index([parentRunId])
+}
+
+// Persisted (non-delta) AgentEvents for a durable run — replayable so a
+// reconnecting client backfills everything it missed, in order.
+model AgentRunEvent {
+  id         String   @id @default(cuid())
+  agentRunId String
+  run        AgentRun @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  seq        Int
+  // AgentEvent.type ("status" | "thought" | "plan" | "tool_call" | "observation" | "final" | "error")
+  type       String
+  dataJson   String
+  createdAt  DateTime @default(now())
+
+  @@unique([agentRunId, seq])
+  @@index([agentRunId, seq])
 }

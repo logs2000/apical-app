@@ -93,6 +93,7 @@ import {
 import {
   mapPersistedMessages,
   streamAgentThink,
+  attachToAgentRun,
   chatHistoryForApi,
   eventsForPersistedMessage,
   analyzeRun,
@@ -112,7 +113,7 @@ import { ClarificationCard } from "./clarification-card";
 import { MarkdownText } from "./markdown-text";
 import { CopyMessageButton } from "./copy-message-button";
 import { ActivityFlow } from "./activity-flow";
-import { AgentRunSection, RunNowControls } from "./workflow-runs-console";
+import { AgentRunSection, AgentRunsPanel, RunNowControls } from "./workflow-runs-console";
 import { fetchArtifactText } from "@/lib/apical/attachments";
 import { sandboxItemFromAttachment } from "@/lib/apical/sandbox";
 import type { ChatAttachment } from "@/lib/apical";
@@ -985,8 +986,14 @@ function MobileDetailPane({ agent }: { agent: Workflow }) {
         {section === "workflow" && <AgentWorkflow agent={agent} />}
         {section === "config" && <AgentConfig agent={agent} />}
         {section === "runs" && (
-          <div className="p-3">
+          <div className="space-y-4 p-3">
             <AgentRunSection workflowId={agent.id} />
+            <div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Long-task agent runs
+              </div>
+              <AgentRunsPanel agentId={agent.id} />
+            </div>
           </div>
         )}
       </div>
@@ -1147,6 +1154,10 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
   const { data: persistedRows, isLoading: messagesLoading } = useAgentMessages(agentIdForQuery);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const abortRef = React.useRef<AbortController | null>(null);
+  /** The in-flight durable AgentRun for this thread (null when inline). */
+  const activeAgentRunIdRef = React.useRef<string | null>(null);
+  /** Agent id we've already checked for a resumable durable run. */
+  const reattachedAgentRef = React.useRef<string | null>(null);
   const lastFailedSendRef = React.useRef<{
     text: string;
     attachments: ChatAttachment[];
@@ -1278,6 +1289,71 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
     syncChatThreadCache(agentId, messages);
   }, [isNewChat, agent?.id, messages, isThinking]);
 
+  // Re-attach to an in-flight durable run when this thread opens (page reload,
+  // new tab, or navigating back). The worker keeps executing regardless; here
+  // we just resume streaming its events into the chat and persist the result.
+  React.useEffect(() => {
+    const agentId = agent?.id;
+    if (isNewChat || !agentId || isThinking) return;
+    if (reattachedAgentRef.current === agentId) return;
+    reattachedAgentRef.current = agentId;
+    let cancelled = false;
+    void (async () => {
+      const active = await fetch(`/api/agent-runs?agentId=${agentId}&active=1&limit=1`)
+        .then((r) => (r.ok ? (r.json() as Promise<{ runs?: Array<{ id: string }> }>) : null))
+        .catch(() => null);
+      const runId = active?.runs?.[0]?.id;
+      if (!runId || cancelled || !mountedRef.current) return;
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+      activeAgentRunIdRef.current = runId;
+      setIsThinking(true);
+      useAppStore.getState().setAgentWorking(true);
+      const replyId = `reattach-${runId}`;
+      setMessages((prev) =>
+        prev.some((m) => m.id === replyId)
+          ? prev
+          : [...prev, { id: replyId, role: "agent", content: "", createdAt: new Date().toISOString() }],
+      );
+      try {
+        const result = await attachToAgentRun(runId, {
+          signal: controller.signal,
+          onStatusUpdate: (label) => mountedRef.current && setLiveStatus(label),
+          onTraceUpdate: (trace) =>
+            mountedRef.current &&
+            setMessages((prev) => prev.map((m) => (m.id === replyId ? { ...m, executionTrace: trace } : m))),
+          onAnswerDelta: (ans) =>
+            mountedRef.current &&
+            setMessages((prev) => prev.map((m) => (m.id === replyId ? { ...m, content: ans } : m))),
+          onPlanUpdate: (items) =>
+            mountedRef.current &&
+            setMessages((prev) => prev.map((m) => (m.id === replyId ? { ...m, checklist: items } : m))),
+          onSandboxItem: addSandboxItem,
+        });
+        if (!mountedRef.current) return;
+        // The worker persists the AgentMessage; drop the transient bubble and
+        // refetch so the durable row (with its real id) renders.
+        setMessages((prev) => prev.filter((m) => m.id !== replyId));
+        if (result.finalAnswer) {
+          void queryClient.invalidateQueries({ queryKey: ["agent-messages", agentId] });
+        }
+      } catch {
+        if (mountedRef.current) setMessages((prev) => prev.filter((m) => m.id !== replyId));
+      } finally {
+        activeAgentRunIdRef.current = null;
+        if (mountedRef.current) {
+          setIsThinking(false);
+          setLiveStatus(undefined);
+        }
+        useAppStore.getState().setAgentWorking(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agent?.id, isNewChat, isThinking, addSandboxItem, queryClient]);
+
   function resolveAgentId(): string | undefined {
     return agent?.id ?? useAppStore.getState().pendingAgentHandoff?.agentId;
   }
@@ -1337,6 +1413,13 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
 
   function stopTurn() {
     abortRef.current?.abort();
+    // Durable runs keep executing server-side after an abort — Stop means
+    // stop, so also request cancellation of the active AgentRun.
+    const activeDurable = activeAgentRunIdRef.current;
+    if (activeDurable) {
+      activeAgentRunIdRef.current = null;
+      void fetch(`/api/agent-runs/${activeDurable}/cancel`, { method: "POST" }).catch(() => {});
+    }
   }
 
   // One natural turn. The agent plans internally, converses, and uses tools /
@@ -1407,6 +1490,7 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       // Carry forward the most recent unfinished checklist so the agent resumes
       // it instead of planning from scratch.
       const priorPlan = latestUnfinishedPlan(priorMessages);
+      const durable = useAppStore.getState().durableMode;
       const result = await streamAgentThink(text, {
         context: agentContext,
         history: chatHistoryForApi(priorMessages, true),
@@ -1415,6 +1499,10 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
         attachments: turnAttachments,
         maxIterations: 64,
         signal: controller.signal,
+        durable,
+        onAgentRunId: (id) => {
+          activeAgentRunIdRef.current = id;
+        },
         onStreamOpen: commitUser,
         onStatusUpdate: (label) => {
           if (mountedRef.current) setLiveStatus(label);
@@ -1580,6 +1668,14 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       // outcome check entirely — there is nothing to verify, and no activity
       // scaffolding should appear.
       const usedTools = result.trace.some((s) => stepKind(s) === "tool");
+
+      // Durable runs are persisted server-side by the agent-worker — a client
+      // save here would duplicate the message.
+      if (durable) {
+        activeAgentRunIdRef.current = null;
+        void queryClient.invalidateQueries({ queryKey: ["agent-messages", agentId] });
+        return;
+      }
 
       void persistMessage(finishedMsg).then((serverId) => {
         // Remember the server row id so interactive-card state (credential
@@ -2491,8 +2587,14 @@ function InspectorPane({ agent, embedded }: { agent: Workflow; embedded?: boolea
           </div>
         )}
         {section === "runs" && (
-          <div className="h-full overflow-y-auto overscroll-contain p-3">
+          <div className="h-full space-y-4 overflow-y-auto overscroll-contain p-3">
             <AgentRunSection workflowId={agent.id} />
+            <div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Long-task agent runs
+              </div>
+              <AgentRunsPanel agentId={agent.id} />
+            </div>
           </div>
         )}
       </div>
