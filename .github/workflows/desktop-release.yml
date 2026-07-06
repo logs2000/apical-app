@@ -6,7 +6,7 @@ on:
       tag:
         description: 'Release tag (e.g. desktop-v0.2.0)'
         required: true
-        default: 'desktop-v0.2.0'
+        default: 'desktop-v0.2.3'
   push:
     tags:
       - 'desktop-v*'
@@ -198,14 +198,6 @@ jobs:
           name: apical-windows
           path: artifacts/apical-windows
 
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        id: download-linux
-        if: needs.build-linux.result == 'success'
-        with:
-          name: apical-linux
-          path: artifacts/apical-linux
-
       - name: Prepare release assets
         run: |
           mkdir -p release-assets
@@ -272,6 +264,26 @@ jobs:
           EOF
           cp my-project-temp/download/manifest.json download/manifest.json
           cat my-project-temp/download/manifest.json
+
+      - name: Verify Windows installer changed
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          WIN_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/apical-windows.exe"
+          curl -fsSL "$WIN_URL" -o release-assets/apical-windows.verify.exe
+          NEW_HASH=$(shasum -a 256 release-assets/apical-windows.verify.exe | awk '{print $1}')
+          echo "Windows installer sha256 (${TAG}): ${NEW_HASH}"
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          if [[ -n "$PREV" && "$PREV" != "$TAG" ]]; then
+            PREV_URL="https://github.com/${{ github.repository }}/releases/download/${PREV}/apical-windows.exe"
+            if curl -fsSL "$PREV_URL" -o release-assets/apical-windows.prev.exe; then
+              PREV_HASH=$(shasum -a 256 release-assets/apical-windows.prev.exe | awk '{print $1}')
+              echo "Previous (${PREV}) sha256: ${PREV_HASH}"
+              if [[ "$NEW_HASH" == "$PREV_HASH" ]]; then
+                echo "::error::Windows installer is byte-identical to ${PREV}"
+                exit 1
+              fi
+            fi
+          fi
 
       - name: Commit manifest for Vercel redirects
         run: |

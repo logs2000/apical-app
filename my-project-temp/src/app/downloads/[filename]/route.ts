@@ -57,11 +57,13 @@ async function readManifest(): Promise<DownloadManifest | null> {
 }
 
 function resolveDownloadUrl(filename: string, manifest: DownloadManifest | null): string | null {
-  const fromEnv = ENV_DOWNLOADS[filename]
-  if (fromEnv) return fromEnv
-
+  // Manifest is updated by the desktop-release workflow on every tag push.
+  // Prefer it over stale Vercel env overrides (DESKTOP_*_URL).
   const fromManifest = manifest?.files?.[filename]
   if (fromManifest) return fromManifest
+
+  const fromEnv = ENV_DOWNLOADS[filename]
+  if (fromEnv) return fromEnv
 
   // Legacy tar.gz links fall through to the current DMG release.
   if (filename === 'apical-mac.tar.gz' && manifest?.files?.['apical-mac.dmg']) {
@@ -101,7 +103,10 @@ export async function GET(
   const manifest = await readManifest()
   const remote = resolveDownloadUrl(filename, manifest)
   if (remote) {
-    return NextResponse.redirect(remote, 302)
+    return NextResponse.redirect(remote, {
+      status: 302,
+      headers: { 'Cache-Control': 'no-store' },
+    })
   }
 
   return NextResponse.json(

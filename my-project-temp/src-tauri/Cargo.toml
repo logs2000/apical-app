@@ -1,6 +1,6 @@
 [package]
 name = "apical"
-version = "0.1.0"
+version = "0.2.3"
 description = "Apical — the AI runtime that authenticates against and invokes arbitrary APIs/MCP servers."
 authors = ["Apical"]
 edition = "2021"
