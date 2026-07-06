@@ -50,6 +50,11 @@ export const CodeCallSpecSchema = z
     language: z.enum(['javascript', 'python', 'shell']),
     source: z.string().min(1).describe('The script source.'),
     data: z.unknown().optional().describe('Optional JSON passed as `data` to JS scripts.'),
+    packages: z
+      .array(z.string())
+      .max(20)
+      .optional()
+      .describe('npm/PyPI packages installed into the script environment before running.'),
   })
   .describe('A deterministic code/script node — executes without an agent.')
 
@@ -64,6 +69,10 @@ export const RetryPolicySchema = z
 // ---------------- Steps ----------------
 
 export const StepKindSchema = z.enum(['tool', 'reason', 'gate', 'spawn'])
+
+/** Every step kind the schema knows. Normalizers must preserve these verbatim —
+ *  coercing an unknown-but-known kind to `tool` silently breaks the step. */
+export const KNOWN_STEP_KINDS: readonly string[] = StepKindSchema.options
 
 export const WorkflowStepSchema = z
   .object({
