@@ -685,6 +685,78 @@ function agentRunStatusMeta(status: string) {
   }
 }
 
+interface JobRow {
+  id: string;
+  label: string;
+  backend: string;
+  status: string;
+  progress: number | null;
+  progressNote: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+/** Compute jobs (heavy async work) with live progress bars. */
+export function JobsPanel({ agentId }: { agentId?: string | null }) {
+  const [jobs, setJobs] = React.useState<JobRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const load = React.useCallback(async () => {
+    const qs = agentId ? `?agentId=${agentId}&limit=20` : "?limit=20";
+    const data = await fetch(`/api/jobs${qs}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ jobs?: JobRow[] }>) : null))
+      .catch(() => null);
+    if (data?.jobs) setJobs(data.jobs);
+    setLoading(false);
+  }, [agentId]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const hasActive = jobs.some((j) => ["queued", "accepted", "running"].includes(j.status));
+  React.useEffect(() => {
+    if (!hasActive) return;
+    const t = setInterval(() => void load(), 4000);
+    return () => clearInterval(t);
+  }, [hasActive, load]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-1.5 px-3 py-4 text-[11px] text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading jobs…
+      </div>
+    );
+  }
+  if (jobs.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5">
+      {jobs.map((job) => {
+        const active = ["queued", "accepted", "running"].includes(job.status);
+        const pct = Math.round((job.progress ?? 0) * 100);
+        return (
+          <div key={job.id} className="rounded-lg border border-border bg-card p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-[11px] font-medium">{job.label}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                {job.backend} · {job.status}
+              </span>
+            </div>
+            {active && (
+              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
+                <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+              </div>
+            )}
+            {job.progressNote && <div className="mt-1 text-[10px] text-muted-foreground">{job.progressNote}</div>}
+            {job.error && <div className="mt-1 text-[10px] text-destructive line-clamp-2">{job.error}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * Durable agent runs — long-task ("keep going if I close the tab") executions
  * owned by the agent-worker, distinct from deterministic workflow runs above.

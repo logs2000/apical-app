@@ -114,6 +114,7 @@ export function workflowStepToToolCall(
     'code_eval',
     'http_request',
     'mcp_call_tool',
+    'job.run',
   ])
   if (!productionTools.has(tool)) return null
 

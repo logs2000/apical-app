@@ -1176,3 +1176,46 @@ model AgentRunEvent {
   @@unique([agentRunId, seq])
   @@index([agentRunId, seq])
 }
+
+// ---------------- Async compute jobs ----------------
+// A Job is long-running compute (photogrammetry, video CV, heavy data work)
+// decoupled from the agent loop: submit -> poll -> collect. Backends are
+// pluggable — server (detached subprocess in the agent-worker), desktop (the
+// user's machine via the bridge), or cloud (GPU, deferred). The row is the
+// source of truth; sockets are only a latency optimization.
+model Job {
+  id               String    @id @default(cuid())
+  userId           String
+  workspaceId      String?
+  agentId          String?
+  // The durable AgentRun that submitted this job (for grouping in the UI).
+  agentRunId       String?
+  label            String
+  // "script" | "cli"
+  kind             String    @default("script")
+  // "server" | "desktop" | "cloud"
+  backend          String    @default("server")
+  // "queued" | "accepted" | "running" | "completed" | "failed" | "cancelled" | "timeout"
+  status           String    @default("queued")
+  // { language, source, packages[], args[], fileAssetIds[], env{} (non-secret) }
+  payloadJson      String    @default("{}")
+  timeoutMs        Int       @default(1800000) // 30 min default
+  progress         Float?
+  progressNote     String?
+  // { stdout, exitCode, result? } — truncated tail + declared result.
+  resultJson       String?
+  error            String?
+  // UserAsset ids produced by the job (source: "job").
+  artifactIdsJson  String?
+  // Backend=desktop: which desktop session owns execution.
+  desktopSessionId String?
+  claimedBy        String?
+  leaseUntil       DateTime?
+  createdAt        DateTime  @default(now())
+  startedAt        DateTime?
+  finishedAt       DateTime?
+
+  @@index([status, backend])
+  @@index([userId, createdAt])
+  @@index([agentRunId])
+}

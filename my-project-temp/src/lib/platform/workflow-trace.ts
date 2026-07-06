@@ -31,6 +31,11 @@ export const EXPLORATION_ONLY_TOOLS = new Set([
   'web_search',
   'web_read',
   'image_read',
+  // Job polling glue — a job_submit freezes into a single job.run step, so the
+  // status/collect calls aren't saved as their own workflow nodes.
+  'job_status',
+  'job_collect',
+  'job_cancel',
   'agent_list',
   'agent_create',
   'credential_list',
@@ -274,6 +279,27 @@ export function buildWorkflowStepFromTrace(step: EngineTraceStep, index: number)
         args: (input.args as Record<string, unknown>) ?? {},
       },
       inputs: sanitizeTraceInput(input),
+      hardened: true,
+    }
+  }
+
+  // A job_submit in the trace freezes into a single blocking job.run step —
+  // the deterministic runtime submits + polls to completion (workflows can't
+  // poll across steps). job_status/job_collect are exploration-only glue.
+  if (agentTool === 'job_submit') {
+    return {
+      id: `s${index + 1}`,
+      kind: 'tool',
+      label,
+      tool: 'job.run',
+      inputs: {
+        label: str(input.label) || label,
+        language: str(input.language) || 'python',
+        source: str(input.source, 200_000),
+        ...(Array.isArray(input.packages) ? { packages: input.packages } : {}),
+        ...(str(input.backend) ? { backend: str(input.backend) } : {}),
+        ...(input.timeoutMinutes != null ? { timeoutMinutes: input.timeoutMinutes } : {}),
+      },
       hardened: true,
     }
   }

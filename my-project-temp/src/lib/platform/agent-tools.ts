@@ -730,6 +730,188 @@ const imageRead: ToolDef = {
   },
 }
 
+// 4d/4e/4f/4g. job_* — async compute (submit → poll → collect). For work too
+// heavy or slow for a normal tool call (photogrammetry, video CV, big data,
+// long renders): the job runs detached in the worker (backend: server) or on
+// the user's machine (backend: desktop), for up to hours, and produces
+// downloadable artifacts. Poll job_status, then job_collect.
+const jobSubmit: ToolDef = {
+  name: 'job_submit',
+  description:
+    'Start a long-running compute job (heavy/slow work: photogrammetry, video frame extraction, large data crunching, 3D processing, long renders). Runs detached — it survives beyond one tool call. Returns a jobId to poll with job_status and gather with job_collect. Prefer this over script_run when the work takes more than a minute.',
+  inputSchema: {
+    label: { type: 'string', description: 'Short human label for the job.', required: true },
+    language: { type: 'string', description: 'python | javascript | shell.', required: true },
+    source: { type: 'string', description: 'Script source. Write output files to $APICAL_JOB_DIR/out (they become downloadable artifacts). Rewrite $APICAL_JOB_DIR/progress.json with {"progress":0..1,"note":"…"} to report progress.', required: true },
+    packages: { type: 'array', description: 'npm/PyPI packages to install (max 20).', items: { type: 'string' } },
+    args: { type: 'array', description: 'String args; also passed as JSON in APICAL_DATA.', items: { type: 'string' } },
+    backend: { type: 'string', description: "'server' (default) or 'desktop' (runs on the user's machine — needed for local GPU/files)." },
+    timeoutMinutes: { type: 'number', description: 'Max runtime in minutes (default 30, max 360).' },
+  },
+  async run(input, ctx) {
+    const label = asString(input.label, 200)
+    const language = asString(input.language, 20).toLowerCase()
+    const source = asString(input.source, 200_000)
+    if (!label || !source) return { ok: false, output: null, error: 'label and source are required' }
+    if (!['python', 'javascript', 'shell'].includes(language)) {
+      return { ok: false, output: null, error: 'language must be python, javascript, or shell' }
+    }
+    const backend = asString(input.backend, 20) === 'desktop' ? 'desktop' : 'server'
+    if (backend === 'desktop' && !ctx.allowCli && !isLocalDesktopRuntime()) {
+      return { ok: false, output: null, error: 'Desktop backend needs desktop access (Settings → Desktop). Use backend "server".' }
+    }
+    const packages = Array.isArray(input.packages) ? (input.packages as unknown[]).filter((p) => typeof p === 'string').slice(0, 20) as string[] : []
+    const args = Array.isArray(input.args) ? (input.args as unknown[]).filter((a) => typeof a === 'string') as string[] : []
+    const timeoutMinutes = Math.max(1, Math.min(360, Number(input.timeoutMinutes) || 30))
+    try {
+      const job = await db.job.create({
+        data: {
+          userId: ctx.userId,
+          workspaceId: ctx.workspaceId ?? null,
+          agentId: ctx.agentId ?? null,
+          label,
+          kind: language === 'shell' ? 'cli' : 'script',
+          backend,
+          timeoutMs: timeoutMinutes * 60_000,
+          payloadJson: JSON.stringify({ language, source, packages, args }),
+        },
+      })
+      return {
+        ok: true,
+        output: { jobId: job.id, backend, status: 'queued', note: 'Job queued. Poll job_status; gather with job_collect.' },
+        display: { title: `Submitted job: ${label}`, summary: `${backend} · ${language}`, kind: 'code' },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const jobStatus: ToolDef = {
+  name: 'job_status',
+  description: 'Check a job’s status and progress. Optionally wait up to a few seconds for it to advance. Returns status (queued|accepted|running|completed|failed|cancelled|timeout), progress (0–1), and a note.',
+  inputSchema: {
+    jobId: { type: 'string', description: 'The job id from job_submit.', required: true },
+    waitSeconds: { type: 'number', description: 'Block up to this many seconds (max 55) for progress.' },
+  },
+  async run(input, ctx) {
+    const jobId = asString(input.jobId, 100)
+    if (!jobId) return { ok: false, output: null, error: 'jobId is required' }
+    const waitMs = Math.max(0, Math.min(55, Number(input.waitSeconds) || 0)) * 1000
+    const deadline = Date.now() + waitMs
+    const terminal = new Set(['completed', 'failed', 'cancelled', 'timeout'])
+    for (;;) {
+      const job = await db.job.findFirst({ where: { id: jobId, userId: ctx.userId } })
+      if (!job) return { ok: false, output: null, error: 'job not found' }
+      if (terminal.has(job.status) || Date.now() >= deadline) {
+        return {
+          ok: true,
+          output: {
+            status: job.status,
+            progress: job.progress ?? 0,
+            note: job.progressNote ?? undefined,
+            error: job.error ?? undefined,
+            elapsedMs: job.startedAt ? Date.now() - +new Date(job.startedAt) : 0,
+          },
+          display: { title: `Job ${job.status}`, summary: job.progressNote ?? `${Math.round((job.progress ?? 0) * 100)}%`, kind: 'info' },
+        }
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  },
+}
+
+const jobCollect: ToolDef = {
+  name: 'job_collect',
+  description: 'Gather a finished job’s result and artifacts. Returns the result summary and downloadable artifacts; image artifacts are shown to you so you can inspect the output. Call after job_status reports completed.',
+  inputSchema: {
+    jobId: { type: 'string', description: 'The job id from job_submit.', required: true },
+  },
+  async run(input, ctx) {
+    const jobId = asString(input.jobId, 100)
+    if (!jobId) return { ok: false, output: null, error: 'jobId is required' }
+    const job = await db.job.findFirst({ where: { id: jobId, userId: ctx.userId } })
+    if (!job) return { ok: false, output: null, error: 'job not found' }
+    if (!['completed', 'failed', 'timeout', 'cancelled'].includes(job.status)) {
+      return { ok: false, output: null, error: `job is still ${job.status} — poll job_status first` }
+    }
+    const artifactIds: string[] = job.artifactIdsJson ? (JSON.parse(job.artifactIdsJson) as string[]) : []
+    const assets = artifactIds.length
+      ? await db.userAsset.findMany({ where: { id: { in: artifactIds }, userId: ctx.userId } })
+      : []
+    const artifacts = assets.map((a) => ({ id: a.id, name: a.name, mimeType: a.mimeType, url: assetDownloadUrl(a.id) }))
+    for (const a of assets) {
+      ctx.producedAssets?.push({ id: a.id, name: a.name, mimeType: a.mimeType, kind: a.kind, url: assetDownloadUrl(a.id), sizeBytes: a.sizeBytes })
+    }
+    // Show image artifacts to the model (vision) so it can judge the output.
+    const images: ToolResult['images'] = []
+    for (const a of assets.filter((x) => x.mimeType.startsWith('image/')).slice(0, 4)) {
+      try {
+        const norm = await normalizeImage({ assetId: a.id, userId: ctx.userId, label: a.name })
+        images.push({ mimeType: norm.mimeType, base64: norm.base64, label: a.name })
+      } catch {
+        /* skip unreadable artifact */
+      }
+    }
+    const result = job.resultJson ? (JSON.parse(job.resultJson) as Record<string, unknown>) : null
+    return {
+      ok: job.status === 'completed',
+      output: { status: job.status, error: job.error ?? undefined, result, artifacts },
+      ...(images.length ? { images } : {}),
+      display: { title: `Job ${job.status}: ${job.label}`, summary: `${artifacts.length} artifact(s)`, kind: 'file' },
+    }
+  },
+}
+
+const jobCancel: ToolDef = {
+  name: 'job_cancel',
+  description: 'Cancel a running or queued job.',
+  inputSchema: { jobId: { type: 'string', description: 'The job id.', required: true } },
+  async run(input, ctx) {
+    const jobId = asString(input.jobId, 100)
+    if (!jobId) return { ok: false, output: null, error: 'jobId is required' }
+    const job = await db.job.findFirst({ where: { id: jobId, userId: ctx.userId }, select: { id: true } })
+    if (!job) return { ok: false, output: null, error: 'job not found' }
+    const { cancelJob } = await import('@/lib/platform/jobs')
+    await cancelJob(jobId)
+    return { ok: true, output: { jobId, status: 'cancelled' }, display: { title: 'Job cancelled', summary: jobId, kind: 'info' } }
+  },
+}
+
+// job.run — deterministic submit+poll+collect for FROZEN WORKFLOWS only
+// (hidden from the interactive LLM, which uses the async trio + its own loop).
+// A frozen workflow can't poll across steps, so heavy compute freezes into one
+// blocking node that waits for the job to finish.
+const jobRun: ToolDef = {
+  name: 'job.run',
+  description: 'Run a compute job to completion (deterministic workflow step).',
+  inputSchema: {
+    label: { type: 'string', description: 'Job label.', required: true },
+    language: { type: 'string', description: 'python | javascript | shell.', required: true },
+    source: { type: 'string', description: 'Script source.', required: true },
+    packages: { type: 'array', description: 'Packages to install.', items: { type: 'string' } },
+    backend: { type: 'string', description: 'server | desktop.' },
+    timeoutMinutes: { type: 'number', description: 'Max runtime (default 30, max 360).' },
+  },
+  async run(input, ctx) {
+    const submitted = await jobSubmit.run(input, ctx)
+    if (!submitted.ok) return submitted
+    const jobId = (submitted.output as { jobId?: string }).jobId
+    if (!jobId) return { ok: false, output: null, error: 'job submission returned no id' }
+    const timeoutMs = Math.max(1, Math.min(360, Number(input.timeoutMinutes) || 30)) * 60_000
+    const deadline = Date.now() + timeoutMs + 60_000
+    const terminal = new Set(['completed', 'failed', 'cancelled', 'timeout'])
+    for (;;) {
+      if (ctx.signal?.aborted) return { ok: false, output: null, error: 'aborted' }
+      const job = await db.job.findFirst({ where: { id: jobId, userId: ctx.userId }, select: { status: true } })
+      if (!job) return { ok: false, output: null, error: 'job vanished' }
+      if (terminal.has(job.status)) return jobCollect.run({ jobId }, ctx)
+      if (Date.now() > deadline) return { ok: false, output: null, error: 'job did not finish within the step timeout' }
+      await new Promise((r) => setTimeout(r, 3000))
+    }
+  },
+}
+
 // 4. code_eval — sandboxed JS for computations + data transformation.
 //    NO filesystem, NO require, NO process, NO fetch (the agent uses
 //    http_request for network). Pure computation only.
@@ -2840,6 +3022,11 @@ export const AGENT_TOOLS: ToolDef[] = [
   codeEval,
   assetSave,
   imageRead,
+  jobSubmit,
+  jobStatus,
+  jobCollect,
+  jobCancel,
+  jobRun,
   scriptRun,
   cliRun,
   fsList,
@@ -2876,6 +3063,12 @@ export const AGENT_TOOLS: ToolDef[] = [
 // allowCli flag). Hidden from the LLM catalog unless desktop access is on.
 const DESKTOP_TOOLS = new Set(['cli_run', 'fs_list', 'fs_read', 'fs_write', 'fs_move'])
 
+// Tools callable by frozen workflows but hidden from the interactive LLM
+// catalog. `job.run` is the deterministic submit+poll+collect form of the
+// async job trio — a workflow can't poll across steps, so it gets one
+// blocking step instead.
+const HIDDEN_FROM_LLM = new Set(['job.run'])
+
 export const AGENT_TOOL_MAP: Record<string, ToolDef> = Object.fromEntries(
   AGENT_TOOLS.map((t) => [t.name, t]),
 )
@@ -2887,7 +3080,7 @@ export function getAgentTool(name: string): ToolDef | undefined {
 // The tool catalog passed to the LLM (compact). Legacy fallback for models
 // without native tool calling (llama.cpp) — the native path uses toolSpecsForLLM.
 export function toolCatalogForLLM(allowCli: boolean): string {
-  return AGENT_TOOLS.filter((t) => allowCli || !DESKTOP_TOOLS.has(t.name))
+  return AGENT_TOOLS.filter((t) => (allowCli || !DESKTOP_TOOLS.has(t.name)) && !HIDDEN_FROM_LLM.has(t.name))
     .map((t) => {
       const params = Object.entries(t.inputSchema)
         .map(([k, v]) => `${k}${v.required ? ' (required)' : ''}: ${v.type} — ${v.description}`)
@@ -2900,7 +3093,7 @@ export function toolCatalogForLLM(allowCli: boolean): string {
 // The native tool-calling specs (JSON Schema) passed to the LLM gateway's
 // `tools` param. Mirrors toolCatalogForLLM's desktop gating.
 export function toolSpecsForLLM(allowCli: boolean): ToolSpec[] {
-  return AGENT_TOOLS.filter((t) => allowCli || !DESKTOP_TOOLS.has(t.name)).map((t) => ({
+  return AGENT_TOOLS.filter((t) => (allowCli || !DESKTOP_TOOLS.has(t.name)) && !HIDDEN_FROM_LLM.has(t.name)).map((t) => ({
     name: t.name,
     description: t.description,
     parameters: {

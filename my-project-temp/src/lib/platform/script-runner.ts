@@ -6,9 +6,9 @@
 // script runs. Repeat runs with the same package set reuse the env, so only
 // the first run pays the install cost.
 
-import { spawn } from 'child_process'
+import { spawn, type ChildProcess } from 'child_process'
 import { createHash } from 'crypto'
-import { mkdir, writeFile, rm, stat } from 'fs/promises'
+import { mkdir, writeFile, readFile, rm, stat, readdir } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
 
@@ -200,4 +200,210 @@ export async function runPythonScript(
     ...(opts.data ? { env: { APICAL_DATA: opts.data } } : {}),
     timeoutMs: opts.timeoutMs ?? 60_000,
   })
+}
+
+// ---------------- Long-running detached jobs ----------------
+//
+// Unlike run() above (which buffers output and resolves on close), a job runs
+// for minutes-to-hours: output streams to files, progress is read from a
+// progress.json the script writes, and output files under out/ become
+// artifacts. The job's env is a dedicated scratch dir (not the shared package
+// cache), so concurrent jobs never collide.
+
+export interface JobHandle {
+  /** Kill the running job. */
+  cancel(): void
+  /** Resolves when the process exits (or is killed / times out). */
+  done: Promise<JobRunResult>
+}
+
+export interface JobRunResult {
+  ok: boolean
+  exitCode: number | null
+  stdoutTail: string
+  stderrTail: string
+  error?: string
+  timedOut: boolean
+  /** Absolute paths of files the job wrote under its out/ dir. */
+  artifactPaths: string[]
+}
+
+export interface JobProgress {
+  progress?: number
+  note?: string
+}
+
+const JOB_ROOT = process.env.JOB_SCRATCH_DIR || path.join(tmpdir(), 'apical-jobs')
+const JOB_OUTPUT_TAIL = 40_000
+
+function tailStr(s: string): string {
+  return s.length > JOB_OUTPUT_TAIL ? `…(truncated)\n${s.slice(-JOB_OUTPUT_TAIL)}` : s
+}
+
+/** The dir a job runs in. Callers read progress.json + out/ from here. */
+export function jobScratchDir(jobId: string): string {
+  return path.join(JOB_ROOT, jobId)
+}
+
+/** Read a job's current progress (written by the script to progress.json). */
+export async function readJobProgress(jobId: string): Promise<JobProgress | null> {
+  try {
+    const raw = await readFile(path.join(jobScratchDir(jobId), 'progress.json'), 'utf8')
+    const parsed = JSON.parse(raw) as JobProgress
+    return {
+      progress: typeof parsed.progress === 'number' ? Math.max(0, Math.min(1, parsed.progress)) : undefined,
+      note: typeof parsed.note === 'string' ? parsed.note.slice(0, 500) : undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Launch a long-running Node/Python job as a detached-in-process child. The
+ * script gets:
+ *   - APICAL_DATA  (JSON args, same as short scripts)
+ *   - APICAL_JOB_DIR  (its scratch dir; write outputs to $APICAL_JOB_DIR/out)
+ *   - a progress.json it can rewrite to report { progress: 0..1, note }
+ * The runner does NOT block — it returns a handle; poll readJobProgress and
+ * await handle.done.
+ */
+export async function startScriptJob(params: {
+  jobId: string
+  language: 'javascript' | 'python' | 'shell'
+  source: string
+  packages?: string[]
+  data?: string
+  args?: string[]
+  timeoutMs: number
+}): Promise<JobHandle> {
+  const { jobId, language, source, packages = [], data, timeoutMs } = params
+  const dir = jobScratchDir(jobId)
+  const outDir = path.join(dir, 'out')
+  await mkdir(outDir, { recursive: true })
+
+  const re = language === 'python' ? PIP_PKG_RE : NPM_PKG_RE
+  const bad = language === 'shell' ? null : validatePackages(packages, re, language)
+  if (bad) {
+    return { cancel() {}, done: Promise.resolve(jobFail(bad)) }
+  }
+
+  // Resolve the interpreter + install deps into the shared package cache.
+  let cmd: string
+  let cmdArgs: string[]
+  const env: Record<string, string> = {
+    APICAL_JOB_DIR: dir,
+    ...(data ? { APICAL_DATA: data } : {}),
+  }
+
+  if (language === 'python') {
+    let python = 'python3'
+    if (packages.length > 0) {
+      const pkgDir = envDirFor('py', packages)
+      const venvPython = path.join(pkgDir, 'venv', 'bin', 'python')
+      if (!(await exists(venvPython))) {
+        await mkdir(pkgDir, { recursive: true })
+        const venv = await run('python3', ['-m', 'venv', path.join(pkgDir, 'venv')], { timeoutMs: 60_000 })
+        if (!venv.ok) return { cancel() {}, done: Promise.resolve(jobFail(`venv failed: ${venv.error}`)) }
+        const install = await run(
+          venvPython,
+          ['-m', 'pip', 'install', '--quiet', '--disable-pip-version-check', ...packages],
+          { timeoutMs: INSTALL_TIMEOUT_MS },
+        )
+        if (!install.ok) return { cancel() {}, done: Promise.resolve(jobFail(`pip install failed: ${install.error}`)) }
+      }
+      python = venvPython
+    }
+    const scriptPath = path.join(dir, 'job.py')
+    await writeFile(scriptPath, source)
+    cmd = python
+    cmdArgs = [scriptPath, ...(params.args ?? [])]
+  } else if (language === 'shell') {
+    const scriptPath = path.join(dir, 'job.sh')
+    await writeFile(scriptPath, source)
+    cmd = 'bash'
+    cmdArgs = [scriptPath, ...(params.args ?? [])]
+  } else {
+    const pkgDir = envDirFor('node', packages)
+    await mkdir(pkgDir, { recursive: true })
+    if (packages.length > 0 && !(await exists(path.join(pkgDir, 'node_modules')))) {
+      await writeFile(path.join(pkgDir, 'package.json'), JSON.stringify({ name: 'apical-job', private: true }))
+      const install = await run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error', ...packages], {
+        cwd: pkgDir,
+        timeoutMs: INSTALL_TIMEOUT_MS,
+      })
+      if (!install.ok) return { cancel() {}, done: Promise.resolve(jobFail(`npm install failed: ${install.error}`)) }
+    }
+    const scriptPath = path.join(dir, 'job.cjs')
+    await writeFile(scriptPath, source)
+    // Resolve installed packages from the shared cache via NODE_PATH.
+    if (packages.length > 0) env.NODE_PATH = path.join(pkgDir, 'node_modules')
+    cmd = 'node'
+    cmdArgs = [scriptPath, ...(params.args ?? [])]
+  }
+
+  let child: ChildProcess
+  try {
+    child = spawn(cmd, cmdArgs, { cwd: dir, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (e) {
+    return { cancel() {}, done: Promise.resolve(jobFail((e as Error).message)) }
+  }
+
+  let stdout = ''
+  let stderr = ''
+  let killed = false
+  let timedOut = false
+  child.stdout?.on('data', (d) => (stdout += String(d)).length > JOB_OUTPUT_TAIL * 2 && (stdout = stdout.slice(-JOB_OUTPUT_TAIL)))
+  child.stderr?.on('data', (d) => (stderr += String(d)).length > JOB_OUTPUT_TAIL * 2 && (stderr = stderr.slice(-JOB_OUTPUT_TAIL)))
+
+  const timer = setTimeout(() => {
+    timedOut = true
+    child.kill('SIGKILL')
+  }, timeoutMs)
+
+  const done = new Promise<JobRunResult>((resolve) => {
+    child.on('error', (e) => {
+      clearTimeout(timer)
+      resolve({ ok: false, exitCode: null, stdoutTail: tailStr(stdout), stderrTail: tailStr(stderr), error: e.message, timedOut, artifactPaths: [] })
+    })
+    child.on('close', async (code) => {
+      clearTimeout(timer)
+      const artifactPaths = await listArtifacts(outDir)
+      resolve({
+        ok: !timedOut && !killed && code === 0,
+        exitCode: code,
+        stdoutTail: tailStr(stdout),
+        stderrTail: tailStr(stderr),
+        error: timedOut ? `Timed out after ${Math.round(timeoutMs / 1000)}s` : code === 0 ? undefined : tailStr(stderr) || `exit code ${code}`,
+        timedOut,
+        artifactPaths,
+      })
+    })
+  })
+
+  return {
+    cancel() {
+      killed = true
+      child.kill('SIGKILL')
+    },
+    done,
+  }
+}
+
+function jobFail(error: string): JobRunResult {
+  return { ok: false, exitCode: null, stdoutTail: '', stderrTail: '', error, timedOut: false, artifactPaths: [] }
+}
+
+async function listArtifacts(outDir: string): Promise<string[]> {
+  try {
+    const names = await readdir(outDir)
+    return names.map((n) => path.join(outDir, n))
+  } catch {
+    return []
+  }
+}
+
+/** Remove a finished job's scratch dir. */
+export async function cleanupJobDir(jobId: string): Promise<void> {
+  await rm(jobScratchDir(jobId), { recursive: true, force: true }).catch(() => {})
 }

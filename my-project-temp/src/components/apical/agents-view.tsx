@@ -113,7 +113,7 @@ import { ClarificationCard } from "./clarification-card";
 import { MarkdownText } from "./markdown-text";
 import { CopyMessageButton } from "./copy-message-button";
 import { ActivityFlow } from "./activity-flow";
-import { AgentRunSection, AgentRunsPanel, RunNowControls } from "./workflow-runs-console";
+import { AgentRunSection, AgentRunsPanel, JobsPanel, RunNowControls } from "./workflow-runs-console";
 import { fetchArtifactText } from "@/lib/apical/attachments";
 import { sandboxItemFromAttachment } from "@/lib/apical/sandbox";
 import type { ChatAttachment } from "@/lib/apical";
@@ -993,6 +993,12 @@ function MobileDetailPane({ agent }: { agent: Workflow }) {
                 Long-task agent runs
               </div>
               <AgentRunsPanel agentId={agent.id} />
+            </div>
+            <div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Compute jobs
+              </div>
+              <JobsPanel agentId={agent.id} />
             </div>
           </div>
         )}
@@ -2594,6 +2600,12 @@ function InspectorPane({ agent, embedded }: { agent: Workflow; embedded?: boolea
                 Long-task agent runs
               </div>
               <AgentRunsPanel agentId={agent.id} />
+            </div>
+            <div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Compute jobs
+              </div>
+              <JobsPanel agentId={agent.id} />
             </div>
           </div>
         )}

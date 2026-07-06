@@ -161,6 +161,50 @@ function attachHandlers(socket: Socket, link: CloudLink) {
     }
   })
 
+  // Long-running LOCAL job: the cloud accepts via this handshake, then the
+  // desktop runs it detached and pushes desktop:job_update events (progress +
+  // terminal) that the bridge writes to the Job row. Artifacts upload over the
+  // authenticated HTTP session. This is how a desktop job outlives the 120s
+  // bridge cap.
+  socket.on('desktop:invoke', async (payload: InvokePayload) => {
+    if (payload?.tool !== 'desktop.job.start') return // handled by the main invoke handler above
+    const correlationId = payload.correlationId
+    const args = (payload.args && typeof payload.args === 'object' ? payload.args : {}) as {
+      jobId?: string
+      language?: 'javascript' | 'python' | 'shell'
+      source?: string
+      packages?: string[]
+      args?: string[]
+      timeoutMs?: number
+    }
+    const decision = evaluateRemoteInvoke('desktop.cli.run', args)
+    if (!decision.allowed) {
+      socket.emit('desktop:result', { correlationId, error: decision.error ?? 'remote_access_denied' })
+      return
+    }
+    if (!args.jobId || !args.source || !args.language) {
+      socket.emit('desktop:result', { correlationId, error: 'job.start requires jobId, language, source' })
+      return
+    }
+    // ACK the handshake immediately — the job runs async from here.
+    socket.emit('desktop:result', { correlationId, result: { accepted: true } })
+    void runLocalJob(socket, link, {
+      jobId: args.jobId,
+      language: args.language,
+      source: args.source,
+      packages: Array.isArray(args.packages) ? args.packages : [],
+      args: Array.isArray(args.args) ? args.args : [],
+      timeoutMs: typeof args.timeoutMs === 'number' ? args.timeoutMs : 30 * 60_000,
+    })
+  })
+
+  socket.on('desktop:invoke', async (payload: InvokePayload) => {
+    if (payload?.tool !== 'desktop.job.cancel') return
+    const jobId = (payload.args as { jobId?: string })?.jobId
+    if (jobId) cancelLocalJob(jobId)
+    socket.emit('desktop:result', { correlationId: payload.correlationId, result: { ok: true } })
+  })
+
   socket.on('disconnect', (reason: string) => {
     if (state.status !== 'error') state.status = 'disconnected'
     log(`disconnected: ${reason}`)
@@ -170,6 +214,107 @@ function attachHandlers(socket: Socket, link: CloudLink) {
     state.lastError = err.message
     log(`connect_error: ${err.message}`)
   })
+}
+
+// ---------------- Local job execution ----------------
+
+const localJobHandles = new Map<string, { cancel(): void }>()
+
+function cancelLocalJob(jobId: string): void {
+  localJobHandles.get(jobId)?.cancel()
+  localJobHandles.delete(jobId)
+}
+
+/** Push a job update to the cloud, retrying until the bridge acks (or the job
+ *  is terminal and we've tried enough) — socket drops must not lose the result. */
+function pushJobUpdate(
+  socket: Socket,
+  update: { jobId: string; status?: string; progress?: number; note?: string; error?: string; result?: unknown },
+  terminal: boolean,
+): void {
+  let acked = false
+  const onAck = (p: { jobId?: string }) => {
+    if (p?.jobId === update.jobId) acked = true
+  }
+  socket.on('desktop:job_update_ack', onAck)
+  let attempts = 0
+  const send = () => {
+    if (acked || attempts > (terminal ? 20 : 1)) {
+      socket.off('desktop:job_update_ack', onAck)
+      return
+    }
+    attempts++
+    socket.emit('desktop:job_update', update)
+    if (terminal) setTimeout(send, 3000)
+    else socket.off('desktop:job_update_ack', onAck)
+  }
+  send()
+}
+
+async function runLocalJob(
+  socket: Socket,
+  link: CloudLink,
+  job: { jobId: string; language: 'javascript' | 'python' | 'shell'; source: string; packages: string[]; args: string[]; timeoutMs: number },
+): Promise<void> {
+  const { startScriptJob, readJobProgress, jobScratchDir, cleanupJobDir } = await import('@/lib/platform/script-runner')
+  const { readdir, readFile } = await import('fs/promises')
+  const path = await import('path')
+
+  pushJobUpdate(socket, { jobId: job.jobId, status: 'running', progress: 0 }, false)
+  const handle = await startScriptJob({
+    jobId: job.jobId,
+    language: job.language,
+    source: job.source,
+    packages: job.packages,
+    data: job.args.length ? JSON.stringify(job.args) : undefined,
+    args: job.args,
+    timeoutMs: job.timeoutMs,
+  })
+  localJobHandles.set(job.jobId, handle)
+
+  const poll = setInterval(() => {
+    void readJobProgress(job.jobId).then((p) => {
+      if (p) pushJobUpdate(socket, { jobId: job.jobId, status: 'running', progress: p.progress, note: p.note }, false)
+    })
+  }, 5000)
+
+  try {
+    const result = await handle.done
+    clearInterval(poll)
+    localJobHandles.delete(job.jobId)
+
+    // Upload artifacts over the authenticated HTTP session.
+    try {
+      const outDir = path.join(jobScratchDir(job.jobId), 'out')
+      const names = await readdir(outDir).catch(() => [] as string[])
+      if (names.length > 0) {
+        const form = new FormData()
+        for (const name of names) {
+          const bytes = await readFile(path.join(outDir, name))
+          form.append('files', new Blob([new Uint8Array(bytes)]), name)
+        }
+        await fetch(`${link.cloudUrl}/api/jobs/${job.jobId}/artifacts`, {
+          method: 'POST',
+          headers: { 'X-Desktop-Session': link.sessionToken },
+          body: form,
+        }).catch((e) => log(`artifact upload failed: ${(e as Error).message}`))
+      }
+    } catch (e) {
+      log(`artifact stage failed: ${(e as Error).message}`)
+    }
+
+    const status = result.timedOut ? 'timeout' : result.ok ? 'completed' : 'failed'
+    pushJobUpdate(
+      socket,
+      { jobId: job.jobId, status, progress: result.ok ? 1 : undefined, error: result.error, result: { stdoutTail: result.stdoutTail, exitCode: result.exitCode } },
+      true,
+    )
+    await cleanupJobDir(job.jobId)
+  } catch (e) {
+    clearInterval(poll)
+    localJobHandles.delete(job.jobId)
+    pushJobUpdate(socket, { jobId: job.jobId, status: 'failed', error: (e as Error).message }, true)
+  }
 }
 
 /**

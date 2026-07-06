@@ -15,10 +15,12 @@
 import { randomBytes } from 'crypto'
 import { createServer } from 'http'
 import { agentRunWorkerTick } from '../../src/lib/platform/agent-run-worker'
+import { jobWorkerTick } from '../../src/lib/platform/jobs'
 
 const PORT = Number(process.env.PORT || 3006)
 const TICK_INTERVAL_MS = 5_000
 const MAX_CONCURRENT = Math.max(1, Number(process.env.WORKER_MAX_CONCURRENT_RUNS || 4))
+const MAX_JOBS = Math.max(1, Number(process.env.WORKER_MAX_CONCURRENT_JOBS || 2))
 
 if (!process.env.DATABASE_URL) {
   console.error('[agent-worker] DATABASE_URL is required')
@@ -27,6 +29,7 @@ if (!process.env.DATABASE_URL) {
 
 const workerId = `worker_${randomBytes(6).toString('hex')}`
 const inFlight = new Map<string, Promise<void>>()
+const jobsInFlight = new Map<string, Promise<void>>()
 
 let ticking = false
 async function tick(): Promise<void> {
@@ -34,6 +37,7 @@ async function tick(): Promise<void> {
   ticking = true
   try {
     await agentRunWorkerTick(workerId, inFlight, MAX_CONCURRENT)
+    await jobWorkerTick(workerId, jobsInFlight, MAX_JOBS)
   } catch (err) {
     console.error('[agent-worker] tick failed:', err)
   } finally {
@@ -51,6 +55,7 @@ const server = createServer((req, res) => {
         service: 'agent-worker',
         workerId,
         inFlight: inFlight.size,
+        jobsInFlight: jobsInFlight.size,
         maxConcurrent: MAX_CONCURRENT,
       }),
     )

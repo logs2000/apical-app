@@ -326,6 +326,50 @@ io.on('connection', (socket: Socket) => {
     }
   })
 
+  // Desktop → server: UNSOLICITED job progress/completion push. Long-running
+  // desktop jobs (accepted via desktop.job.start) report back here, outside
+  // the request/response invoke cycle. Validated against the socket's session
+  // (a desktop can only update jobs it owns) and written straight to the row.
+  socket.on('desktop:job_update', async (payload: {
+    jobId?: string
+    status?: string
+    progress?: number
+    note?: string
+    error?: string
+    result?: { stdoutTail?: string; exitCode?: number | null }
+  }) => {
+    try {
+      const sessionId = socket.data?.sessionId as string | undefined
+      const userId = socket.data?.userId as string | undefined
+      const jobId = payload?.jobId
+      if (!sessionId || !userId || typeof jobId !== 'string' || !jobId) return
+      const job = await db.job.findFirst({
+        where: { id: jobId, userId, desktopSessionId: sessionId },
+        select: { id: true, status: true },
+      })
+      if (!job) return
+      if (['completed', 'failed', 'cancelled', 'timeout'].includes(job.status)) return // already terminal
+
+      const status = payload.status
+      const terminal = status && ['completed', 'failed', 'timeout', 'cancelled'].includes(status)
+      await db.job.update({
+        where: { id: jobId },
+        data: {
+          ...(status ? { status } : { status: 'running' }),
+          ...(typeof payload.progress === 'number' ? { progress: Math.max(0, Math.min(1, payload.progress)) } : {}),
+          ...(payload.note ? { progressNote: payload.note.slice(0, 500) } : {}),
+          ...(payload.error ? { error: payload.error.slice(0, 1000) } : {}),
+          ...(payload.result ? { resultJson: JSON.stringify(payload.result) } : {}),
+          ...(terminal ? { finishedAt: new Date() } : {}),
+        },
+      })
+      // Ack so the desktop can stop retrying this update.
+      socket.emit('desktop:job_update_ack', { jobId, status: status ?? 'running' })
+    } catch (err) {
+      console.error('[desktop-bridge] desktop:job_update failed:', err)
+    }
+  })
+
   socket.on('disconnect', async (reason) => {
     console.log(`[desktop-bridge] socket disconnected: ${socket.id} (${reason})`)
     const sessionId = socket.data?.sessionId as string | undefined
