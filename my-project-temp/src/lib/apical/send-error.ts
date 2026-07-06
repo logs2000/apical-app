@@ -16,11 +16,30 @@ export function isSendError(text: string): boolean {
   )
 }
 
+/** Pull a human-readable message out of provider JSON embedded in thrown errors. */
+function extractProviderMessage(raw: string): string | null {
+  const jsonStart = raw.indexOf("{")
+  if (jsonStart < 0) return null
+  try {
+    const parsed = JSON.parse(raw.slice(jsonStart)) as {
+      error?: { message?: string } | string
+      message?: string
+    }
+    const err = parsed.error
+    if (err && typeof err === "object" && typeof err.message === "string") return err.message
+    if (typeof err === "string") return err
+    if (typeof parsed.message === "string") return parsed.message
+  } catch {
+    /* not JSON */
+  }
+  return null
+}
+
 /** Whether the user can use Retry for this error (transient / network / rate limit). */
 export function isRetryableSendError(message: string): boolean {
   const m = message.toLowerCase()
   if (
-    /no ai model|no llm provider|open settings|ap_pat_|sign in again|session expired|not configured/i.test(
+    /no ai model|no llm provider|open settings|ap_pat_|sign in again|session expired|not configured|credit balance|out of credits|billing|purchase credits|invalid api key|incorrect api key/i.test(
       m,
     )
   ) {
@@ -35,6 +54,9 @@ export function isRetryableSendError(message: string): boolean {
 
 export function formatSendError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err)
+  const providerDetail = extractProviderMessage(raw)
+  const detail = providerDetail ?? raw
+
   // Strip our internal prefix and any raw provider payload (JSON body, request
   // ids, URLs) so we never surface raw error codes / stack-ish text to users.
   const msg = raw
@@ -44,6 +66,23 @@ export function formatSendError(err: unknown): string {
     .replace(/https?:\/\/\S+/g, "")
     .replace(/[\s:–—-]+$/, "")
     .trim()
+
+  if (
+    /credit balance|insufficient.*credit|out of credits|purchase credits|billing to upgrade/i.test(
+      detail,
+    )
+  ) {
+    return "Your Anthropic API credits are depleted. Add credits at console.anthropic.com, or open Settings → Models and switch to another provider or your Apical token (ap_pat_…)."
+  }
+  if (/invalid.*api key|incorrect api key|authentication_error|invalid_api_key/i.test(detail)) {
+    return "Your AI provider API key is invalid or expired. Open Settings → Models and update the key."
+  }
+  if (/over_allowance|token allowance|exceeded your token/i.test(detail)) {
+    return "You've used your token allowance for this billing period. Open Settings → Billing to add credits or enable overage."
+  }
+  if (providerDetail && providerDetail.length <= 160 && !/\b\d{3}\b|req_/.test(providerDetail)) {
+    return providerDetail
+  }
 
   if (/^unauthorized$/i.test(msg) || /\b(401|403)\b/.test(msg) || /session expired|sign in again/i.test(msg)) {
     return "Your session expired. Restart the app or sign in again from Settings."

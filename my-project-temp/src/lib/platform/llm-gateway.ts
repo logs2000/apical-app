@@ -654,6 +654,29 @@ function toOllamaMessages(messages: GatewayMessage[]): Record<string, unknown>[]
 
 // ---------------- Provider adapters ----------------
 
+function parseProviderErrorBody(text: string): string | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      error?: { message?: string } | string
+      message?: string
+    }
+    const err = parsed.error
+    if (err && typeof err === 'object' && typeof err.message === 'string') return err.message
+    if (typeof err === 'string') return err
+    if (typeof parsed.message === 'string') return parsed.message
+  } catch {
+    /* plain text body */
+  }
+  return trimmed.length <= 500 ? trimmed : trimmed.slice(0, 500)
+}
+
+function providerHttpError(label: string, status: number, text: string): Error {
+  const detail = parseProviderErrorBody(text) ?? text.slice(0, 500)
+  return new Error(`${label} ${status}: ${detail}`)
+}
+
 /** OpenAI Chat Completions — also used for OpenAI-compatible endpoints. */
 async function callOpenAI(
   apiKey: string,
@@ -684,7 +707,7 @@ async function callOpenAI(
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`OpenAI API ${res.status}: ${text.slice(0, 500)}`)
+    throw providerHttpError('OpenAI API', res.status, text)
   }
   const json = (await res.json()) as {
     choices?: Array<{
@@ -789,7 +812,7 @@ async function callAnthropic(
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`Anthropic API ${res.status}: ${text.slice(0, 500)}`)
+    throw providerHttpError('Anthropic API', res.status, text)
   }
   const json = (await res.json()) as {
     content?: Array<{ type?: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }>
@@ -851,7 +874,7 @@ async function callGoogle(
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`Google API ${res.status}: ${text.slice(0, 500)}`)
+    throw providerHttpError('Google API', res.status, text)
   }
   const json = (await res.json()) as {
     candidates?: Array<{
@@ -910,7 +933,7 @@ async function callOllama(
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`Ollama API ${res.status}: ${text.slice(0, 500)}`)
+    throw providerHttpError('Ollama API', res.status, text)
   }
   const json = (await res.json()) as {
     message?: {
@@ -970,7 +993,7 @@ async function* streamOpenAI(
   })
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => '')
-    throw new Error(`OpenAI stream ${res.status}: ${text.slice(0, 500)}`)
+    throw providerHttpError('OpenAI stream', res.status, text)
   }
 
   let promptTokens = 0
@@ -1100,7 +1123,7 @@ async function* streamAnthropic(
   })
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => '')
-    throw new Error(`Anthropic stream ${res.status}: ${text.slice(0, 500)}`)
+    throw providerHttpError('Anthropic stream', res.status, text)
   }
 
   let promptTokens = 0
@@ -1238,7 +1261,7 @@ async function* streamOllama(
   })
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => '')
-    throw new Error(`Ollama stream ${res.status}: ${text.slice(0, 500)}`)
+    throw providerHttpError('Ollama stream', res.status, text)
   }
 
   let promptTokens = 0
