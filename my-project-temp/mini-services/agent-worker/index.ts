@@ -13,14 +13,16 @@
 // service's tsconfig.json).
 
 import { randomBytes } from 'crypto'
-import { createServer } from 'http'
+import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { agentRunWorkerTick } from '../../src/lib/platform/agent-run-worker'
 import { jobWorkerTick } from '../../src/lib/platform/jobs'
+import { createSession, closeSession, act, sessionCount, type ActParams } from './browser'
 
 const PORT = Number(process.env.PORT || 3006)
 const TICK_INTERVAL_MS = 5_000
 const MAX_CONCURRENT = Math.max(1, Number(process.env.WORKER_MAX_CONCURRENT_RUNS || 4))
 const MAX_JOBS = Math.max(1, Number(process.env.WORKER_MAX_CONCURRENT_JOBS || 2))
+const WORKER_SECRET = (process.env.AGENT_WORKER_SECRET || '').trim()
 
 if (!process.env.DATABASE_URL) {
   console.error('[agent-worker] DATABASE_URL is required')
@@ -45,25 +47,84 @@ async function tick(): Promise<void> {
   }
 }
 
-// Health endpoint (Caddy XTransformPort=3006).
+function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    let body = ''
+    req.on('data', (c) => (body += c))
+    req.on('end', () => {
+      try {
+        resolve(body ? (JSON.parse(body) as Record<string, unknown>) : {})
+      } catch {
+        resolve({})
+      }
+    })
+    req.on('error', () => resolve({}))
+  })
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify(body))
+}
+
+// HTTP surface: health + secret-guarded browser control (Caddy XTransformPort=3006).
 const server = createServer((req, res) => {
-  if (req.url === '/health' || req.url === '/') {
-    res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(
-      JSON.stringify({
-        ok: true,
-        service: 'agent-worker',
-        workerId,
-        inFlight: inFlight.size,
-        jobsInFlight: jobsInFlight.size,
-        maxConcurrent: MAX_CONCURRENT,
-      }),
-    )
+  const url = req.url || ''
+  if (url === '/health' || url === '/') {
+    sendJson(res, 200, {
+      ok: true,
+      service: 'agent-worker',
+      workerId,
+      inFlight: inFlight.size,
+      jobsInFlight: jobsInFlight.size,
+      browserSessions: sessionCount(),
+      maxConcurrent: MAX_CONCURRENT,
+    })
     return
   }
+
+  if (url.startsWith('/browser/')) {
+    // All browser endpoints require the shared secret (the Next app presents it).
+    if (!WORKER_SECRET || req.headers['x-worker-secret'] !== WORKER_SECRET) {
+      sendJson(res, 401, { error: 'unauthorized' })
+      return
+    }
+    void handleBrowser(req, res, url)
+    return
+  }
+
   res.writeHead(404)
   res.end()
 })
+
+async function handleBrowser(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+  try {
+    // POST /browser/session  { userId }
+    if (url === '/browser/session' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const userId = String(body.userId || '')
+      if (!userId) return sendJson(res, 400, { error: 'userId required' })
+      const { sessionId } = await createSession(userId)
+      return sendJson(res, 200, { sessionId })
+    }
+    // POST /browser/:id/act  { ...ActParams }
+    const actMatch = url.match(/^\/browser\/([^/]+)\/act$/)
+    if (actMatch && req.method === 'POST') {
+      const body = (await readJsonBody(req)) as unknown as ActParams
+      const result = await act(actMatch[1], body)
+      return sendJson(res, 200, result)
+    }
+    // DELETE /browser/:id
+    const delMatch = url.match(/^\/browser\/([^/]+)$/)
+    if (delMatch && req.method === 'DELETE') {
+      await closeSession(delMatch[1])
+      return sendJson(res, 200, { ok: true })
+    }
+    sendJson(res, 404, { error: 'not found' })
+  } catch (e) {
+    sendJson(res, 500, { error: (e as Error).message })
+  }
+}
 
 server.listen(PORT, () => {
   console.log(`[agent-worker] ${workerId} listening on :${PORT}, max ${MAX_CONCURRENT} concurrent runs`)

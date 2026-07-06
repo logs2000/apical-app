@@ -1512,7 +1512,18 @@ export async function runAgent(
 
   // Branch: native tool calling when the model supports it, else legacy JSON.
   const useNative = resolvedModel ? modelSupportsTools(resolvedModel) : true
-  return useNative ? runNativeLoop(state, onEvent) : runLegacyLoop(state, onEvent)
+  try {
+    return await (useNative ? runNativeLoop(state, onEvent) : runLegacyLoop(state, onEvent))
+  } finally {
+    // Release the run's browser session (if the browser tool opened one).
+    if (ctx.browserSessionId) {
+      const sid = ctx.browserSessionId
+      ctx.browserSessionId = null
+      void import('@/lib/platform/browser-client')
+        .then((m) => m.closeBrowserSession(sid))
+        .catch(() => {})
+    }
+  }
 }
 
 // ---------------- Legacy response parsing (JSON-protocol fallback) ----------------

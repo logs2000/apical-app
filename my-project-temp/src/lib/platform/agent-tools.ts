@@ -211,6 +211,9 @@ export interface ToolContext {
   }>
   /** Meta-tool failures (workflow_freeze, schedule_agent, etc.) — not in executionTrace. */
   metaToolFailures?: Array<{ tool: string; error: string }>
+  /** The browser session opened for this run (lazily, by the browser tool);
+   *  closed by the engine when the run ends. */
+  browserSessionId?: string | null
   /**
    * Abort signal from the originating HTTP request. Long-running tools
    * (network fetches, CLI/script runs) should pass this to their I/O so a
@@ -908,6 +911,62 @@ const jobRun: ToolDef = {
       if (terminal.has(job.status)) return jobCollect.run({ jobId }, ctx)
       if (Date.now() > deadline) return { ok: false, output: null, error: 'job did not finish within the step timeout' }
       await new Promise((r) => setTimeout(r, 3000))
+    }
+  },
+}
+
+// 4i. browser — drive a real headless browser (navigate/click/type/scroll)
+// and SEE each page via screenshots. Runs on the agent-worker (Vercel can't
+// run Chromium). This is how the agent reads pages that need JS, captures
+// satellite/map imagery, grabs video frames, or automates a web UI. Gated on
+// the worker being configured (toolSpecsForLLM), so it only appears when live.
+const browserTool: ToolDef = {
+  name: 'browser',
+  description:
+    'Control a real web browser and look at pages. Actions: navigate (url), click (selector), type (selector,text), press (key), scroll (deltaY), screenshot, back, wait, close. Each action returns the page title, a text summary of headings/links/text, and a screenshot you can see (vision). Use this for JS-heavy pages, capturing map/satellite imagery, grabbing frames, or automating a web UI — prefer http_request/web_read for simple static fetches.',
+  inputSchema: {
+    action: { type: 'string', description: 'navigate | click | type | press | scroll | screenshot | back | wait | close', required: true },
+    url: { type: 'string', description: 'For navigate: the URL to open.' },
+    selector: { type: 'string', description: 'CSS selector for click/type.' },
+    text: { type: 'string', description: 'For type: the text to enter.' },
+    key: { type: 'string', description: 'For press: the key (e.g. Enter).' },
+    deltaY: { type: 'number', description: 'For scroll: pixels to scroll (default 600).' },
+  },
+  async run(input, ctx) {
+    const { browserAvailable, openBrowserSession, browserAct, closeBrowserSession } = await import('@/lib/platform/browser-client')
+    if (!browserAvailable()) {
+      return { ok: false, output: null, error: 'Browser is not available (agent-worker not configured). Use web_read or http_request instead.' }
+    }
+    const action = asString(input.action, 20) as import('@/lib/platform/browser-client').BrowserActParams['action']
+    if (!action) return { ok: false, output: null, error: 'action is required' }
+
+    try {
+      if (action === 'close') {
+        if (ctx.browserSessionId) {
+          await closeBrowserSession(ctx.browserSessionId)
+          ctx.browserSessionId = null
+        }
+        return { ok: true, output: { closed: true }, display: { title: 'Closed browser', summary: '', kind: 'info' } }
+      }
+      if (!ctx.browserSessionId) {
+        ctx.browserSessionId = await openBrowserSession(ctx.userId)
+      }
+      const result = await browserAct(ctx.browserSessionId, {
+        action,
+        url: asString(input.url, 4000) || undefined,
+        selector: asString(input.selector, 1000) || undefined,
+        text: asString(input.text, 10_000) || undefined,
+        key: asString(input.key, 40) || undefined,
+        deltaY: typeof input.deltaY === 'number' ? input.deltaY : undefined,
+      })
+      return {
+        ok: true,
+        output: { url: result.url, title: result.title, page: result.domSummary },
+        ...(result.image ? { images: [result.image] } : {}),
+        display: { title: `${action}: ${result.title || result.url}`, summary: result.url, kind: 'image' },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
     }
   },
 }
@@ -3022,6 +3081,7 @@ export const AGENT_TOOLS: ToolDef[] = [
   codeEval,
   assetSave,
   imageRead,
+  browserTool,
   jobSubmit,
   jobStatus,
   jobCollect,
@@ -3068,6 +3128,12 @@ const DESKTOP_TOOLS = new Set(['cli_run', 'fs_list', 'fs_read', 'fs_write', 'fs_
 // async job trio — a workflow can't poll across steps, so it gets one
 // blocking step instead.
 const HIDDEN_FROM_LLM = new Set(['job.run'])
+
+// The browser tool needs the agent-worker (headless Chromium). Hide it unless
+// that worker is configured — otherwise the LLM would call a dead tool.
+if (!process.env.AGENT_WORKER_URL || !process.env.AGENT_WORKER_SECRET) {
+  HIDDEN_FROM_LLM.add('browser')
+}
 
 export const AGENT_TOOL_MAP: Record<string, ToolDef> = Object.fromEntries(
   AGENT_TOOLS.map((t) => [t.name, t]),

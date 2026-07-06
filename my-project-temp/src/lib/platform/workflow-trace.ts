@@ -31,6 +31,9 @@ export const EXPLORATION_ONLY_TOOLS = new Set([
   'web_search',
   'web_read',
   'image_read',
+  // Browser automation is not deterministically replayable — the agent freezes
+  // the DATA it extracted (via http/code steps), not the click sequence.
+  'browser',
   // Job polling glue — a job_submit freezes into a single job.run step, so the
   // status/collect calls aren't saved as their own workflow nodes.
   'job_status',
