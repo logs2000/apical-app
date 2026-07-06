@@ -18,6 +18,7 @@
 
 import { db } from '@/lib/db'
 import type { ToolSpec } from '@/lib/platform/llm-gateway'
+import { isAiProviderKeyRequest } from '@/lib/platform/llm-service'
 import { integrationFromRow, parseConfig, serializeWorkflowJSON } from '@/lib/apical-server'
 import { callMcpTool, connectMcpServer } from '@/lib/mcp-client'
 import { buildSecureHeaders, listCredentialsForAgent } from '@/lib/platform/agent-credentials'
@@ -1394,10 +1395,17 @@ const toolConfigure: ToolDef = {
 //     successfully accomplished the task by hand (via tool calls), to convert
 //     what it learned into a reusable automation. Production runs execute the
 //     frozen artifact verbatim — no re-deriving.
+
+// Shared {{...}} template-ref grammar, appended to every workflow-authoring
+// tool description so the model never invents namespaces (e.g. {{lead.x}}).
+const REF_GRAMMAR =
+  ' Template refs in step fields: {{stepId.field}} (an EARLIER step\'s output), {{trigger.field}} (the trigger payload), {{cred:service.field}} (vault credential — colon, not dot), {{env:VAR}}. These four are the ONLY namespaces — never invent others like {{lead.x}} or {{item.x}}; there is no per-item loop variable. For per-row data, reference the step that produced the rows (e.g. {{s2.rows}}) and iterate inside a code node.'
+
 const workflowFreeze: ToolDef = {
   name: 'workflow_freeze',
   description:
-    'Freeze an n8n-style production automation: tie together the proven steps from the work you just did into 2–8 deterministic nodes (code, HTTP, MCP, integrations, gates) that the runtime replays without an agent. Prefer workflow_step_append to capture single steps as you go during first-time work; call workflow_freeze to tie several steps together or to make the initial save. Optional "steps" array if you already designed the automation. Exploration tools are never saved.',
+    'Freeze an n8n-style production automation: tie together the proven steps from the work you just did into 2–8 deterministic nodes (code, HTTP, MCP, integrations, gates) that the runtime replays without an agent. Prefer workflow_step_append to capture single steps as you go during first-time work; call workflow_freeze to tie several steps together or to make the initial save. Optional "steps" array if you already designed the automation. Exploration tools are never saved.' +
+    REF_GRAMMAR,
   inputSchema: {
     name: { type: 'string', description: 'A name for the agent (e.g. "Sorter", "InvoiceChaser").', required: true },
     description: { type: 'string', description: 'One-line description of what the agent does.', required: true },
@@ -1549,7 +1557,8 @@ async function findOwnedWorkflow(
 const workflowUpdate: ToolDef = {
   name: 'workflow_update',
   description:
-    "Replace THIS agent's saved automation with a COMPLETE new steps array (n8n-style nodes: code, HTTP, MCP, integrations, gates). Use for a broad restructure; prefer workflow_step_patch for a single-node fix. Only valid when you ARE a specific agent.",
+    "Replace THIS agent's saved automation with a COMPLETE new steps array (n8n-style nodes: code, HTTP, MCP, integrations, gates). Use for a broad restructure; prefer workflow_step_patch for a single-node fix. Only valid when you ARE a specific agent." +
+    REF_GRAMMAR,
   inputSchema: {
     steps: { type: 'array', description: 'The complete new workflow steps array (replaces the current one).', items: { type: 'object' }, required: true },
     description: { type: 'string', description: 'Optional updated one-line description of what the workflow does.' },
@@ -1605,7 +1614,8 @@ const workflowUpdate: ToolDef = {
 const workflowStepAppend: ToolDef = {
   name: 'workflow_step_append',
   description:
-    "Add ONE proven step to THIS agent's living workflow. Use when you solve a subproblem (script_run, http_request, fs_*, etc.) that should run the same way next time — capture it immediately as a node instead of waiting to freeze everything at the end. Pass a single step object with kind, label, and an executable spec (tool+inputs, http, mcp, or code). An id is auto-assigned if omitted. Only valid when acting as a specific agent.",
+    "Add ONE proven step to THIS agent's living workflow. Use when you solve a subproblem (script_run, http_request, fs_*, etc.) that should run the same way next time — capture it immediately as a node instead of waiting to freeze everything at the end. Pass a single step object with kind, label, and an executable spec (tool+inputs, http, mcp, or code). An id is auto-assigned if omitted. Only valid when acting as a specific agent." +
+    REF_GRAMMAR,
   inputSchema: {
     step: {
       type: 'object',
@@ -1656,7 +1666,8 @@ const workflowStepAppend: ToolDef = {
 const workflowStepPatch: ToolDef = {
   name: 'workflow_step_patch',
   description:
-    "Surgically update ONE step in THIS agent's workflow by id (partial fields are merged into the existing node). Prefer this over workflow_update for single-node fixes — e.g. fixing a URL, credentialId, or code node after a run failed. Only valid when acting as a specific agent.",
+    "Surgically update ONE step in THIS agent's workflow by id (partial fields are merged into the existing node). Prefer this over workflow_update for single-node fixes — e.g. fixing a URL, credentialId, or code node after a run failed. Only valid when acting as a specific agent." +
+    REF_GRAMMAR,
   inputSchema: {
     stepId: { type: 'string', description: 'The id of the step to patch.', required: true },
     changes: {
@@ -1873,7 +1884,7 @@ const requestReviewTool: ToolDef = {
 const credentialRequestTool: ToolDef = {
   name: 'credential_request',
   description:
-    "Ask the user for an API key / token you need. This renders a SECURE inline entry in the chat where the user types the key — it is saved straight to the vault and you get back only a credentialId (never the secret). Call it ONCE PER KEY, and request ALL the keys this job needs IN THE SAME TURN — they are presented to the user as a single checklist stepped through ONE AT A TIME (each with a Skip option), NOT as a stack of boxes. So call credential_request for every key up front rather than trickling them across turns. Call credential_list first to skip keys already saved. In your final answer, briefly LIST the keys you're asking for and why each is needed, but do NOT describe the boxes/stepper themselves and do NOT ask the user to paste keys into chat. The user may save or skip each; you'll be resumed with a summary of what was saved vs skipped — proceed with placeholders/mocks for skipped keys.",
+    "Ask the user for an API key / token you need. This renders a SECURE inline entry in the chat where the user types the key — it is saved straight to the vault and you get back only a credentialId (never the secret). NEVER request AI model provider keys (OpenAI, Anthropic/Claude, Google AI/Gemini, xAI/Grok, Mistral, etc.) — Apical provides LLM access in-house on the user's plan credits; for LLM work inside an automation use a reason step. Call it ONCE PER KEY, and request ALL the keys this job needs IN THE SAME TURN — they are presented to the user as a single checklist stepped through ONE AT A TIME (each with a Skip option), NOT as a stack of boxes. So call credential_request for every key up front rather than trickling them across turns. Call credential_list first to skip keys already saved. In your final answer, briefly LIST the keys you're asking for and why each is needed, but do NOT describe the boxes/stepper themselves and do NOT ask the user to paste keys into chat. The user may save or skip each; you'll be resumed with a summary of what was saved vs skipped — proceed with placeholders/mocks for skipped keys.",
   inputSchema: {
     service: { type: 'string', description: 'The service the key is for (e.g. "openai", "stripe", "github").', required: true },
     label: { type: 'string', description: 'A human label for the credential (e.g. "OpenAI API key").', required: true },
@@ -1887,6 +1898,16 @@ const credentialRequestTool: ToolDef = {
     const label = asString(input.label, 200) || service
     if (!service)
       return { ok: false, output: null, error: 'service is required' }
+    // HOUSE RULE: users are never asked for AI model provider keys — Apical
+    // provides LLM access in-house, billed to the user's plan credits.
+    if (isAiProviderKeyRequest(service, label)) {
+      return {
+        ok: false,
+        output: null,
+        error:
+          `Never ask the user for an AI model provider key ("${service}"). Apical provides LLM access in-house on the user's plan credits — you already have model access in this run. For LLM work inside an automation (drafting emails, summarizing, classifying, extracting), use a reason step (kind:"reason" with a prompt + outputShape); the runtime executes it on Apical's models and bills the user's credits automatically. Only if the user EXPLICITLY says they want to use their own key, point them to Settings → Models (BYOK) — do not request it here.`,
+      }
+    }
     ctx.credentialRequests = ctx.credentialRequests ?? []
     // Dedupe repeat calls for the same key within one turn (same service may
     // legitimately need several keys, e.g. Stripe publishable + secret).
@@ -2221,7 +2242,8 @@ const workflowMonitor: ToolDef = {
 const workflowImprove: ToolDef = {
   name: 'workflow_improve',
   description:
-    'Improve YOUR automation. Pass an improvement description and optionally the complete newSteps array (n8n-style nodes). The runtime uses the updated automation on the next run — you do not re-execute the job manually. Prefer workflow_step_patch for a single broken node.',
+    'Improve YOUR automation. Pass an improvement description and optionally the complete newSteps array (n8n-style nodes). The runtime uses the updated automation on the next run — you do not re-execute the job manually. Prefer workflow_step_patch for a single broken node.' +
+    REF_GRAMMAR,
   inputSchema: {
     workflowId: { type: 'string', description: 'The workflow id to improve. Defaults to YOUR OWN workflow when you are a specific agent.' },
     improvement: { type: 'string', description: 'A plain-English description of the improvement (e.g. "add retry to s3", "replace s2 tool").', required: true },

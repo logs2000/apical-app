@@ -102,7 +102,7 @@ import {
 } from "@/lib/apical/chat-stream";
 import { ChatComposer } from "./chat-composer";
 import { ScheduleEditor } from "./schedule-editor";
-import { workflowStepDetail, workflowStepToolLabel } from "@/lib/apical/workflow-display";
+import { humanizeSchedule, workflowStepDetail, workflowStepToolLabel } from "@/lib/apical/workflow-display";
 import { ArtifactEditor, type ArtifactEditorInitial } from "./artifact-editor";
 import { AssetCards } from "./asset-cards";
 import { SandboxPanel } from "./sandbox-panel";
@@ -232,10 +232,19 @@ function DesktopAgentsView() {
   // Reveal the Progress rail as soon as the agent starts working, even before
   // the first tool observation produces a sandbox item.
   const showData = sandboxOpen && (hasData || agentWorking);
-  const showInspectorPanel = isWide && inspectorOpen && !!activeAgent && !isNewChat;
-  const showRightRail = isWide && (showData || showInspectorPanel);
+  const showInspectorPanel = inspectorOpen && !!activeAgent && !isNewChat;
+  const showRightRailInline = isWide && (showData || showInspectorPanel);
+  const showRightRailOverlay = !isWide && (showData || showInspectorPanel);
+  const canOpenRightRail = !!activeAgent && !isNewChat;
+
+  const closeRightRail = React.useCallback(() => {
+    const store = useAppStore.getState();
+    store.setInspectorOpen(false);
+    store.setSandboxOpen(false);
+  }, []);
 
   return (
+    <>
     <ResizablePanelGroup
       direction="horizontal"
       autoSaveId="apical-agents-layout"
@@ -261,7 +270,7 @@ function DesktopAgentsView() {
           isPopout={isPopout}
           inspectorOpen={inspectorOpen}
           onToggleInspector={toggleInspector}
-          showInspectorToggle={isWide}
+          showInspectorToggle={canOpenRightRail}
           previewOpen={showData}
           onTogglePreview={() => {
             const store = useAppStore.getState();
@@ -270,14 +279,15 @@ function DesktopAgentsView() {
             } else {
               store.setSandboxOpen(true);
               store.setInspectorSection("progress");
+              store.setInspectorOpen(true);
             }
           }}
-          hasPreviewContent={hasData || agentWorking}
+          hasPreviewContent={canOpenRightRail}
         />
       </ResizablePanel>
 
       {/* Right — agent inspector (Progress tab) or standalone progress panel */}
-      {showRightRail && (
+      {showRightRailInline && (
         <>
           <ResizableHandle withHandle />
           <ResizablePanel id="right-rail" order={3} defaultSize={26} minSize={18} maxSize={42}>
@@ -290,6 +300,26 @@ function DesktopAgentsView() {
         </>
       )}
     </ResizablePanelGroup>
+
+    {/* Below lg: right rail slides over instead of resizing the center pane. */}
+    {showRightRailOverlay && (
+      <div className="fixed inset-0 z-40 flex justify-end">
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          className="absolute inset-0 bg-black/40"
+          onClick={closeRightRail}
+        />
+        <div className="relative z-50 flex h-full w-full max-w-md flex-col border-l border-border bg-background shadow-xl">
+          <RightRailPane
+            agent={activeAgent}
+            showInspector={showInspectorPanel}
+            showData={showData}
+          />
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -660,7 +690,7 @@ function AgentRailRow({
             <span className="truncate text-[11px] font-medium">{convo.title}</span>
             <FlaggedCountBadge count={agent.flaggedCount} />
           </div>
-          <div className="truncate text-[9px] text-muted-foreground">{agent.trigger === "schedule" ? agent.schedule ?? "Scheduled" : "Manual"}</div>
+          <div className="truncate text-[9px] text-muted-foreground">{agent.trigger === "schedule" ? humanizeSchedule(agent.schedule) : "Manual"}</div>
         </div>
       </button>
       <RailRowActions
@@ -704,7 +734,7 @@ function MobileAgentsView() {
         </span>
         {activeAgent && (
           <span className="ml-auto text-[10px] text-muted-foreground">
-            {activeAgent.trigger === "schedule" ? activeAgent.schedule ?? "Scheduled" : "Manual"}
+            {activeAgent.trigger === "schedule" ? humanizeSchedule(activeAgent.schedule) : "Manual"}
           </span>
         )}
       </header>
@@ -873,7 +903,7 @@ function MobileAgentList({
                 <span className="truncate text-sm font-medium">{wf.name}</span>
                 <FlaggedCountBadge count={wf.flaggedCount} />
               </div>
-              <div className="truncate text-[10px] text-muted-foreground">{wf.trigger === "schedule" ? wf.schedule ?? "Scheduled" : "Manual"}</div>
+              <div className="truncate text-[10px] text-muted-foreground">{wf.trigger === "schedule" ? humanizeSchedule(wf.schedule) : "Manual"}</div>
             </div>
           </button>
           <RailRowActions
@@ -1013,7 +1043,7 @@ function CenterPane({
                 <span className="text-sm font-semibold">{agent.name}</span>
                 <RuntimeBadge runtime={agent.runtime} />
               </div>
-              <div className="text-[10px] text-muted-foreground">{agent.trigger === "schedule" ? agent.schedule ?? "Scheduled" : "Manual"}</div>
+              <div className="text-[10px] text-muted-foreground">{agent.trigger === "schedule" ? humanizeSchedule(agent.schedule) : "Manual"}</div>
             </div>
           </div>
         ) : null}
@@ -1043,14 +1073,28 @@ function CenterPane({
           )}
           {showInspectorToggle && !isNewChat && agent && (
             <button
-              onClick={onToggleInspector}
+              onClick={() => {
+                const store = useAppStore.getState();
+                if (store.inspectorOpen || store.sandboxOpen) {
+                  store.setInspectorOpen(false);
+                  store.setSandboxOpen(false);
+                } else {
+                  store.setInspectorOpen(true);
+                }
+              }}
               className={cn(
                 "flex items-center gap-1 rounded-md p-1.5 transition-colors",
-                inspectorOpen ? "bg-surface-active text-foreground" : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
+                inspectorOpen || previewOpen
+                  ? "bg-surface-active text-foreground"
+                  : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
               )}
-              title={inspectorOpen ? "Hide inspector" : "Show inspector"}
+              title={inspectorOpen || previewOpen ? "Hide sidebar" : "Show sidebar"}
             >
-              {inspectorOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+              {inspectorOpen || previewOpen ? (
+                <PanelRightClose className="h-4 w-4" />
+              ) : (
+                <PanelRightOpen className="h-4 w-4" />
+              )}
             </button>
           )}
         </div>
@@ -2477,7 +2521,7 @@ function InspectorOverview({
           <RuntimeBadge runtime={agent.runtime} />
         </div>
         <div className="text-[10px] text-muted-foreground">
-          {agent.trigger === "schedule" ? `Schedule · ${agent.schedule}` : "Manual trigger"}
+          {agent.trigger === "schedule" ? `Schedule · ${humanizeSchedule(agent.schedule)}` : "Manual trigger"}
         </div>
         <div className="mt-1 text-[10px] text-muted-foreground">
           {agent.runsCount} runs · {agent.itemsProcessed.toLocaleString()} items

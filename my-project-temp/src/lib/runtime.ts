@@ -22,6 +22,7 @@
 // and logged; it must NEVER crash the process.
 
 import { simpleComplete } from '@/lib/platform/llm-gateway'
+import { inHouseComplete } from '@/lib/platform/llm-service'
 import {
   SUPERVISION_ENABLED,
   superviseRun,
@@ -279,17 +280,37 @@ async function runReasonStep(
   ].join('\n')
 
   // A real LLM failure fails the step — no fabricated fallback confidence.
-  const text = await withRetry(step, runId, () =>
-    simpleComplete({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
-  )
-
-  const aiTokens = Math.min(8000, Math.max(80, Math.ceil(text.length / 4) + 120))
-  const aiCostCents = Math.max(1, Math.ceil(aiTokens / 1000))
+  // Runs with a user route through the in-house LLM service: Apical's own
+  // provider connections, metered to the user's credits (source 'workflow')
+  // with REAL token counts. Users are never asked for AI provider keys.
+  const messages = [
+    { role: 'system' as const, content: systemPrompt },
+    { role: 'user' as const, content: userPrompt },
+  ]
+  let text: string
+  let aiTokens: number
+  let aiCostCents: number
+  if (workflow.userId) {
+    const completion = await withRetry(step, runId, () =>
+      inHouseComplete({
+        userId: workflow.userId!,
+        messages,
+        source: 'workflow',
+        refId: runId,
+        modelHint: workflow.modelPreference,
+      }),
+    )
+    text = completion.content
+    aiTokens =
+      completion.usage.totalTokens ||
+      Math.min(8000, Math.max(80, Math.ceil(text.length / 4) + 120))
+    aiCostCents = completion.costCents
+  } else {
+    // Legacy rows without a user: unbilled fallback with estimated usage.
+    text = await withRetry(step, runId, () => simpleComplete({ messages }))
+    aiTokens = Math.min(8000, Math.max(80, Math.ceil(text.length / 4) + 120))
+    aiCostCents = Math.max(1, Math.ceil(aiTokens / 1000))
+  }
 
   let parsed: Record<string, unknown>
   try {

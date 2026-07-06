@@ -51,7 +51,8 @@ export async function saveWorkflowSteps(
   if (!check.ok) {
     throw new WorkflowValidationError(check.issues)
   }
-  const stepsJson = serializeWorkflowJSON(steps)
+  // Persist the validated workflow — it carries the normalized (canonical) refs.
+  const stepsJson = serializeWorkflowJSON(check.workflow)
   return db.$transaction(async (tx) => {
     const last = await tx.workflowRevision.findFirst({
       where: { workflowId },

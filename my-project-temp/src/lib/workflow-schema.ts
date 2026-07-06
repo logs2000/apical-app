@@ -171,6 +171,41 @@ export type WorkflowValidationResult =
   | { ok: true; workflow: z.output<typeof WorkflowJSONSchema>; warnings: WorkflowValidationIssue[] }
   | { ok: false; issues: WorkflowValidationIssue[]; warnings: WorkflowValidationIssue[] }
 
+/**
+ * Rewrite common near-miss ref syntaxes to their canonical form so
+ * agent-authored workflows don't fail validation over punctuation. Only the
+ * unambiguous aliases are rewritten:
+ *   {{cred.svc.field}}  -> {{cred:svc.field}}  (a colon, not a dot, opens a vault ref)
+ *   {{steps.sId.field}} -> {{sId.field}}       (step outputs are read by id — there is no "steps." namespace)
+ *   {{step.sId.field}}  -> {{sId.field}}
+ * Ambiguous namespaces (e.g. {{lead.x}}) are left untouched so validation can
+ * surface a helpful error instead of guessing.
+ */
+function normalizeRefToken(inner: string): string {
+  const t = inner.trim()
+  if (/^cred\./.test(t)) return `cred:${t.slice('cred.'.length)}`
+  if (/^steps\./.test(t)) return t.slice('steps.'.length)
+  if (/^step\./.test(t)) return t.slice('step.'.length)
+  return t
+}
+
+/** Rewrite every {{...}} token in a string to its canonical form. */
+function normalizeRefsInString(s: string): string {
+  return s.replace(/\{\{([^}]+)\}\}/g, (_m, inner) => `{{${normalizeRefToken(inner)}}}`)
+}
+
+/** Deep-copy a value with all {{...}} refs in its string leaves normalized. */
+function normalizeRefsDeep<T>(value: T): T {
+  if (typeof value === 'string') return normalizeRefsInString(value) as unknown as T
+  if (Array.isArray(value)) return value.map((v) => normalizeRefsDeep(v)) as unknown as T
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) out[k] = normalizeRefsDeep(v)
+    return out as unknown as T
+  }
+  return value
+}
+
 /** Extract {{...}} refs from any JSON-serializable value. */
 function extractRefs(value: unknown): string[] {
   const out: string[] = []
@@ -235,6 +270,15 @@ export function validateWorkflowJSON(data: unknown): WorkflowValidationResult {
       warnings.push({ path: `${at}.gateMessage`, message: `Gate step "${step.id}" has no gateMessage; a generic approval prompt will be shown.` })
     }
 
+    // Normalize common near-miss ref syntaxes in place (cred., steps., step.)
+    // so agent-authored refs don't fail over punctuation and so the persisted
+    // workflow carries canonical refs for the executor.
+    if (step.inputs) step.inputs = normalizeRefsDeep(step.inputs)
+    if (step.http) step.http = normalizeRefsDeep(step.http)
+    if (step.mcp) step.mcp = normalizeRefsDeep(step.mcp)
+    if (step.code) step.code = normalizeRefsDeep(step.code)
+    if (step.prompt) step.prompt = normalizeRefsInString(step.prompt)
+
     // Referential integrity: {{ref}} targets.
     const priorIds = new Set(wf.steps.slice(0, idx).map((s) => s.id))
     for (const ref of extractRefs({ inputs: step.inputs, http: step.http, mcp: step.mcp, code: step.code, prompt: step.prompt })) {
@@ -245,7 +289,10 @@ export function validateWorkflowJSON(data: unknown): WorkflowValidationResult {
       } else if (!priorIds.has(targetStep)) {
         issues.push({
           path: at,
-          message: `Step "${step.id}" references {{${ref}}} but "${targetStep}" is not an earlier step.`,
+          message:
+            `Step "${step.id}" references {{${ref}}} but "${targetStep}" is not an earlier step. ` +
+            `Valid references are {{stepId.field}} (an earlier step's output), {{trigger.field}} (the trigger payload), ` +
+            `{{cred:service.field}} (a vault credential), and {{env:VAR}}.`,
         })
       }
     }
