@@ -37,7 +37,7 @@ export type Mode =
 
 /** Active tab in the right-rail inspector (desktop) or detail pane (mobile). */
 export type InspectorSection = "overview" | "progress" | "workflow" | "config" | "runs";
-export type VaultSection = "connections" | "tokens" | "integrations" | "desktop";
+export type VaultSection = "apps" | "connections" | "tokens" | "integrations" | "desktop";
 export type MobilePane = "list" | "chat" | "detail";
 
 /** Auto-navigate to an agent chat and send an opening prompt (edit routing or first message). */
@@ -159,7 +159,7 @@ export const useAppStore = create<AppState>((set) => ({
   setSandboxOpen: (v) => set({ sandboxOpen: v }),
   highlightedStepId: null,
   setHighlightedStepId: (id) => set({ highlightedStepId: id }),
-  vaultSection: "connections",
+  vaultSection: "apps",
   setVaultSection: (s) => set({ vaultSection: s }),
   installedTemplates: [],
   installTemplate: (t) =>

@@ -44,6 +44,20 @@ import type {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * Thrown when a step's Pipedream-managed connection failed with an
+ * auth-shaped error. Not retried (a reconnect won't happen mid-run); the
+ * run pauses at a reconnect gate so the user can re-authorize and resume.
+ */
+export class ReconnectRequiredError extends Error {
+  info: { app: string; credentialId: string }
+  constructor(info: { app: string; credentialId: string }, message: string) {
+    super(message)
+    this.name = 'ReconnectRequiredError'
+    this.info = info
+  }
+}
+
 /** Strip ```json fences if the LLM wrapped its answer. */
 function stripFences(s: string): string {
   let out = s.trim()
@@ -118,6 +132,9 @@ async function withRetry<T>(
       return await withTimeout(fn, step.timeoutMs)
     } catch (err) {
       lastError = err
+      // A revoked/expired connection won't fix itself between attempts —
+      // surface it immediately so the run pauses at the reconnect gate.
+      if (err instanceof ReconnectRequiredError) throw err
       if (attempt < maxAttempts) {
         const delay = backoffMs * Math.pow(multiplier, attempt - 1)
         broadcastRun(runId, 'step:progress', {
@@ -189,6 +206,12 @@ async function runToolStep(
       )
     }
     if (!prod.ok) {
+      if (prod.needsReconnect) {
+        throw new ReconnectRequiredError(
+          prod.needsReconnect,
+          prod.error ?? 'Connection needs to be re-authorized',
+        )
+      }
       throw new Error(prod.error ?? 'Step execution failed')
     }
     return prod
@@ -343,6 +366,48 @@ async function pauseAtGate(
   }
 }
 
+/**
+ * Pause the run because a Pipedream-managed connection needs re-auth. Reuses
+ * the gate machinery (RunStep → 'awaiting', Run → 'awaiting_gate') so the
+ * existing gate UI and resume route work; the RunStep's outputJson carries a
+ * needsReconnect marker so resumeRunFromGate RE-EXECUTES this step instead of
+ * skipping past it.
+ */
+async function pauseForReconnect(
+  runId: string,
+  step: WorkflowStep,
+  workflow: WorkflowRow,
+  info: { app: string; credentialId: string },
+): Promise<void> {
+  const message = `Reconnect your ${info.app} account to continue — its authorization expired or was revoked.`
+  await db.runStep.updateMany({
+    where: { runId, stepId: step.id },
+    data: {
+      status: 'awaiting',
+      outputJson: JSON.stringify({ needsReconnect: info, message }),
+    },
+  })
+  await db.run.update({
+    where: { id: runId },
+    data: { status: 'awaiting_gate' },
+  })
+  broadcastRun(runId, 'step:progress', { runId, stepId: step.id, message })
+  broadcastRun(runId, 'run:completed', { runId, status: 'awaiting_gate' })
+
+  if (workflow.userId) {
+    try {
+      await notifyGate(workflow.userId, {
+        workflowName: workflow.name,
+        stepLabel: step.label,
+        runId,
+        summary: message,
+      })
+    } catch (err) {
+      console.error('[runtime] reconnect notification failed:', err)
+    }
+  }
+}
+
 export class ResumeError extends Error {
   status: number
   constructor(message: string, status = 400) {
@@ -373,6 +438,19 @@ export async function resumeRunFromGate(
   const gateRow = run.steps.find((s) => s.status === 'awaiting')
   if (!gateRow) throw new ResumeError('No awaiting gate step on this run', 409)
 
+  // A reconnect pause (pauseForReconnect) marks the awaiting step with a
+  // needsReconnect payload. Approving it re-executes THAT step (the user has
+  // reconnected the account) instead of skipping past it like a normal gate.
+  let isReconnectGate = false
+  try {
+    const stored = gateRow.outputJson ? JSON.parse(gateRow.outputJson) : null
+    isReconnectGate = Boolean(
+      stored && typeof stored === 'object' && (stored as { needsReconnect?: unknown }).needsReconnect,
+    )
+  } catch {
+    // Not a reconnect marker.
+  }
+
   const gateOutput = {
     approved: opts.approve,
     note: opts.note ?? null,
@@ -381,11 +459,15 @@ export async function resumeRunFromGate(
   }
   await db.runStep.updateMany({
     where: { id: gateRow.id },
-    data: {
-      status: opts.approve ? 'completed' : 'failed',
-      outputJson: JSON.stringify(gateOutput),
-      finishedAt: new Date(),
-    },
+    data:
+      isReconnectGate && opts.approve
+        ? // Reset the step — it re-runs from scratch with the fresh connection.
+          { status: 'pending', outputJson: null, startedAt: null, finishedAt: null }
+        : {
+            status: opts.approve ? 'completed' : 'failed',
+            outputJson: JSON.stringify(gateOutput),
+            finishedAt: new Date(),
+          },
   })
 
   const workflow = run.workflow as unknown as WorkflowRow
@@ -424,13 +506,17 @@ export async function resumeRunFromGate(
       if (s.status === 'flagged') state.flaggedCount += 1
     }
   }
-  state.outputs[gateRow.stepId] = gateOutput
-  state.stepsExecuted += 1
+  if (!isReconnectGate) {
+    state.outputs[gateRow.stepId] = gateOutput
+    state.stepsExecuted += 1
+  }
 
   if (!opts.approve) {
     await finalizeRun(runId, workflow, state, 'cancelled', {
       startedAt: run.startedAt.getTime(),
-      failureNote: `Gate "${gateRow.label}" was rejected${opts.note ? `: ${opts.note}` : '.'}`,
+      failureNote: isReconnectGate
+        ? `Reconnect for "${gateRow.label}" was declined${opts.note ? `: ${opts.note}` : '.'}`
+        : `Gate "${gateRow.label}" was rejected${opts.note ? `: ${opts.note}` : '.'}`,
     })
     return { status: 'cancelled' }
   }
@@ -439,7 +525,10 @@ export async function resumeRunFromGate(
   broadcastRun(runId, 'run:started', { runId, workflowId: workflow.id })
 
   const gateIndex = steps.findIndex((s) => s.id === gateRow.stepId)
-  const nextIndex = gateIndex === -1 ? steps.length : gateIndex + 1
+  // Normal gates continue AFTER the gate step; reconnect gates RE-RUN the
+  // paused step now that its connection has been re-authorized.
+  const nextIndex =
+    gateIndex === -1 ? steps.length : isReconnectGate ? gateIndex : gateIndex + 1
 
   // Continue fire-and-forget, same as the initial kick-off.
   void executeRunSteps(runId, workflow, steps, nextIndex, state, run.startedAt.getTime()).catch(
@@ -916,6 +1005,12 @@ async function executeRunSteps(
         state.outputs[step.id] = output
         state.stepsExecuted += 1
       } catch (err) {
+        // A managed connection needs re-auth — pause instead of failing so
+        // the user can reconnect from the run view and the step re-executes.
+        if (err instanceof ReconnectRequiredError) {
+          await pauseForReconnect(runId, step, workflow, err.info)
+          return // resumeRunFromGate re-runs this step after reconnect.
+        }
         console.error(`[runtime] step ${step.id} (${step.kind}) failed:`, err)
         stepStatus = 'failed'
         runFailed = true

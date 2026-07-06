@@ -42,6 +42,7 @@ import {
   type ToolResult,
   type ToolDef,
   type CredentialRequest,
+  type ConnectionRequest,
   type PlanItem,
   type ClarificationRequest,
 } from './agent-tools'
@@ -81,6 +82,9 @@ export type AgentEvent =
       workflowSavedToAgentId?: string
       /** Set when the agent needs an API key — renders an inline vault box. */
       credentialRequests?: CredentialRequest[]
+      /** Set when the agent needs an app account connected — renders an
+       *  inline "Connect your <App>" card (Pipedream managed auth). */
+      connectionRequests?: ConnectionRequest[]
       /** Set when agent_create materialized a new agent (orchestrator). */
       createdAgentId?: string
       createdAgentName?: string
@@ -143,6 +147,7 @@ export interface AgentRunResult {
   attachments?: ToolContext['producedAssets']
   workflowSavedToAgentId?: string
   credentialRequests?: CredentialRequest[]
+  connectionRequests?: ConnectionRequest[]
   createdAgentId?: string
   createdAgentName?: string
   plan?: PlanItem[]
@@ -186,7 +191,9 @@ Respect your runtime capabilities above. Never claim abilities you lack in this 
 
 CONVERSATION: You are in one ongoing conversation — read the history and continue from where you left off. Don't reintroduce yourself, re-ask answered questions, or redo work already completed. Answer simple questions, explanations, opinions, and chat directly in clean markdown with no tools. When the user asks you to DO something, do it with tools.
 
-WORKING STYLE: When you act on the user's existing resources, orient first with cheap lookups (agent_list, credential_list, integration_list — you may call these in parallel in one turn). You can extend your own capabilities: if a tool or API is missing, discover it (web_search), install it (tool_configure with an OpenAPI spec or MCP server), obtain any needed secret (credential_request), then use it (mcp_call_tool / http_request). Never say "I can't access X" without first trying to discover, install, or work around it. If something fails, reason about why and try another approach.
+WORKING STYLE: When you act on the user's existing resources, orient first with cheap lookups (agent_list, credential_list, integration_list, mcp_list_servers — you may call these in parallel in one turn). You can extend your own capabilities: if a tool or API is missing, discover it (web_search), install it (tool_configure with an OpenAPI spec or MCP server), obtain any needed secret (credential_request), then use it (mcp_call_tool / http_request). Never say "I can't access X" without first trying to discover, install, or work around it. If something fails, reason about why and try another approach.
+
+CONNECTING APPS (order matters): For any well-known SaaS app (Slack, Gmail, Notion, QuickBooks, Salesforce, GitHub, …), the PRIMARY path is the managed catalog: app_search to find it, then connection_request to show the user a one-click connect card — no API keys, no OAuth setup, and the connected app's tools appear via mcp_list_servers. Fall back to tool_configure (custom MCP server / OpenAPI spec) or credential_request (raw API key) only when the app isn't in the managed catalog, the managed path is unavailable, or the user explicitly asks for a direct/custom connection.
 
 CHECKLISTS: For any task with 2+ steps, call update_plan first with a short checklist (3–7 short imperative items), and update it as you go (always pass the full list). If a plan is already in progress, continue that same list — mark finished items done and keep going; do NOT start a new one. Skip the checklist for trivial single-step requests and pure questions.
 
@@ -503,6 +510,7 @@ function finalizeRun(
     attachments: ctx.producedAssets,
     workflowSavedToAgentId: failures.length > 0 ? undefined : ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     runFailures: failures.length > 0 ? failures : undefined,
@@ -515,6 +523,7 @@ function finalizeRun(
     attachments: ctx.producedAssets,
     workflowSavedToAgentId: failures.length > 0 ? undefined : ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     plan: ctx.plan,
@@ -548,6 +557,7 @@ function budgetExhausted(
     findings: ctx.findings,
     workflowSavedToAgentId: failures.length > 0 ? undefined : ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     runFailures: failures.length > 0 ? failures : undefined,
@@ -559,6 +569,7 @@ function budgetExhausted(
     findings: ctx.findings,
     workflowSavedToAgentId: ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     plan: ctx.plan,
@@ -797,6 +808,7 @@ async function runNativeLoop(
         plan: ctx.plan,
         clarification: question,
         credentialRequests: ctx.credentialRequests,
+        connectionRequests: ctx.connectionRequests,
       })
       return {
         answer: clarifyAnswer,
@@ -805,6 +817,7 @@ async function runNativeLoop(
         plan: ctx.plan,
         clarification: question,
         credentialRequests: ctx.credentialRequests,
+        connectionRequests: ctx.connectionRequests,
         iterations,
         toolCalls,
         tokensUsed,
@@ -823,6 +836,7 @@ async function runNativeLoop(
     findings: ctx.findings,
     workflowSavedToAgentId: ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     plan: ctx.plan,
@@ -1032,6 +1046,7 @@ async function runLegacyLoop(
           plan: ctx.plan,
           clarification: question,
           credentialRequests: ctx.credentialRequests,
+          connectionRequests: ctx.connectionRequests,
         })
         return {
           answer: clarifyAnswer,
@@ -1040,6 +1055,7 @@ async function runLegacyLoop(
           plan: ctx.plan,
           clarification: question,
           credentialRequests: ctx.credentialRequests,
+          connectionRequests: ctx.connectionRequests,
           iterations,
           toolCalls,
           tokensUsed,
@@ -1071,6 +1087,7 @@ async function runLegacyLoop(
     findings: ctx.findings,
     workflowSavedToAgentId: ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     plan: ctx.plan,
