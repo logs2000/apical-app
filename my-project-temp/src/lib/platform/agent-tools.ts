@@ -25,6 +25,7 @@ import { buildSecureHeaders, listCredentialsForAgent } from '@/lib/platform/agen
 import { ingestOpenApiSpec } from '@/lib/openapi-parser'
 import { searchWeb } from '@/lib/platform/web-search'
 import { saveAsset, assetDownloadUrl } from '@/lib/platform/assets'
+import { normalizeImage } from '@/lib/platform/images'
 import { normalizeSteps } from '@/lib/deploy'
 import { inferRuntimeFromSteps } from '@/lib/workflow-schema'
 import { buildStepsForFreeze } from '@/lib/platform/workflow-distill'
@@ -71,6 +72,9 @@ export interface ToolResult {
   ok: boolean
   output: unknown // structured; serialized to a string for the LLM
   error?: string
+  /** Vision output — normalized images the agent loop feeds to the model on
+   *  the next LLM call (vision models only). Keep small: ≤4 per result. */
+  images?: Array<{ mimeType: string; base64: string; label?: string }>
   /** Optional display hints for the UI. */
   display?: {
     title: string
@@ -662,6 +666,62 @@ const assetSave: ToolDef = {
           assetUrl: asset.url,
           assetName: asset.name,
           mimeType: asset.mimeType,
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 4c. image_read — load an image so the model can SEE it (vision input).
+const imageRead: ToolDef = {
+  name: 'image_read',
+  description:
+    'Look at an image. Loads an image from an asset id, URL, or desktop file path and attaches it to your next reasoning step so you can see the pixels (vision models only; on non-vision models you get a text note instead). Use this to inspect screenshots, charts, photos, satellite tiles, or generated renders before deciding what to do next.',
+  inputSchema: {
+    assetId: { type: 'string', description: 'A UserAsset id (from asset_save, uploads, or job artifacts).' },
+    url: { type: 'string', description: 'An http(s) or data: image URL.' },
+    path: { type: 'string', description: "Absolute file path on the user's desktop (requires desktop access)." },
+    label: { type: 'string', description: 'Short label for the image, e.g. "satellite tile row 2".' },
+  },
+  async run(input, ctx) {
+    const assetId = asString(input.assetId, 100)
+    const url = asString(input.url, 4000)
+    const path = asString(input.path, 2000)
+    const label = asString(input.label, 200) || undefined
+    if (!assetId && !url && !path) {
+      return { ok: false, output: null, error: 'one of assetId, url, or path is required' }
+    }
+    try {
+      let normalized
+      if (path) {
+        if (!ctx.allowCli && !isLocalDesktopRuntime()) {
+          return { ok: false, output: null, error: 'Desktop access is disabled. Use assetId or url instead.' }
+        }
+        const read = await fsRead.run({ path, encoding: 'base64' }, ctx)
+        const content = read.ok ? (read.output as { content?: string } | null)?.content : null
+        if (!content) return { ok: false, output: null, error: read.error || 'could not read image file' }
+        normalized = await normalizeImage({ bytes: Buffer.from(content, 'base64'), label })
+      } else {
+        normalized = await normalizeImage({ assetId: assetId || undefined, userId: ctx.userId, url: url || undefined, label })
+      }
+      return {
+        ok: true,
+        output: {
+          width: normalized.width,
+          height: normalized.height,
+          mimeType: normalized.mimeType,
+          sizeBytes: normalized.sizeBytes,
+          source: assetId ? `asset:${assetId}` : url || path,
+          note: 'Image attached — it is visible to you in this turn.',
+        },
+        images: [{ mimeType: normalized.mimeType, base64: normalized.base64, label }],
+        display: {
+          title: label || 'Read image',
+          summary: `${normalized.width}×${normalized.height} ${normalized.mimeType}`,
+          kind: 'image',
+          ...(assetId ? { assetId, assetUrl: assetDownloadUrl(assetId) } : {}),
         },
       }
     } catch (e) {
@@ -2779,6 +2839,7 @@ export const AGENT_TOOLS: ToolDef[] = [
   httpRequest,
   codeEval,
   assetSave,
+  imageRead,
   scriptRun,
   cliRun,
   fsList,

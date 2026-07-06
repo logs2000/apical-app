@@ -28,7 +28,9 @@ import {
   type GatewayMessage,
   type AssistantToolCall,
   type StopReason,
+  type ImagePart,
 } from '@/lib/platform/llm-gateway'
+import { normalizeImage } from '@/lib/platform/images'
 import {
   AGENT_TOOLS,
   getAgentTool,
@@ -267,6 +269,38 @@ interface LoopState {
   history: Array<{ role: 'user' | 'agent'; content: string }>
   unfinishedPriorPlan?: PlanItem[]
   maxIterations: number
+  /** Vision input from image-kind attachments, attached to the goal message. */
+  goalImages?: ImagePart[]
+}
+
+/** Max images fed back to the model from a single tool result. */
+const MAX_IMAGES_PER_OBSERVATION = 4
+/** Max image-bearing messages kept in the transcript (older ones are pruned). */
+const MAX_IMAGE_MESSAGES = 8
+
+function toolResultImages(result: ToolResult): ImagePart[] | undefined {
+  if (!result.images || result.images.length === 0) return undefined
+  const parts = result.images
+    .filter((i) => i && typeof i.base64 === 'string' && i.base64.length > 0 && typeof i.mimeType === 'string')
+    .slice(0, MAX_IMAGES_PER_OBSERVATION)
+    .map((i) => ({ mimeType: i.mimeType, base64: i.base64, label: i.label }))
+  return parts.length > 0 ? parts : undefined
+}
+
+/** Drop images from all but the newest MAX_IMAGE_MESSAGES image-bearing
+ *  messages — vision input is huge and stale screenshots rarely matter. */
+function pruneOldImages(messages: GatewayMessage[]): void {
+  const withImages = messages
+    .map((m, i) => ({ m: m as GatewayMessage & { images?: ImagePart[] }, i }))
+    .filter((x) => x.m.images && x.m.images.length > 0)
+  if (withImages.length <= MAX_IMAGE_MESSAGES) return
+  for (const x of withImages.slice(0, withImages.length - MAX_IMAGE_MESSAGES)) {
+    const count = x.m.images!.length
+    delete x.m.images
+    if ('content' in x.m && typeof x.m.content === 'string') {
+      x.m.content += `\n[${count} image(s) expired from context]`
+    }
+  }
 }
 
 // ---------------- Observation formatting ----------------
@@ -473,6 +507,7 @@ function msgLen(m: GatewayMessage): number {
  * update_plan results) with one-line summaries. In-place, no LLM call.
  */
 function compactMessages(messages: GatewayMessage[]): void {
+  pruneOldImages(messages)
   const total = () => messages.reduce((n, m) => n + msgLen(m), 0)
   if (total() <= COMPACT_LIMIT_CHARS) return
 
@@ -597,7 +632,11 @@ async function runNativeLoop(
   for (const h of state.history) {
     messages.push({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })
   }
-  messages.push({ role: 'user', content: `${state.contextPrefix}${state.goalLine}` })
+  messages.push({
+    role: 'user',
+    content: `${state.contextPrefix}${state.goalLine}`,
+    ...(state.goalImages && state.goalImages.length > 0 ? { images: state.goalImages } : {}),
+  })
 
   let iterations = 0
   let toolCalls = 0
@@ -743,7 +782,14 @@ async function runNativeLoop(
           o.status === 'fulfilled'
             ? o.value.observationText
             : `Error: ${(o.reason as Error)?.message ?? 'tool crashed'}`
-        messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: observationText })
+        const images = o.status === 'fulfilled' ? toolResultImages(o.value.result) : undefined
+        messages.push({
+          role: 'tool',
+          toolCallId: c.id,
+          name: c.name,
+          content: observationText,
+          ...(images ? { images } : {}),
+        })
       })
       onEvent({ type: 'status', status: 'thinking' })
     }
@@ -874,6 +920,7 @@ async function runLegacyLoop(
     {
       role: 'user',
       content: `${state.contextPrefix}${historyBlock}${state.goalLine}\n\nBegin. Respond with JSON only.`,
+      ...(state.goalImages && state.goalImages.length > 0 ? { images: state.goalImages } : {}),
     },
   ]
 
@@ -1345,6 +1392,24 @@ export async function runAgent(
           .join('\n')}\n\n`
       : ''
 
+  // Image attachments become vision input on the goal message (best-effort —
+  // a corrupt image degrades to its text line above, never fails the run).
+  let goalImages: ImagePart[] | undefined
+  const imageAttachments = (attachments ?? [])
+    .filter((a) => a.kind === 'image' || a.mimeType.startsWith('image/'))
+    .slice(0, MAX_IMAGES_PER_OBSERVATION)
+  if (imageAttachments.length > 0) {
+    const normalized = await Promise.allSettled(
+      imageAttachments.map((a) =>
+        normalizeImage({ assetId: a.id, userId: opts.userId, label: a.name }),
+      ),
+    )
+    const parts = normalized
+      .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof normalizeImage>>> => r.status === 'fulfilled')
+      .map((r) => ({ mimeType: r.value.mimeType, base64: r.value.base64, label: r.value.label }))
+    if (parts.length > 0) goalImages = parts
+  }
+
   const scriptBlock = script?.code
     ? `User provided script (${script.language}) to run if relevant:\n\`\`\`${script.language}\n${script.code}\n\`\`\`\n\n`
     : ''
@@ -1376,6 +1441,7 @@ export async function runAgent(
     history: history ?? [],
     unfinishedPriorPlan,
     maxIterations,
+    goalImages,
   }
 
   // Branch: native tool calling when the model supports it, else legacy JSON.

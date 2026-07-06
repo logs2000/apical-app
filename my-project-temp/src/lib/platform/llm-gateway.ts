@@ -42,6 +42,20 @@ export const NO_LLM_PROVIDER_ERROR =
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  /** Optional vision input. Ignored (stripped with a text note) for models
+   *  without vision support — see modelSupportsVision. */
+  images?: ImagePart[]
+}
+
+/** One image attached to a message. Always base64 at the gateway boundary —
+ *  callers fetch/downscale first (src/lib/platform/images.ts) so provider
+ *  converters stay dumb. */
+export interface ImagePart {
+  /** e.g. "image/jpeg", "image/png", "image/webp", "image/gif" */
+  mimeType: string
+  base64: string
+  /** Short human label ("screenshot of example.com") surfaced to the model. */
+  label?: string
 }
 
 /** A tool the model may call, described in JSON Schema form. */
@@ -76,7 +90,7 @@ export type GatewayMessage =
        *  replayed verbatim when continuing after tool use. */
       thinkingBlocks?: unknown[]
     }
-  | { role: 'tool'; toolCallId: string; name: string; content: string }
+  | { role: 'tool'; toolCallId: string; name: string; content: string; images?: ImagePart[] }
 
 /** How the model ended its turn. */
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'other'
@@ -165,6 +179,31 @@ export function modelSupportsTools(resolved: ResolvedModel): boolean {
   if (resolved.adapter === 'llamacpp') return false
   if (resolved.adapter === 'cloud-relay') return true
   return resolved.model.supportsTools !== false
+}
+
+/**
+ * Whether a resolved model accepts image input. Registry-driven
+ * (ModelDefinition.supportsVision); the cloud relay decides remotely, so
+ * images are passed through and it strips them itself if needed.
+ */
+export function modelSupportsVision(resolved: ResolvedModel): boolean {
+  if (resolved.adapter === 'llamacpp') return false
+  if (resolved.adapter === 'cloud-relay') return true
+  return resolved.model.supportsVision === true
+}
+
+/** Replace image parts with a text note for models without vision. The note
+ *  tells the model images exist so it can say so instead of hallucinating. */
+export function stripImagesFromMessages(messages: GatewayMessage[]): GatewayMessage[] {
+  return messages.map((m) => {
+    const images = (m as { images?: ImagePart[] }).images
+    if (!images || images.length === 0) return m
+    const note = images
+      .map((img, i) => `[image ${i + 1}${img.label ? `: ${img.label}` : ''} omitted — current model lacks vision]`)
+      .join('\n')
+    const { images: _drop, ...rest } = m as GatewayMessage & { images?: ImagePart[] }
+    return { ...rest, content: [m.content, note].filter(Boolean).join('\n') } as GatewayMessage
+  })
 }
 
 interface ChatOpts {
@@ -494,14 +533,33 @@ function cleanArgs(args: Record<string, unknown>): Record<string, unknown> {
 
 // -- OpenAI --
 
-function toOpenAIMessages(messages: GatewayMessage[]): Record<string, unknown>[] {
-  return messages.map((m) => {
+function openAIImageParts(images: ImagePart[]): Record<string, unknown>[] {
+  return images.flatMap((img) => [
+    ...(img.label ? [{ type: 'text', text: `[image: ${img.label}]` }] : []),
+    { type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } },
+  ])
+}
+
+export function toOpenAIMessages(messages: GatewayMessage[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = []
+  for (const m of messages) {
     if (isToolMsg(m)) {
-      return { role: 'tool', tool_call_id: m.toolCallId, content: m.content }
+      // OpenAI tool messages are text-only — images ride a synthetic user turn.
+      out.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content })
+      if (m.images && m.images.length > 0) {
+        out.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: `[Image output of tool ${m.name}]` },
+            ...openAIImageParts(m.images),
+          ],
+        })
+      }
+      continue
     }
     const calls = assistantToolCalls(m)
     if (m.role === 'assistant' && calls && calls.length > 0) {
-      return {
+      out.push({
         role: 'assistant',
         content: m.content || null,
         tool_calls: calls.map((c) => ({
@@ -509,10 +567,23 @@ function toOpenAIMessages(messages: GatewayMessage[]): Record<string, unknown>[]
           type: 'function',
           function: { name: c.name, arguments: JSON.stringify(cleanArgs(c.arguments)) },
         })),
-      }
+      })
+      continue
     }
-    return { role: m.role, content: (m as ChatMessage).content }
-  })
+    const cm = m as ChatMessage
+    if (cm.role === 'user' && cm.images && cm.images.length > 0) {
+      out.push({
+        role: 'user',
+        content: [
+          ...(cm.content ? [{ type: 'text', text: cm.content }] : []),
+          ...openAIImageParts(cm.images),
+        ],
+      })
+      continue
+    }
+    out.push({ role: cm.role, content: cm.content })
+  }
+  return out
 }
 
 function toOpenAITools(tools?: ToolSpec[]): Record<string, unknown>[] | undefined {
@@ -528,7 +599,7 @@ function toOpenAITools(tools?: ToolSpec[]): Record<string, unknown>[] | undefine
 /** Coalesce consecutive `tool` messages into a single user turn of
  *  tool_result blocks, and expand assistant tool calls into content blocks
  *  (replaying signed thinking blocks first when present). */
-function toAnthropicMessages(messages: GatewayMessage[]): Record<string, unknown>[] {
+export function toAnthropicMessages(messages: GatewayMessage[]): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = []
   let i = 0
   const nonSystem = messages.filter((m) => m.role !== 'system')
@@ -538,7 +609,24 @@ function toAnthropicMessages(messages: GatewayMessage[]): Record<string, unknown
       const results: Record<string, unknown>[] = []
       while (i < nonSystem.length && isToolMsg(nonSystem[i])) {
         const t = nonSystem[i] as GatewayTool
-        results.push({ type: 'tool_result', tool_use_id: t.toolCallId, content: t.content })
+        if (t.images && t.images.length > 0) {
+          results.push({
+            type: 'tool_result',
+            tool_use_id: t.toolCallId,
+            content: [
+              { type: 'text', text: t.content },
+              ...t.images.flatMap((img) => [
+                ...(img.label ? [{ type: 'text', text: `[image: ${img.label}]` }] : []),
+                {
+                  type: 'image',
+                  source: { type: 'base64', media_type: img.mimeType, data: img.base64 },
+                },
+              ]),
+            ],
+          })
+        } else {
+          results.push({ type: 'tool_result', tool_use_id: t.toolCallId, content: t.content })
+        }
         i++
       }
       out.push({ role: 'user', content: results })
@@ -563,7 +651,21 @@ function toAnthropicMessages(messages: GatewayMessage[]): Record<string, unknown
       continue
     }
     // user
-    out.push({ role: 'user', content: (m as ChatMessage).content })
+    const cm = m as ChatMessage
+    if (cm.images && cm.images.length > 0) {
+      out.push({
+        role: 'user',
+        content: [
+          ...(cm.content ? [{ type: 'text', text: cm.content }] : []),
+          ...cm.images.flatMap((img) => [
+            ...(img.label ? [{ type: 'text', text: `[image: ${img.label}]` }] : []),
+            { type: 'image', source: { type: 'base64', media_type: img.mimeType, data: img.base64 } },
+          ]),
+        ],
+      })
+    } else {
+      out.push({ role: 'user', content: cm.content })
+    }
     i++
   }
   return out
@@ -594,7 +696,7 @@ function sanitizeForGemini(schema: unknown): unknown {
   return schema
 }
 
-function toGoogleContents(messages: GatewayMessage[]): Record<string, unknown>[] {
+export function toGoogleContents(messages: GatewayMessage[]): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = []
   for (const m of messages) {
     if (m.role === 'system') continue
@@ -603,6 +705,17 @@ function toGoogleContents(messages: GatewayMessage[]): Record<string, unknown>[]
         role: 'user',
         parts: [{ functionResponse: { name: m.name, response: { result: m.content } } }],
       })
+      if (m.images && m.images.length > 0) {
+        out.push({
+          role: 'user',
+          parts: [
+            { text: `[Image output of tool ${m.name}]` },
+            ...m.images.map((img) => ({
+              inlineData: { mimeType: img.mimeType, data: img.base64 },
+            })),
+          ],
+        })
+      }
       continue
     }
     if (m.role === 'assistant') {
@@ -615,7 +728,16 @@ function toGoogleContents(messages: GatewayMessage[]): Record<string, unknown>[]
       out.push({ role: 'model', parts: parts.length ? parts : [{ text: '' }] })
       continue
     }
-    out.push({ role: 'user', parts: [{ text: (m as ChatMessage).content }] })
+    const cm = m as ChatMessage
+    out.push({
+      role: 'user',
+      parts: [
+        ...(cm.content ? [{ text: cm.content }] : []),
+        ...(cm.images ?? []).map((img) => ({
+          inlineData: { mimeType: img.mimeType, data: img.base64 },
+        })),
+      ],
+    })
   }
   return out
 }
@@ -635,9 +757,17 @@ function toGoogleTools(tools?: ToolSpec[]): Record<string, unknown>[] | undefine
 
 // -- Ollama --
 
-function toOllamaMessages(messages: GatewayMessage[]): Record<string, unknown>[] {
+export function toOllamaMessages(messages: GatewayMessage[]): Record<string, unknown>[] {
   return messages.map((m) => {
-    if (isToolMsg(m)) return { role: 'tool', content: m.content }
+    if (isToolMsg(m)) {
+      // Ollama's tool role is text-only; image-bearing results keep their text
+      // and attach base64 images (honored by multimodal models like llava).
+      return {
+        role: 'tool',
+        content: m.content,
+        ...(m.images && m.images.length > 0 ? { images: m.images.map((i) => i.base64) } : {}),
+      }
+    }
     const calls = assistantToolCalls(m)
     if (m.role === 'assistant' && calls && calls.length > 0) {
       return {
@@ -648,7 +778,14 @@ function toOllamaMessages(messages: GatewayMessage[]): Record<string, unknown>[]
         })),
       }
     }
-    return { role: m.role, content: (m as ChatMessage).content }
+    const cm = m as ChatMessage
+    return {
+      role: cm.role,
+      content: cm.content,
+      ...(cm.role === 'user' && cm.images && cm.images.length > 0
+        ? { images: cm.images.map((i) => i.base64) }
+        : {}),
+    }
   })
 }
 
@@ -1574,6 +1711,7 @@ export async function chat(req: ChatRequest): Promise<ChatResponse> {
       `Model "${req.modelId}" not found or not configured for this user`,
     )
   }
+  if (!modelSupportsVision(resolved)) req = { ...req, messages: stripImagesFromMessages(req.messages) }
 
   if (resolved.adapter === 'cloud-relay') {
     return cloudChat(req.userId, {
@@ -1629,6 +1767,7 @@ export async function* chatStream(
       `Model "${req.modelId}" not found or not configured for this user`,
     )
   }
+  if (!modelSupportsVision(resolved)) req = { ...req, messages: stripImagesFromMessages(req.messages) }
 
   if (resolved.adapter === 'cloud-relay') {
     yield* cloudChatStream(req.userId, {

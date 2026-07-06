@@ -30,6 +30,7 @@ export const MIN_SUBSTANTIVE_FREEZE_STEPS = 2
 export const EXPLORATION_ONLY_TOOLS = new Set([
   'web_search',
   'web_read',
+  'image_read',
   'agent_list',
   'agent_create',
   'credential_list',
