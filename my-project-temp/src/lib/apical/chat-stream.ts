@@ -1,7 +1,7 @@
 'use client'
 
 import type { AgentEvent, WorkflowJSON } from '@/lib/types'
-import type { ChatMessage, ExecutionStep, CredentialRequestInfo, CredentialRequestState, RunAnalysis, PlanItem, ClarificationRequestInfo } from './index'
+import type { ChatMessage, ExecutionStep, CredentialRequestInfo, CredentialRequestState, ConnectionRequestInfo, ConnectionRequestState, RunAnalysis, PlanItem, ClarificationRequestInfo } from './index'
 import { stepKind } from './index'
 import { traceStepLabel, sanitizeTraceInput } from '@/lib/platform/workflow-trace'
 import {
@@ -131,11 +131,18 @@ export function interactiveCardsFromEvents(events?: AgentEvent[]): Partial<ChatM
   if (!events?.length) return {}
   const out: Partial<ChatMessage> = {}
   const creds: CredentialRequestState[] = []
+  const connections: ConnectionRequestState[] = []
   for (const e of events) {
     if (e.type === 'credential_request' && e.request) {
       creds.push({
         ...(e.request as CredentialRequestInfo),
         status: e.status ?? 'pending',
+      })
+    } else if (e.type === 'connection_request' && e.request) {
+      connections.push({
+        ...(e.request as ConnectionRequestInfo),
+        status: e.status ?? 'pending',
+        credentialId: e.credentialId,
       })
     } else if (e.type === 'plan' && Array.isArray(e.items) && e.items.length > 0) {
       out.checklist = e.items as PlanItem[]
@@ -145,6 +152,7 @@ export function interactiveCardsFromEvents(events?: AgentEvent[]): Partial<ChatM
     }
   }
   if (creds.length > 0) out.credentialRequests = creds
+  if (connections.length > 0) out.connectionRequests = connections
   return out
 }
 
@@ -273,6 +281,7 @@ export interface ThinkStreamResult {
   createdAgentId?: string
   createdAgentName?: string
   credentialRequests?: CredentialRequestInfo[]
+  connectionRequests?: ConnectionRequestInfo[]
   checklist?: PlanItem[]
   clarificationRequest?: ClarificationRequestInfo
   trace: ExecutionStep[]
@@ -455,6 +464,7 @@ export async function streamAgentThink(
   let createdAgentId: string | undefined
   let createdAgentName: string | undefined
   let credentialRequests: CredentialRequestInfo[] | undefined
+  let connectionRequests: ConnectionRequestInfo[] | undefined
   let checklist: PlanItem[] | undefined
   let clarificationRequest: ClarificationRequestInfo | undefined
   let attachments: ThinkStreamResult['attachments']
@@ -542,6 +552,8 @@ export async function streamAgentThink(
       createdAgentName = (event as { createdAgentName?: string }).createdAgentName
       const creds = (event as { credentialRequests?: CredentialRequestInfo[] }).credentialRequests
       if (creds && creds.length > 0) credentialRequests = creds
+      const conns = (event as { connectionRequests?: ConnectionRequestInfo[] }).connectionRequests
+      if (conns && conns.length > 0) connectionRequests = conns
       attachments = (event as { attachments?: ThinkStreamResult['attachments'] }).attachments
       const finalPlan = (event as { plan?: PlanItem[] }).plan
       if (finalPlan) checklist = finalPlan
@@ -566,6 +578,7 @@ export async function streamAgentThink(
     createdAgentId,
     createdAgentName,
     credentialRequests,
+    connectionRequests,
     checklist,
     clarificationRequest,
     trace,
@@ -605,6 +618,15 @@ export function eventsForPersistedMessage(msg: ChatMessage): AgentEvent[] {
   for (const cr of msg.credentialRequests ?? []) {
     const { status, ...request } = cr
     cardEvents.push({ type: 'credential_request', request, status: status ?? 'pending' })
+  }
+  for (const cn of msg.connectionRequests ?? []) {
+    const { status, credentialId, ...request } = cn
+    cardEvents.push({
+      type: 'connection_request',
+      request,
+      status: status ?? 'pending',
+      credentialId,
+    })
   }
   if (msg.checklist && msg.checklist.length > 0) {
     cardEvents.push({ type: 'plan', items: msg.checklist })

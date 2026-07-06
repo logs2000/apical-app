@@ -74,6 +74,10 @@ export async function getOAuthToken(service: string, userId: string): Promise<st
           { service: { contains: svc } },
         ],
         status: 'active',
+        // Pipedream-managed rows carry no local token (it lives in Pipedream's
+        // vault) — never let one shadow a direct credential for the same
+        // service. Managed connections resolve via the proxy/MCP path instead.
+        kind: { not: 'pipedream' },
       },
       orderBy: { createdAt: 'desc' },
     })

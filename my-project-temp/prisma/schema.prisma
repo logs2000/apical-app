@@ -451,7 +451,7 @@ model Credential {
   connectedAccountId String?
   service     String   // e.g. "gmail", "stripe", "quickbooks"
   label       String   // human label
-  kind        String   // "oauth" | "apikey" | "payment" | "mcp_token"
+  kind        String   // "oauth" | "apikey" | "payment" | "mcp_token" | "pipedream"
   status      String   @default("active") // "provisioning" | "active" | "expired" | "revoked"
   // metaJson: non-secret metadata, e.g. { scopes, account, last4 }
   metaJson    String   @default("{}")
@@ -460,15 +460,21 @@ model Credential {
   canPay      Boolean  @default(false)
   // For OAuth-connected credentials: the provider key + token info.
   // oauthProvider is the canonical key from OAuthProvider ("google", "github", ...).
-  // oauthAccessToken/oauthRefreshToken are stored plaintext in dev (the task
-  // explicitly says "for demo, store plaintext"); in production these should be
-  // encrypted at rest (TODO: vault encryption).
+  // oauthAccessToken/oauthRefreshToken are AES-256-GCM vault-encrypted at rest
+  // (legacy plaintext rows still resolve via decryptOAuthToken's fallback).
   oauthProvider    String?
   oauthAccessToken String?
   oauthRefreshToken String?
   oauthExpiresAt   DateTime?
+  // For kind="pipedream": the Pipedream Connect account reference ("apn_...")
+  // and app slug. Tokens for these rows live in Pipedream's vault, NOT here —
+  // oauthAccessToken stays null and all calls route through Pipedream.
+  pipedreamAccountId String?
+  pipedreamApp       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([pipedreamAccountId])
 }
 
 // Catalog of OAuth 2.0 providers users can one-click connect (Gmail, GitHub,
@@ -978,7 +984,7 @@ model ConnectorCatalogEntry {
   // Unique slug for the connector: "gmail", "google-drive", "stripe", etc.
   slug            String   @unique
   name            String   // Display name: "Gmail", "Google Drive"
-  // "mcp" | "api" | "oauth" — how this connector authenticates
+  // "mcp" | "api" | "oauth" | "pipedream" — how this connector authenticates
   kind            String
   // Category for filtering: "email", "files", "messaging", "finance", "crm", "dev", "documents", "project-mgmt", "e-commerce", "marketing", "local"
   category        String   @default("general")
@@ -994,7 +1000,7 @@ model ConnectorCatalogEntry {
   // Status of this connector in the catalog
   status          String   @default("live") // "live" | "beta" | "coming_soon" | "deprecated"
   // Source: how this connector was discovered/added
-  source          String   @default("internal") // "internal" | "community" | "crawled" | "partner"
+  source          String   @default("internal") // "internal" | "community" | "crawled" | "partner" | "pipedream"
   // Who contributed this connector (for community ones)
   authorLabel     String?
   // How many users have installed this connector
@@ -1005,6 +1011,12 @@ model ConnectorCatalogEntry {
   apiBaseUrl      String?
   // MCP server URL for MCP connectors
   mcpServerUrl    String?
+  // Pipedream app name_slug when source = "pipedream" (e.g. "gmail", "slack").
+  pipedreamAppSlug String? @unique
+  // Auth type reported by Pipedream: "oauth" | "keys" | "none"
+  authType        String?
+  // Logo image URL (Pipedream img_src). `icon` stays emoji/name for direct entries.
+  imgSrc          String?
   // Documentation URL
   docsUrl         String?
   // Tags for search
@@ -1059,11 +1071,13 @@ model ConnectedAccount {
 // log in to their integrations/platforms through Apical.
 // ============================================================================
 
+/// DEPRECATED — superseded by Pipedream Connect (the managed connection path).
 /// A session for a user to authenticate with an external service.
 /// This is the "workaround" that lets people log in to their integrations
 /// before full OAuth platform is available. Users enter their credentials
 /// (which are stored encrypted), and Apical uses them to authenticate on
-/// their behalf.
+/// their behalf. Kept for existing rows; not offered in the UI when Pipedream
+/// is configured.
 model IntegrationSession {
   id              String   @id @default(cuid())
   userId          String

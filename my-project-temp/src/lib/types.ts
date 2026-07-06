@@ -58,6 +58,20 @@ export interface IntegrationConfig {
   }
   /** For MCP integrations: how to reach the server. */
   mcp?: McpServerConfig
+  /**
+   * For Pipedream-managed connections (the primary acquisition path): the
+   * marker linking this integration to a Pipedream Connect account. Contains
+   * NO secrets — auth headers for the Pipedream MCP server are minted per
+   * call in memory (src/lib/pipedream/mcp.ts) and never persisted here.
+   */
+  pipedream?: {
+    /** Pipedream app name_slug, e.g. "gmail". */
+    appSlug: string
+    /** Pipedream connected-account id ("apn_..."). */
+    accountId: string
+    /** The Apical Credential row (kind="pipedream") for this connection. */
+    credentialId: string
+  }
 }
 
 /** How to reach an MCP server. */
@@ -558,6 +572,21 @@ export type AgentEvent =
       }
       /** pending = box still shown; saved/dismissed = resolved. */
       status?: 'pending' | 'saved' | 'dismissed'
+    }
+  | {
+      type: 'connection_request'
+      request: {
+        /** Pipedream app name_slug, e.g. "slack". */
+        app: string
+        name: string
+        imgSrc?: string
+        authType?: string
+        reason?: string
+      }
+      /** pending = card still shown; connected/dismissed = resolved. */
+      status?: 'pending' | 'connected' | 'dismissed'
+      /** Set once connected — the Credential row backing the connection. */
+      credentialId?: string
     }
   | { type: 'plan'; items: Array<{ id: string; label: string; status: 'pending' | 'in_progress' | 'done' }> }
   | {

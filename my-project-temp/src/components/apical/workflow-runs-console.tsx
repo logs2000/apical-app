@@ -27,6 +27,8 @@ import {
   relativeTime,
 } from "@/lib/apical";
 import { useRuns } from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { openPipedreamConnect } from "@/lib/apical/pipedream-connect-client";
 import { useWorkflowRun } from "@/hooks/use-workflow-run";
 import { useRunSocket } from "@/hooks/use-run-socket";
 import type { Run, RunReportItem, RunStep } from "@/lib/types";
@@ -243,10 +245,78 @@ function LiveStepTrace({ runId }: { runId: string }) {
   );
 }
 
+/** Shown on a run paused because a managed connection needs re-auth: one
+ *  click reconnects the account (Pipedream popup) and resumes the run —
+ *  the paused step re-executes with the fresh connection. */
+function ReconnectGatePanel({ run }: { run: Run }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const awaiting = run.steps.find((s) => s.status === "awaiting");
+  const marker =
+    awaiting?.output && typeof awaiting.output === "object"
+      ? (awaiting.output as { needsReconnect?: { app: string; credentialId: string }; message?: string })
+      : null;
+  if (!awaiting || !marker?.needsReconnect) return null;
+  const { app } = marker.needsReconnect;
+
+  async function resume() {
+    const res = await fetch(`/api/runs/${run.id}/gate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approve: true, note: `Reconnected ${app}` }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error || "Failed to resume the run.");
+    }
+    void qc.invalidateQueries({ queryKey: ["runs"] });
+  }
+
+  function reconnect() {
+    setBusy(true);
+    setError(null);
+    void openPipedreamConnect({
+      app,
+      onSuccess: () => {
+        void resume()
+          .catch((err: Error) => setError(err.message))
+          .finally(() => setBusy(false));
+      },
+      onError: (message) => {
+        setBusy(false);
+        setError(message);
+      },
+      onCancel: () => setBusy(false),
+    });
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-gate/40 bg-gate/10 px-3 py-2.5">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-gate">
+        <ShieldCheck className="h-3.5 w-3.5" />
+        {marker.message || `Reconnect your ${app} account to continue.`}
+      </div>
+      {error && <div className="mb-1.5 text-[10px] text-destructive">{error}</div>}
+      <Button size="sm" className="h-7 px-3 text-xs" disabled={busy} onClick={reconnect}>
+        {busy ? (
+          <>
+            <Loader2 className="mr-1 h-3 w-3 animate-spin" /> Waiting for authorization…
+          </>
+        ) : (
+          <>Reconnect {app} & resume</>
+        )}
+      </Button>
+    </div>
+  );
+}
+
 function RunDetail({ run, live }: { run: Run; live?: boolean }) {
   return (
     <div className="border-t border-border px-3 py-2.5">
       <RunAuditMeta run={run} />
+      {run.status === "awaiting_gate" && <ReconnectGatePanel run={run} />}
       <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
         Step trace
       </div>

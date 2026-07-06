@@ -107,6 +107,7 @@ import { ArtifactEditor, type ArtifactEditorInitial } from "./artifact-editor";
 import { AssetCards } from "./asset-cards";
 import { SandboxPanel } from "./sandbox-panel";
 import { CredentialRequestList } from "./credential-box";
+import { ConnectAccountCardList } from "./connect-account-card";
 import { ClarificationCard } from "./clarification-card";
 import { MarkdownText } from "./markdown-text";
 import { CopyMessageButton } from "./copy-message-button";
@@ -1451,6 +1452,14 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
                       })),
                     }
                   : {}),
+                ...(result.connectionRequests?.length
+                  ? {
+                      connectionRequests: result.connectionRequests.map((r) => ({
+                        ...r,
+                        status: "pending" as const,
+                      })),
+                    }
+                  : {}),
                 ...(automationSaveSucceeded(result.trace, result.workflowSavedToAgentId)
                   ? { workflowSaved: { agentName: agent?.name ?? "this agent" } }
                   : {}),
@@ -1487,6 +1496,14 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
         ...(result.credentialRequests?.length
           ? {
               credentialRequests: result.credentialRequests.map((r) => ({
+                ...r,
+                status: "pending" as const,
+              })),
+            }
+          : {}),
+        ...(result.connectionRequests?.length
+          ? {
+              connectionRequests: result.connectionRequests.map((r) => ({
                 ...r,
                 status: "pending" as const,
               })),
@@ -1543,13 +1560,16 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
               (analysis.workflowAutoSaved || !!result.workflowSavedToAgentId) &&
               analysis.success &&
               analysis.outcomeAchieved !== false;
-            // Merge in the LIVE credential-box state — the user may have saved
-            // a key while the analysis was still running.
-            const liveCreds = messagesRef.current.find((m) => m.id === replyId)
-              ?.credentialRequests;
+            // Merge in the LIVE credential-box / connect-card state — the user
+            // may have saved a key or connected an app while the analysis was
+            // still running.
+            const liveMsg = messagesRef.current.find((m) => m.id === replyId);
+            const liveCreds = liveMsg?.credentialRequests;
+            const liveConnections = liveMsg?.connectionRequests;
             const analyzedMsg: ChatMessage = {
               ...finishedMsg,
               ...(liveCreds ? { credentialRequests: liveCreds } : {}),
+              ...(liveConnections ? { connectionRequests: liveConnections } : {}),
               runAnalysis: analysis,
               ...(showWorkflowSaved
                 ? { workflowSaved: { agentName: agent?.name ?? "this agent" } }
@@ -1770,6 +1790,46 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
     }
   }
 
+  // User connected or skipped an inline "Connect your <App>" card. Update +
+  // persist the card state; once every card in the message is resolved, resume
+  // the agent automatically with which apps were connected vs skipped.
+  function handleConnectionResolved(
+    messageId: string,
+    info: { app: string; action: "connected" | "dismissed"; credentialId?: string },
+  ) {
+    const msg = messagesRef.current.find((m) => m.id === messageId);
+    if (!msg?.connectionRequests) return;
+    const nextReqs = msg.connectionRequests.map((r) =>
+      r.app === info.app
+        ? { ...r, status: info.action, credentialId: info.credentialId }
+        : r,
+    );
+    const nextMsg: ChatMessage = { ...msg, connectionRequests: nextReqs };
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? nextMsg : m)));
+    if (nextMsg.serverId) void patchMessage(nextMsg.serverId, nextMsg);
+    const pending = nextReqs.some((r) => !r.status || r.status === "pending");
+    const connected = nextReqs.filter((r) => r.status === "connected");
+    const skipped = nextReqs.filter((r) => r.status === "dismissed").map((r) => r.name);
+    // Resume once every connection is resolved (connected OR skipped) — like
+    // credential boxes, an all-skipped turn still resumes so the agent can
+    // adapt rather than hang.
+    if (!pending && !isThinking && (connected.length > 0 || skipped.length > 0)) {
+      const parts: string[] = [];
+      if (connected.length) {
+        parts.push(
+          `connected ${connected
+            .map((r) => `${r.name}${r.credentialId ? ` (credentialId: ${r.credentialId})` : ""}`)
+            .join(", ")}`,
+        );
+      }
+      if (skipped.length) parts.push(`skipped connecting ${skipped.join(", ")}`);
+      const tail = connected.length
+        ? "Please continue — the connected apps are now available via mcp_list_servers / app_search."
+        : "Please continue without those connections — use placeholders where needed or suggest alternatives.";
+      sendDirect(`I've ${parts.join(" and ")}. ${tail}`);
+    }
+  }
+
   // User clicked a multiple-choice clarification option — mark it answered and
   // send the choice back so the agent resumes with the answer.
   function handleClarificationAnswer(messageId: string, answer: string) {
@@ -1928,6 +1988,7 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
             }
             onEditArtifact={openArtifactForEdit}
             onCredentialResolved={handleCredentialResolved}
+            onConnectionResolved={handleConnectionResolved}
             onPickPrompt={(prompt) => send({ text: prompt })}
             onClarify={handleClarificationAnswer}
             onRetryFailedSend={retryFromDeliveryError}
@@ -2000,6 +2061,7 @@ function MessageBubble({
   liveStatus,
   onEditArtifact,
   onCredentialResolved,
+  onConnectionResolved,
   onPickPrompt,
   onClarify,
   onRetryFailedSend,
@@ -2018,6 +2080,10 @@ function MessageBubble({
     messageId: string,
     info: { service: string; label: string },
     action: "saved" | "dismissed",
+  ) => void;
+  onConnectionResolved?: (
+    messageId: string,
+    info: { app: string; action: "connected" | "dismissed"; credentialId?: string },
   ) => void;
   onPickPrompt?: (prompt: string) => void;
   onClarify?: (messageId: string, answer: string) => void;
@@ -2142,6 +2208,14 @@ function MessageBubble({
             requests={message.credentialRequests}
             onSaved={(info) => onCredentialResolved?.(message.id, info, "saved")}
             onDismiss={(info) => onCredentialResolved?.(message.id, info, "dismissed")}
+          />
+        </div>
+      )}
+      {message.connectionRequests && message.connectionRequests.length > 0 && (
+        <div className="select-none">
+          <ConnectAccountCardList
+            requests={message.connectionRequests}
+            onResolved={(info) => onConnectionResolved?.(message.id, info)}
           />
         </div>
       )}

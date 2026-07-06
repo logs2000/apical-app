@@ -30,7 +30,11 @@ import { buildStepsForFreeze } from '@/lib/platform/workflow-distill'
 import { saveWorkflowSteps, appendWorkflowStep, patchWorkflowStep } from '@/lib/platform/workflow-revisions'
 import { validateWorkflowJSON } from '@/lib/workflow-schema'
 import { validateSchedule, parseFixedRate, type ScheduleKind } from '@/lib/platform/cron'
-import type { WorkflowJSON, McpServerConfig } from '@/lib/types'
+import { buildPipedreamMcpConfig } from '@/lib/pipedream/mcp'
+import { searchApps, getApp as getPipedreamApp } from '@/lib/pipedream/apps'
+import { proxyFetch } from '@/lib/pipedream/proxy'
+import { isPipedreamConfigured } from '@/lib/pipedream/config'
+import type { WorkflowJSON, McpServerConfig, IntegrationConfig } from '@/lib/types'
 import {
   WORKFLOW_META_TOOLS,
   MIN_SUBSTANTIVE_FREEZE_STEPS,
@@ -97,6 +101,22 @@ export interface CredentialRequest {
   headerPrefix?: string
 }
 
+/** An account connection the agent asks the user to authorize via
+ *  connection_request — rendered in chat as a "Connect your <App>" card that
+ *  opens the Pipedream managed-auth window. */
+export interface ConnectionRequest {
+  /** Pipedream app name_slug, e.g. "slack". */
+  app: string
+  /** Display name, e.g. "Slack". */
+  name: string
+  /** App logo URL (Pipedream img_src). */
+  imgSrc?: string
+  /** Pipedream auth type: "oauth" | "keys" | "none". */
+  authType?: string
+  /** Plain-English: why the agent needs this connection. */
+  reason?: string
+}
+
 /** A single checklist item the agent declares + updates via update_plan. */
 export interface PlanItem {
   id: string
@@ -151,6 +171,9 @@ export interface ToolContext {
   /** Set by credential_request — surfaced to the chat as inline key-entry boxes.
    *  An array so one turn can request several keys (one box each). */
   credentialRequests?: CredentialRequest[]
+  /** Set by connection_request — surfaced to the chat as "Connect your <App>"
+   *  cards that open the Pipedream managed-auth window. */
+  connectionRequests?: ConnectionRequest[]
   /** Set by update_plan — the live checklist surfaced above the answer. */
   plan?: PlanItem[]
   /** Set by ask_clarification — a multiple-choice question that ends the turn. */
@@ -496,11 +519,51 @@ const httpRequest: ToolDef = {
     // SECURITY: build headers server-side. Strips any auth-shaped headers
     // the LLM tried to set; injects the secret from the vault if credentialId
     // is provided.
-    const { headers, hadCredential } = await buildSecureHeaders(
+    const { headers, hadCredential, pipedream } = await buildSecureHeaders(
       (input.headers as Record<string, string>) ?? {},
       credentialId || undefined,
       ctx.userId,
     )
+
+    // Pipedream-managed credential: the token lives in Pipedream's vault, so
+    // the request routes through their proxy (auth injected upstream). Same
+    // insulation guarantee — the LLM only ever sees the response body.
+    if (pipedream?.pipedreamAccountId) {
+      ctx.usedCredentialIds = ctx.usedCredentialIds ?? []
+      if (!ctx.usedCredentialIds.includes(credentialId)) {
+        ctx.usedCredentialIds.push(credentialId)
+      }
+      const proxied = await proxyFetch(ctx.userId, pipedream.pipedreamAccountId, {
+        url,
+        method,
+        headers,
+        body: ['GET', 'HEAD'].includes(method) ? null : body,
+      })
+      let parsed: unknown = proxied.body
+      try {
+        parsed = JSON.parse(proxied.body)
+      } catch {
+        /* keep text */
+      }
+      if (!proxied.ok && proxied.error) {
+        return {
+          ok: false,
+          output: { status: proxied.status, body: parsed },
+          error: proxied.error,
+          display: { title: `${method} ${url}`, summary: `proxy HTTP ${proxied.status}`, kind: 'http' },
+        }
+      }
+      return {
+        ok: proxied.ok,
+        output: {
+          status: proxied.status,
+          ok: proxied.ok,
+          body: typeof parsed === 'string' ? truncate(parsed, ctx.maxFetchBytes) : parsed,
+          via: 'pipedream-proxy',
+        },
+        display: { title: `${method} ${url}`, summary: `HTTP ${proxied.status} (managed)`, kind: 'http' },
+      }
+    }
 
     if (credentialId && !hadCredential) {
       return {
@@ -873,9 +936,15 @@ const integrationList: ToolDef = {
         where: { status: 'connected', ...integrationScope(wsId) },
       })
       const out = all.map((i) => integrationFromRow(i))
+      const providers = new Map(
+        all.map((r) => [
+          r.id,
+          parseConfig<IntegrationConfig>(r.config, {}).pipedream ? 'pipedream' : 'direct',
+        ]),
+      )
       return {
         ok: true,
-        output: out.map((i) => ({ id: i.id, name: i.name, kind: i.kind, tools: i.tools.map((t) => ({ id: t.id, name: t.name, description: t.description })) })),
+        output: out.map((i) => ({ id: i.id, name: i.name, kind: i.kind, provider: providers.get(i.id) ?? 'direct', tools: i.tools.map((t) => ({ id: t.id, name: t.name, description: t.description })) })),
         display: { title: 'Available integrations', summary: `${out.length} connected`, kind: 'info' },
       }
     } catch (e) {
@@ -902,7 +971,7 @@ const mcpListServers: ToolDef = {
         where: { kind: 'mcp', status: 'connected', ...integrationScope(wsId) },
       })
       const servers = pool.map((r) => {
-        const cfg = parseConfig<{ mcp?: McpServerConfig }>(r.config, {})
+        const cfg = parseConfig<IntegrationConfig>(r.config, {})
         const tools = JSON.parse(r.tools) as Array<{ id: string; name: string; description?: string; inputSchema?: Record<string, unknown> }>
         return {
           id: r.id,
@@ -911,6 +980,9 @@ const mcpListServers: ToolDef = {
           transport: cfg.mcp?.transport ?? 'unknown',
           command: cfg.mcp?.command,
           url: cfg.mcp?.url,
+          // Managed connections (Pipedream) vs direct MCP servers.
+          provider: cfg.pipedream ? 'pipedream' : 'direct',
+          app: cfg.pipedream?.appSlug,
           toolCount: tools.length,
           tools: tools.map((t) => ({
             name: t.name || t.id,
@@ -961,9 +1033,29 @@ const mcpCallTool: ToolDef = {
         where: { id: serverId, kind: 'mcp', ...integrationScope(wsId) },
       })
       if (!row) return { ok: false, output: null, error: 'MCP server not found' }
-      const cfg = parseConfig<{ mcp?: McpServerConfig }>(row.config, {})
-      if (!cfg.mcp) return { ok: false, output: null, error: 'MCP server config missing' }
-      const result = await callMcpTool(cfg.mcp, toolName, args)
+      const cfg = parseConfig<IntegrationConfig>(row.config, {})
+      // Pipedream-managed connection: auth headers are minted per call, in
+      // memory only — the stored config carries no secrets.
+      let mcpCfg = cfg.mcp
+      if (cfg.pipedream) {
+        const built = await buildPipedreamMcpConfig(ctx.userId, cfg.pipedream.appSlug)
+        if (!built) {
+          return {
+            ok: false,
+            output: null,
+            error:
+              'This integration uses a Pipedream-managed connection, but Pipedream is not configured or authentication failed.',
+          }
+        }
+        mcpCfg = built
+        // Record the connection as a dependency so workflow freeze captures it.
+        ctx.usedCredentialIds = ctx.usedCredentialIds ?? []
+        if (!ctx.usedCredentialIds.includes(cfg.pipedream.credentialId)) {
+          ctx.usedCredentialIds.push(cfg.pipedream.credentialId)
+        }
+      }
+      if (!mcpCfg) return { ok: false, output: null, error: 'MCP server config missing' }
+      const result = await callMcpTool(mcpCfg, toolName, args)
       // callMcpTool returns { error } on failure, or the raw result on success.
       const errObj = result as { error?: string }
       if (errObj && typeof errObj.error === 'string') {
@@ -1832,6 +1924,179 @@ const credentialRequestTool: ToolDef = {
   },
 }
 
+// 13d. app_search — search the managed app catalog (Pipedream Connect,
+//      3,000+ apps). The PRIMARY way to find a connector for a service the
+//      user mentions. Results include whether the user already connected it.
+const appSearchTool: ToolDef = {
+  name: 'app_search',
+  description:
+    'Search the managed app catalog (3,000+ apps: Slack, Notion, QuickBooks, Salesforce, …) for a service you need. Returns each app\'s slug, auth type, and whether the user has ALREADY CONNECTED it (with the credentialId + integrationId to use). If the app you need is not connected, call connection_request with its slug to show the user a one-click connect card. Prefer this over tool_configure / credential_request for well-known SaaS apps — managed connections need no API keys.',
+  inputSchema: {
+    query: { type: 'string', description: 'App name or keyword, e.g. "slack", "accounting".', required: true },
+    limit: { type: 'number', description: 'Max results (default 8).' },
+  },
+  async run(input, ctx) {
+    const query = asString(input.query, 200)
+    if (!query) return { ok: false, output: null, error: 'query is required' }
+    if (!isPipedreamConfigured()) {
+      return {
+        ok: true,
+        output: {
+          apps: [],
+          note: 'Managed connections (Pipedream) are not configured on this deployment. Use mcp_list_servers / integration_list for existing connections, tool_configure to add an MCP server or OpenAPI spec, or credential_request for an API key.',
+        },
+      }
+    }
+    const limit = Math.min(20, Math.max(1, asNumber(input.limit, 8)))
+    try {
+      const { apps, error } = await searchApps(query)
+      if (error) return { ok: false, output: null, error }
+      const top = apps.slice(0, limit)
+      // Merge the user's connection state.
+      const creds = top.length
+        ? await db.credential.findMany({
+            where: {
+              userId: ctx.userId,
+              kind: 'pipedream',
+              status: 'active',
+              pipedreamApp: { in: top.map((a) => a.slug) },
+            },
+            select: { id: true, pipedreamApp: true, pipedreamAccountId: true },
+          })
+        : []
+      const credByApp = new Map(creds.map((c) => [c.pipedreamApp, c]))
+      const accountIds = creds
+        .map((c) => c.pipedreamAccountId)
+        .filter((v): v is string => Boolean(v))
+      const integrations = accountIds.length
+        ? await db.integration.findMany({
+            where: {
+              kind: 'mcp',
+              OR: accountIds.map((id) => ({ config: { contains: `"accountId":"${id}"` } })),
+            },
+            select: { id: true, config: true },
+          })
+        : []
+      const integrationByAccount = new Map<string, string>()
+      for (const row of integrations) {
+        const cfg = parseConfig<IntegrationConfig>(row.config, {})
+        if (cfg.pipedream?.accountId) integrationByAccount.set(cfg.pipedream.accountId, row.id)
+      }
+      const out = top.map((a) => {
+        const cred = credByApp.get(a.slug)
+        return {
+          slug: a.slug,
+          name: a.name,
+          description: a.description,
+          authType: a.authType,
+          connected: Boolean(cred),
+          credentialId: cred?.id,
+          integrationId: cred?.pipedreamAccountId
+            ? integrationByAccount.get(cred.pipedreamAccountId)
+            : undefined,
+        }
+      })
+      return {
+        ok: true,
+        output: {
+          apps: out,
+          note: 'For connected apps, use mcp_list_servers/mcp_call_tool with the integrationId (or http_request with the credentialId). For unconnected apps, call connection_request with the slug.',
+        },
+        display: {
+          title: `Searched apps: "${query}"`,
+          summary: `${out.length} result${out.length === 1 ? '' : 's'}`,
+          kind: 'info',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 13e. connection_request — ask the user to connect an app account by
+//      rendering a one-click "Connect your <App>" card in the chat. The card
+//      opens the Pipedream managed-auth window; the agent is resumed once the
+//      user connects (or skips). Use INSTEAD of telling the user to go set
+//      anything up themselves.
+const connectionRequestTool: ToolDef = {
+  name: 'connection_request',
+  description:
+    'Ask the user to connect an app account (found via app_search) by showing a one-click connect card in the chat. The user authorizes in a popup — no API keys involved. If the app is ALREADY connected this returns the existing credentialId/integrationId immediately (no card). Otherwise the card is shown, the turn should END, and you will be resumed once the user connects or skips. Request ALL connections the job needs in the same turn.',
+  inputSchema: {
+    app: { type: 'string', description: 'The app slug from app_search (e.g. "slack").', required: true },
+    reason: { type: 'string', description: 'One sentence shown on the card: why you need this connection (e.g. "To post the weekly summary to #general").' },
+  },
+  async run(input, ctx) {
+    const app = asString(input.app, 100).trim().toLowerCase()
+    if (!app) return { ok: false, output: null, error: 'app is required' }
+    if (!isPipedreamConfigured()) {
+      return {
+        ok: false,
+        output: null,
+        error:
+          'Managed connections (Pipedream) are not configured on this deployment. Use tool_configure or credential_request for a direct connection instead.',
+      }
+    }
+    try {
+      // Already connected? Return the reference — no card needed.
+      const existing = await db.credential.findFirst({
+        where: { userId: ctx.userId, kind: 'pipedream', status: 'active', pipedreamApp: app },
+        select: { id: true, pipedreamAccountId: true, label: true },
+      })
+      if (existing) {
+        const integration = existing.pipedreamAccountId
+          ? await db.integration.findFirst({
+              where: {
+                kind: 'mcp',
+                config: { contains: `"accountId":"${existing.pipedreamAccountId}"` },
+              },
+              select: { id: true },
+            })
+          : null
+        return {
+          ok: true,
+          output: {
+            alreadyConnected: true,
+            app,
+            credentialId: existing.id,
+            integrationId: integration?.id,
+            note: 'This app is already connected — use it directly via mcp_call_tool / http_request.',
+          },
+          display: { title: `${existing.label}`, summary: 'already connected', kind: 'info' },
+        }
+      }
+
+      // Resolve display metadata server-side so the card looks right.
+      const meta = await getPipedreamApp(app)
+      ctx.connectionRequests = ctx.connectionRequests ?? []
+      if (!ctx.connectionRequests.some((r) => r.app === app)) {
+        ctx.connectionRequests.push({
+          app,
+          name: meta?.name || app,
+          imgSrc: meta?.imgSrc ?? undefined,
+          authType: meta?.authType ?? undefined,
+          reason: asString(input.reason, 500) || undefined,
+        })
+      }
+      return {
+        ok: true,
+        output: {
+          requested: app,
+          note: 'Queued. A connect card is shown to the user for each requested app — request ALL connections this job needs now (call connection_request for each), then emit your final answer: briefly say which connections you asked for and why. Do NOT describe the cards or ask the user to do anything else. The turn ends there; you will be resumed with which apps were connected vs skipped.',
+        },
+        display: {
+          title: `Requested ${meta?.name || app} connection`,
+          summary: 'Awaiting the user to connect the account',
+          kind: 'info',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
 // 14. workflow_monitor — review recent runs + failures of a frozen workflow.
 //     The agent calls this to see how its automation is doing + spot failures
 //     that need improvement.
@@ -2502,6 +2767,8 @@ export const AGENT_TOOLS: ToolDef[] = [
   integrationList,
   mcpListServers,
   mcpCallTool,
+  appSearchTool,
+  connectionRequestTool,
   toolConfigure,
   dataTableCreate,
   dataTableInsert,

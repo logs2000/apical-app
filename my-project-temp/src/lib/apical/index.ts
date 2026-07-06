@@ -114,6 +114,10 @@ export interface ChatMessage {
   /** When the agent needs API keys — renders one inline, secure vault box per request.
    *  Persisted with the message; each box stays until saved or dismissed. */
   credentialRequests?: CredentialRequestState[];
+  /** When the agent needs app accounts connected — renders one "Connect your
+   *  <App>" card per request (Pipedream managed auth). Persisted with the
+   *  message; each card stays until connected or dismissed. */
+  connectionRequests?: ConnectionRequestState[];
   /** The server row id once persisted — used to PATCH interactive-card state. */
   serverId?: string;
   /** The agent's live checklist (from update_plan) — rendered above the answer. */
@@ -176,6 +180,24 @@ export interface CredentialRequestInfo {
     placeholder?: string;
     required?: boolean;
   }>;
+}
+
+/** A request from an agent for the user to connect an app account through
+ *  managed auth (Pipedream Connect). Rendered as an inline connect card. */
+export interface ConnectionRequestInfo {
+  /** Pipedream app name_slug, e.g. "slack". */
+  app: string;
+  name: string;
+  imgSrc?: string;
+  authType?: string;
+  reason?: string;
+}
+
+/** A connection request + its lifecycle state (persists until connected/dismissed). */
+export interface ConnectionRequestState extends ConnectionRequestInfo {
+  status?: "pending" | "connected" | "dismissed";
+  /** Set once connected — the Credential row backing the connection. */
+  credentialId?: string;
 }
 
 // ─── Execution trace (learn-first mode) ──────────────────────────────────────

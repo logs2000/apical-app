@@ -53,7 +53,7 @@ function tryDecrypt(stored: string): string | null {
 }
 
 export interface ResolvedCredential {
-  /** The decrypted secret value (NEVER returned to the LLM). */
+  /** The decrypted secret value (NEVER returned to the LLM). Empty for kind="pipedream". */
   secret: string
   /** The credential kind — drives how the secret is injected. */
   kind: string
@@ -61,6 +61,13 @@ export interface ResolvedCredential {
   headerName: string
   /** The header value prefix (for bearer/oauth). Default 'Bearer '. */
   headerPrefix: string
+  /**
+   * For kind="pipedream": the Pipedream connected-account id + app slug. No
+   * local secret exists — callers MUST route the request through the Pipedream
+   * proxy (which injects auth upstream) instead of header injection.
+   */
+  pipedreamAccountId?: string
+  pipedreamApp?: string
 }
 
 /**
@@ -90,6 +97,8 @@ export async function resolveCredentialForAgent(
       oauthAccessToken: true,
       oauthProvider: true,
       metaJson: true,
+      pipedreamAccountId: true,
+      pipedreamApp: true,
     },
   })
   if (!row || row.status !== 'active') return null
@@ -113,9 +122,26 @@ export async function resolveCredentialForAgent(
         oauthAccessToken: true,
         oauthProvider: true,
         metaJson: true,
+        pipedreamAccountId: true,
+        pipedreamApp: true,
       },
     })
     if (accountRow) row = accountRow
+  }
+
+  // Pipedream-managed connection: there is no local secret — the token lives
+  // in Pipedream's vault. Return the account reference; callers branch on
+  // kind === 'pipedream' and use the proxy/MCP path instead of injection.
+  if (row.kind === 'pipedream') {
+    if (!row.pipedreamAccountId) return null
+    return {
+      secret: '',
+      kind: 'pipedream',
+      headerName: '',
+      headerPrefix: '',
+      pipedreamAccountId: row.pipedreamAccountId,
+      pipedreamApp: row.pipedreamApp ?? undefined,
+    }
   }
 
   // Resolve the secret: prefer oauthAccessToken (decrypted); fall back to
@@ -196,7 +222,12 @@ export async function buildSecureHeaders(
   credentialId: string | undefined,
   userId: string,
   opts: { connectedAccountId?: string | null } = {},
-): Promise<{ headers: Record<string, string>; hadCredential: boolean }> {
+): Promise<{
+  headers: Record<string, string>
+  hadCredential: boolean
+  /** Set when the credential is Pipedream-managed — route via the proxy. */
+  pipedream?: ResolvedCredential
+}> {
   // 1. Strip auth-shaped headers the LLM tried to set.
   const headers: Record<string, string> = {}
   if (llmHeaders && typeof llmHeaders === 'object') {
@@ -211,6 +242,13 @@ export async function buildSecureHeaders(
   if (credentialId) {
     const cred = await resolveCredentialForAgent(credentialId, userId, opts)
     if (cred) {
+      // Pipedream-managed credentials have no local secret to inject — the
+      // caller must take the proxy branch. Returning hadCredential:false here
+      // keeps any caller that skipped that branch safe by construction (no
+      // header is ever forged from an empty secret).
+      if (cred.kind === 'pipedream') {
+        return { headers, hadCredential: false, pipedream: cred }
+      }
       headers[cred.headerName] = `${cred.headerPrefix}${cred.secret}`.trim()
       return { headers, hadCredential: true }
     }
@@ -236,6 +274,8 @@ export async function listCredentialsForAgent(userId: string): Promise<
     kind: string
     service: string
     oauthProvider: string | null
+    /** Pipedream app slug for managed connections (kind="pipedream"). */
+    pipedreamApp: string | null
     status: string
   }>
 > {
@@ -247,6 +287,7 @@ export async function listCredentialsForAgent(userId: string): Promise<
       kind: true,
       service: true,
       oauthProvider: true,
+      pipedreamApp: true,
       status: true,
     },
     orderBy: { createdAt: 'desc' },

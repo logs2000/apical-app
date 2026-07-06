@@ -1,9 +1,20 @@
-// Apical — Acquisition method decisions (A3 / A4 / A5).
+// Apical — Acquisition method decisions (A0 / A3 / A4 / A5).
 //
-// This module documents the strategic decisions for A3, A4, and A5 in code
-// (not just comments) so they're queryable at runtime + flagged for review.
-// See the governing architecture in the conversation transcript for the full
-// rationale.
+// This module documents the strategic decisions for A0, A3, A4, and A5 in
+// code (not just comments) so they're queryable at runtime + flagged for
+// review. See the governing architecture in the conversation transcript for
+// the full rationale.
+//
+// A0 — Pipedream Connect (managed connections). THE PRIMARY PATH.
+//   DECISION (2026-07): Pipedream Connect is Apical's primary acquisition
+//   path — one-click managed auth to 3,000+ apps, tokens held in Pipedream's
+//   vault, calls routed through their per-user MCP servers / API proxy.
+//   This supersedes the earlier blanket rejection of third-party connection
+//   clouds recorded under A4: unlike a unified-API adapter, A0 is an explicit
+//   product decision with a preserved escape valve — it activates ONLY when
+//   the operator sets the PIPEDREAM_* env vars, and a self-hosted Apical
+//   works fully without it (A1–A5 below are unchanged and remain available
+//   as the direct/custom path for users who prefer it).
 //
 // A3 — First-party OAuth apps for Google Workspace / Microsoft 365 / Slack.
 //   DECISION (v1 default): BYOC for these providers. The user registers their
@@ -71,6 +82,8 @@ export const A5_RISK_LABEL =
  * Resolve which acquisition path Apical should use for a given target
  * integration. Per the resolution order in the governing architecture:
  *
+ *   0. Is Pipedream configured AND the app in its catalog (and the user
+ *      hasn't asked for a direct connection)? → A0: managed connection.
  *   1. Is there a usable MCP server? → A1.
  *   2. Else, is there an OpenAPI spec (or known API)? → A2: ingest for tools,
  *      resolve auth via declared scheme (static → F2; oauth2 → F1 + BYOC).
@@ -82,6 +95,12 @@ export const A5_RISK_LABEL =
  * Returns the recommended path + a reason (for the UI to surface to the user).
  */
 export function resolveAcquisitionPath(opts: {
+  /** Is Pipedream Connect configured on this deployment (A0)? */
+  pipedreamConfigured?: boolean
+  /** Is the target app available in Pipedream's catalog? */
+  pipedreamHasApp?: boolean
+  /** Has the user explicitly asked for a direct (non-managed) connection? */
+  preferDirect?: boolean
   hasMcpServer?: boolean
   hasOpenApiSpec?: boolean
   /** The provider key, if known (e.g. "google", "slack"). */
@@ -93,10 +112,19 @@ export function resolveAcquisitionPath(opts: {
   /** Does the target have any API at all? */
   hasAnyApi?: boolean
 }): {
-  path: 'A1' | 'A2' | 'A3' | 'A4' | 'A5' | 'NONE'
+  path: 'A0' | 'A1' | 'A2' | 'A3' | 'A4' | 'A5' | 'NONE'
   reason: string
 } {
-  // 1. MCP server — primary surface.
+  // 0. Pipedream Connect — the managed primary path.
+  if (opts.pipedreamConfigured && opts.pipedreamHasApp && !opts.preferDirect) {
+    return {
+      path: 'A0',
+      reason:
+        'Managed connection via Pipedream Connect (primary): one-click auth, tokens held by Pipedream, calls via their MCP server / API proxy. Direct MCP/OpenAPI/BYOC remain available as the custom path.',
+    }
+  }
+
+  // 1. MCP server — primary direct surface.
   if (opts.hasMcpServer) {
     return {
       path: 'A1',
