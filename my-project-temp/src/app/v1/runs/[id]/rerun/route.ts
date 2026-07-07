@@ -1,8 +1,13 @@
-import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { db } from '@/lib/db'
 import { withAuth } from '@/lib/with-auth'
+import { ok, apiError, ApiError } from '@/lib/api/respond'
+import { codeForStatus } from '@/lib/api/errors'
+import { parseBody } from '@/lib/api/validate'
 import { workflowScopeWhere } from '@/lib/v1/mappers'
 import { rerunFromStep, ResumeError } from '@/lib/runtime'
+
+const RerunSchema = z.object({ fromStepId: z.string().trim().min(1).optional() })
 
 // POST /v1/runs/{id}/rerun — re-execute a failed (dead-lettered) run as a NEW
 // run, starting from the failed step (default) or an explicit fromStepId.
@@ -17,26 +22,21 @@ export const POST = withAuth(
       },
       select: { id: true },
     })
-    if (!row) {
-      return NextResponse.json({ error: 'Run not found.' }, { status: 404 })
-    }
+    if (!row) throw new ApiError('not_found', 'Run not found.')
 
-    const body = (await req.json().catch(() => ({}))) as { fromStepId?: string }
+    const body = await parseBody(req, RerunSchema)
     try {
       const { runId } = await rerunFromStep(row.id, {
-        fromStepId:
-          typeof body.fromStepId === 'string'
-            ? body.fromStepId.trim() || undefined
-            : undefined,
+        fromStepId: body.fromStepId,
         actorId: ctx.user?.id ?? undefined,
       })
-      return NextResponse.json({ runId, status: 'running' }, { status: 202 })
+      return ok({ runId, status: 'running' }, { status: 202 })
     } catch (err) {
       if (err instanceof ResumeError) {
-        return NextResponse.json({ error: err.message }, { status: err.status })
+        return apiError(codeForStatus(err.status), err.message, { status: err.status })
       }
       throw err
     }
   },
-  { scope: 'runs:execute' },
+  { scope: 'runs:execute', rateLimit: { limit: 30, windowMs: 60_000 } },
 )

@@ -24,6 +24,8 @@ import {
   ALL_SCOPES,
   type ApiKeyScope,
 } from './api-key-auth'
+import { rateLimit, rateKeyForRequest } from './rate-limit'
+import { ApiError, toErrorResponse } from './api/respond'
 import type { ApiKey, User, Workspace } from '@prisma/client'
 
 export interface AuthContext {
@@ -72,12 +74,18 @@ type AuthedHandler = (
 ) => Promise<Response> | Response
 
 /**
- * Wrap a route handler with unified auth. 401 when unauthenticated, 403 when
- * the key lacks the required scope.
+ * Wrap a route handler with unified auth for the canonical (/v1) surface.
+ * Composes: auth → scope → optional rate limit → handler. Every failure — the
+ * wrapper's own 401/403/429 and any ApiError the handler throws — is rendered
+ * through the shared error envelope ({ error: { code, message, details? } });
+ * unexpected throws become a generic 500 with no internal-text leak.
+ *
+ * For handlers that also want declarative zod body/query validation, use
+ * `route()` (src/lib/api/route.ts), which layers that on the same primitives.
  */
 export function withAuth(
   handler: AuthedHandler,
-  opts: { scope?: ApiKeyScope } = {},
+  opts: { scope?: ApiKeyScope; rateLimit?: { limit: number; windowMs: number } } = {},
 ) {
   return async (
     req: Request,
@@ -85,20 +93,24 @@ export function withAuth(
   ): Promise<Response> => {
     try {
       const ctx = await resolveAuth(req)
-      if (!ctx) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 })
-      }
+      if (!ctx) throw new ApiError('unauthorized', 'Authentication required.')
       if (opts.scope && !authHasScope(ctx, opts.scope)) {
-        return Response.json(
-          { error: `Missing required scope: ${opts.scope}` },
-          { status: 403 },
-        )
+        throw new ApiError('forbidden', `Missing required scope: ${opts.scope}`)
+      }
+      if (opts.rateLimit) {
+        const key = rateKeyForRequest(req, ctx.apiKey?.id ?? null, ctx.user?.id ?? null)
+        const rl = rateLimit(key, opts.rateLimit.limit, opts.rateLimit.windowMs)
+        if (!rl.ok) {
+          throw new ApiError('rate_limited', 'Rate limit exceeded. Retry later.', {
+            details: { retryAfter: rl.retryAfter },
+            headers: { 'Retry-After': String(rl.retryAfter) },
+          })
+        }
       }
       const params = await routeCtx.params
       return await handler(req, { ...ctx, params })
     } catch (err) {
-      console.error('[with-auth] handler crashed:', err)
-      return Response.json({ error: 'Internal server error' }, { status: 500 })
+      return toErrorResponse(err)
     }
   }
 }

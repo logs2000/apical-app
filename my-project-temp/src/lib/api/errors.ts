@@ -26,3 +26,27 @@ export const ERROR_STATUS: Record<ApiErrorCode, number> = {
   payment_required: 402,
   internal: 500,
 }
+
+/** Pick the closest error code for a raw HTTP status — used to envelope
+ *  domain errors (StartRunError/ResumeError) that already carry a status. */
+export function codeForStatus(status: number): ApiErrorCode {
+  switch (status) {
+    case 400:
+    case 422:
+      return 'validation_failed'
+    case 401:
+      return 'unauthorized'
+    case 402:
+      return 'payment_required'
+    case 403:
+      return 'forbidden'
+    case 404:
+      return 'not_found'
+    case 409:
+      return 'conflict'
+    case 429:
+      return 'rate_limited'
+    default:
+      return 'internal'
+  }
+}

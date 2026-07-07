@@ -1,21 +1,20 @@
-import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { db } from '@/lib/db'
 import { withAuth } from '@/lib/with-auth'
-import {
-  startWorkflowRun,
-  waitForRun,
-  StartRunError,
-} from '@/lib/platform/start-run'
+import { ok, apiError, ApiError } from '@/lib/api/respond'
+import { codeForStatus } from '@/lib/api/errors'
+import { parseBody } from '@/lib/api/validate'
+import { startWorkflowRun, waitForRun, StartRunError } from '@/lib/platform/start-run'
 import { findScopedWorkflow, mapRunV1 } from '@/lib/v1/mappers'
 import { checkRunSpend, chargeRunCost } from '@/lib/platform/run-billing'
 import { deriveKeySource } from '@/lib/api-key-auth'
 
-interface RunBody {
+const RunSchema = z.object({
   /** Optional end-customer scope for credential resolution. */
-  connectedAccountId?: string
+  connectedAccountId: z.string().trim().min(1).optional(),
   /** Idempotency key — retried POSTs with the same key return the same run. */
-  idempotencyKey?: string
-}
+  idempotencyKey: z.string().trim().min(1).optional(),
+})
 
 // POST /v1/workflows/{id}/run — trigger a run. Returns { runId } immediately;
 // poll GET /v1/runs/{runId} for status. With ?wait=true the response blocks
@@ -23,30 +22,21 @@ interface RunBody {
 export const POST = withAuth(
   async (req, ctx) => {
     const workflow = await findScopedWorkflow(ctx.params.id, ctx)
-    if (!workflow) {
-      return NextResponse.json({ error: 'Workflow not found.' }, { status: 404 })
-    }
-    const body = (await req.json().catch(() => ({}))) as RunBody
+    if (!workflow) throw new ApiError('not_found', 'Workflow not found.')
+
+    const body = await parseBody(req, RunSchema)
     const url = new URL(req.url)
     const wait = url.searchParams.get('wait') === 'true'
-    const idempotencyKey =
-      typeof body.idempotencyKey === 'string'
-        ? body.idempotencyKey
-        : req.headers.get('Idempotency-Key')
+    const idempotencyKey = body.idempotencyKey ?? req.headers.get('Idempotency-Key') ?? undefined
 
     // API-key-driven runs are billed: enforce balance + per-key spend limit.
     const spend = checkRunSpend(ctx.workspace, ctx.apiKey)
-    if (!spend.ok) {
-      return NextResponse.json({ error: spend.error }, { status: 402 })
-    }
+    if (!spend.ok) return apiError('payment_required', spend.error ?? 'Spend limit reached.')
 
     try {
       const { runId, deduplicated } = await startWorkflowRun(workflow, {
         trigger: 'manual',
-        connectedAccountId:
-          typeof body.connectedAccountId === 'string'
-            ? body.connectedAccountId.trim() || null
-            : null,
+        connectedAccountId: body.connectedAccountId ?? null,
         actingUserId: ctx.user?.id ?? null,
         idempotencyKey,
       })
@@ -62,18 +52,15 @@ export const POST = withAuth(
       }
 
       if (!wait) {
-        return NextResponse.json(
+        return ok(
           { runId, status: 'running', deduplicated: deduplicated || undefined },
           { status: deduplicated ? 200 : 202 },
         )
       }
 
       const { timedOut } = await waitForRun(runId)
-      const row = await db.run.findUnique({
-        where: { id: runId },
-        include: { steps: true },
-      })
-      return NextResponse.json(
+      const row = await db.run.findUnique({ where: { id: runId }, include: { steps: true } })
+      return ok(
         {
           runId,
           timedOut: timedOut || undefined,
@@ -84,10 +71,10 @@ export const POST = withAuth(
       )
     } catch (e) {
       if (e instanceof StartRunError) {
-        return NextResponse.json({ error: e.message }, { status: e.status })
+        return apiError(codeForStatus(e.status), e.message, { status: e.status })
       }
       throw e
     }
   },
-  { scope: 'runs:execute' },
+  { scope: 'runs:execute', rateLimit: { limit: 30, windowMs: 60_000 } },
 )

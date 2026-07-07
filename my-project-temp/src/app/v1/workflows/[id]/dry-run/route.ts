@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/with-auth'
+import { ok, ApiError } from '@/lib/api/respond'
 import { tryParseWorkflowJSON } from '@/lib/apical-server'
 import { validateWorkflowForWorkspace } from '@/lib/platform/workflow-validate-server'
 import { findScopedWorkflow } from '@/lib/v1/mappers'
@@ -11,9 +11,7 @@ import type { WorkflowStep } from '@/lib/types'
 export const POST = withAuth(
   async (req, ctx) => {
     const row = await findScopedWorkflow(ctx.params.id, ctx)
-    if (!row) {
-      return NextResponse.json({ error: 'Workflow not found.' }, { status: 404 })
-    }
+    if (!row) throw new ApiError('not_found', 'Workflow not found.')
 
     const doc = tryParseWorkflowJSON(row.stepsJson)
     const validation = await validateWorkflowForWorkspace(doc, ctx.workspace.id)
@@ -26,7 +24,7 @@ export const POST = withAuth(
       wouldDo: describeStep(step),
     }))
 
-    return NextResponse.json({
+    return ok({
       simulated: true,
       note: 'Dry run: no external calls were made, no LLM reasoning ran, no data was written. Outputs describe what a real run WOULD do.',
       valid: validation.ok,
@@ -35,7 +33,7 @@ export const POST = withAuth(
       steps,
     })
   },
-  { scope: 'workflows:read' },
+  { scope: 'workflows:read', rateLimit: { limit: 60, windowMs: 60_000 } },
 )
 
 function describeStep(step: WorkflowStep): Record<string, unknown> {

@@ -1,14 +1,12 @@
-import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withAuth } from '@/lib/with-auth'
+import { ok, ApiError } from '@/lib/api/respond'
 
 // GET /v1/workflows/generate/{jobId} — poll a generation job.
 export const GET = withAuth(
   async (_req, { workspace, params }) => {
     const job = await db.generateJob.findUnique({ where: { id: params.jobId } })
-    if (!job || job.workspaceId !== workspace.id) {
-      return NextResponse.json({ error: 'Job not found.' }, { status: 404 })
-    }
+    if (!job || job.workspaceId !== workspace.id) throw new ApiError('not_found', 'Job not found.')
 
     let issues: unknown = null
     if (job.issuesJson) {
@@ -19,7 +17,7 @@ export const GET = withAuth(
       }
     }
 
-    return NextResponse.json({
+    return ok({
       jobId: job.id,
       status: job.status,
       workflowId: job.workflowId,
@@ -29,5 +27,5 @@ export const GET = withAuth(
       completedAt: job.completedAt?.toISOString() ?? null,
     })
   },
-  { scope: 'workflows:read' },
+  { scope: 'workflows:read', rateLimit: { limit: 120, windowMs: 60_000 } },
 )

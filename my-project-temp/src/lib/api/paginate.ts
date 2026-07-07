@@ -21,9 +21,15 @@ export interface PageParams {
   cursor: Cursor | null
 }
 
-/** Encode a row's keyset position into an opaque cursor string. */
-export function encodeCursor(row: { createdAt: Date | string; id: string }): string {
-  const createdAt = row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt
+/** Encode a row's keyset position into an opaque cursor string. `field` is
+ *  the timestamp column the list is ordered by (default createdAt; runs use
+ *  startedAt). The cursor's internal key is always "createdAt" — it's opaque. */
+export function encodeCursor(
+  row: Record<string, unknown> & { id: string },
+  field = 'createdAt',
+): string {
+  const raw = row[field]
+  const createdAt = raw instanceof Date ? raw.toISOString() : String(raw)
   return Buffer.from(JSON.stringify({ createdAt, id: row.id }), 'utf8').toString('base64url')
 }
 
@@ -63,36 +69,40 @@ export function parsePagination(
 
 /**
  * Prisma where-fragment that selects rows strictly after `cursor` under
- * `createdAt DESC, id DESC` ordering. Spread into your `where`. Empty when
- * there is no cursor (first page).
+ * `<field> DESC, id DESC` ordering. Spread into your `where`. Empty when there
+ * is no cursor (first page).
  */
-export function cursorFilter(cursor: Cursor | null): Record<string, unknown> {
+export function cursorFilter(cursor: Cursor | null, field = 'createdAt'): Record<string, unknown> {
   if (!cursor) return {}
-  const createdAt = new Date(cursor.createdAt)
+  const ts = new Date(cursor.createdAt)
   return {
-    OR: [
-      { createdAt: { lt: createdAt } },
-      { createdAt, id: { lt: cursor.id } },
-    ],
+    OR: [{ [field]: { lt: ts } }, { [field]: ts, id: { lt: cursor.id } }],
   }
 }
 
 /** The matching Prisma orderBy — always pair it with cursorFilter(). */
-export const CURSOR_ORDER_BY = [{ createdAt: 'desc' as const }, { id: 'desc' as const }]
+export function cursorOrderBy(field = 'createdAt'): Array<Record<string, 'desc'>> {
+  return [{ [field]: 'desc' }, { id: 'desc' }]
+}
 
 /**
  * Shape a page response. Fetch `limit + 1` rows; pass them here with the
- * requested `limit`. Returns the trimmed page plus `nextCursor`/`hasMore`.
+ * requested `limit` (and the same `field` used for ordering). Returns the
+ * trimmed page plus `nextCursor`/`hasMore`.
  */
-export function paginate<T extends { createdAt: Date | string; id: string }>(
+export function paginate<T extends { id: string }>(
   rows: T[],
   limit: number,
+  field = 'createdAt',
 ): { data: T[]; page: { nextCursor: string | null; hasMore: boolean } } {
   const hasMore = rows.length > limit
   const data = hasMore ? rows.slice(0, limit) : rows
   const last = data[data.length - 1]
   return {
     data,
-    page: { nextCursor: hasMore && last ? encodeCursor(last) : null, hasMore },
+    page: {
+      nextCursor: hasMore && last ? encodeCursor(last as Record<string, unknown> & { id: string }, field) : null,
+      hasMore,
+    },
   }
 }

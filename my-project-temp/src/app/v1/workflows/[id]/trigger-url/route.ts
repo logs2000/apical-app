@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { db } from '@/lib/db'
 import { withAuth } from '@/lib/with-auth'
+import { ok, ApiError } from '@/lib/api/respond'
 import { findScopedWorkflow } from '@/lib/v1/mappers'
 
 function hookUrl(req: Request, workflowId: string, secret: string): string {
@@ -13,17 +13,13 @@ function hookUrl(req: Request, workflowId: string, secret: string): string {
 export const GET = withAuth(
   async (req, ctx) => {
     const workflow = await findScopedWorkflow(ctx.params.id, ctx)
-    if (!workflow) {
-      return NextResponse.json({ error: 'Workflow not found.' }, { status: 404 })
-    }
-    return NextResponse.json({
+    if (!workflow) throw new ApiError('not_found', 'Workflow not found.')
+    return ok({
       enabled: Boolean(workflow.triggerSecret),
-      url: workflow.triggerSecret
-        ? hookUrl(req, workflow.id, workflow.triggerSecret)
-        : null,
+      url: workflow.triggerSecret ? hookUrl(req, workflow.id, workflow.triggerSecret) : null,
     })
   },
-  { scope: 'workflows:read' },
+  { scope: 'workflows:read', rateLimit: { limit: 120, windowMs: 60_000 } },
 )
 
 // POST /v1/workflows/{id}/trigger-url — mint (or rotate) the inbound trigger
@@ -32,34 +28,21 @@ export const GET = withAuth(
 export const POST = withAuth(
   async (req, ctx) => {
     const workflow = await findScopedWorkflow(ctx.params.id, ctx)
-    if (!workflow) {
-      return NextResponse.json({ error: 'Workflow not found.' }, { status: 404 })
-    }
+    if (!workflow) throw new ApiError('not_found', 'Workflow not found.')
     const secret = randomBytes(24).toString('hex')
-    await db.workflow.update({
-      where: { id: workflow.id },
-      data: { triggerSecret: secret },
-    })
-    return NextResponse.json(
-      { enabled: true, url: hookUrl(req, workflow.id, secret) },
-      { status: 201 },
-    )
+    await db.workflow.update({ where: { id: workflow.id }, data: { triggerSecret: secret } })
+    return ok({ enabled: true, url: hookUrl(req, workflow.id, secret) }, { status: 201 })
   },
-  { scope: 'workflows:write' },
+  { scope: 'workflows:write', rateLimit: { limit: 60, windowMs: 60_000 } },
 )
 
 // DELETE /v1/workflows/{id}/trigger-url — disable the inbound trigger URL.
 export const DELETE = withAuth(
   async (_req, ctx) => {
     const workflow = await findScopedWorkflow(ctx.params.id, ctx)
-    if (!workflow) {
-      return NextResponse.json({ error: 'Workflow not found.' }, { status: 404 })
-    }
-    await db.workflow.update({
-      where: { id: workflow.id },
-      data: { triggerSecret: null },
-    })
-    return NextResponse.json({ enabled: false })
+    if (!workflow) throw new ApiError('not_found', 'Workflow not found.')
+    await db.workflow.update({ where: { id: workflow.id }, data: { triggerSecret: null } })
+    return ok({ enabled: false })
   },
-  { scope: 'workflows:write' },
+  { scope: 'workflows:write', rateLimit: { limit: 60, windowMs: 60_000 } },
 )
