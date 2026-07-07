@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
 import { encrypt } from '@/lib/platform/vault'
 import { mapCredential } from '@/lib/mappers'
+import { demoOAuthAllowed } from '@/lib/env'
 
 interface DemoBody {
   provider?: string
@@ -27,6 +28,19 @@ export async function POST(req: Request) {
     const user = await getCurrentUser(req)
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Demo connections mint a fake-but-active credential — honest only in a
+    // dev/preview instance. Refuse in production (unless explicitly opted in)
+    // so a launched product never shows a provider as "Connected" when it isn't.
+    if (!demoOAuthAllowed()) {
+      return NextResponse.json(
+        {
+          error:
+            'Demo connections are disabled in production. Configure real OAuth credentials to connect this provider.',
+        },
+        { status: 403 },
+      )
     }
 
     const body = (await req.json().catch(() => ({}))) as DemoBody

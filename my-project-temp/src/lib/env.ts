@@ -80,6 +80,19 @@ export function checkEnv(): EnvReport {
 }
 
 /**
+ * Demo OAuth "connections" mint a fake-but-active credential with no real
+ * provider handshake (src/app/api/oauth/demo-connect). That's handy in a
+ * dev/preview instance but dishonest in a launched product — a user would see a
+ * provider as "Connected" when nothing is. So demo connections are OFF in
+ * production unless a deploy explicitly opts in with ALLOW_DEMO_OAUTH=true
+ * (e.g. a sales-demo instance).
+ */
+export function demoOAuthAllowed(): boolean {
+  if (process.env.ALLOW_DEMO_OAUTH === 'true') return true
+  return process.env.NODE_ENV !== 'production'
+}
+
+/**
  * Validate env at boot. Logs the grouped checklist; in production, throws when
  * a hard-required var is missing so the process fails fast.
  */
