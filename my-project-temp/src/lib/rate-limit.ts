@@ -99,3 +99,19 @@ export function clientIp(req: Request): string {
     '0.0.0.0'
   )
 }
+
+/**
+ * Build a rate-limit bucket key for a request, scoped per method+path and per
+ * identity. Prefers the API key id (each key gets its own budget), then the
+ * user id, then the client IP for anonymous callers. Used by the `route()`
+ * wrapper (src/lib/api/route.ts).
+ */
+export function rateKeyForRequest(
+  req: Request,
+  apiKeyId: string | null,
+  userId: string | null,
+): string {
+  const { pathname } = new URL(req.url)
+  const identity = apiKeyId ? `k:${apiKeyId}` : userId ? `u:${userId}` : `ip:${clientIp(req)}`
+  return `${req.method} ${pathname}#${identity}`
+}
