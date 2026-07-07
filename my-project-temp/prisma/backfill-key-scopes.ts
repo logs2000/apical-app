@@ -1,21 +1,15 @@
-// One-time backfill: widen legacy empty-scope API keys to explicit full
-// scopes, so flipping keyHasScope to fail-closed (empty = no access) changes
-// no existing key's effective access.
+// Backfill: widen legacy empty-scope API keys to explicit full scopes, so the
+// fail-closed keyHasScope (empty = no access) changes no existing key's
+// effective access. Before the flip, `scopesJson: "[]"` meant ALL scopes
+// (fail-open); every key still carrying the empty sentinel had full access, so
+// we record that access explicitly.
 //
-// Before this migration, `scopesJson: "[]"` meant ALL scopes (fail-open).
-// After the flip it would mean NONE. Every key that still carries the empty
-// sentinel had full access, so we record that access explicitly here.
-//
-// Idempotent — safe to run repeatedly. Run once against each environment's DB
-// BEFORE deploying the fail-closed change:
-//   bun prisma/backfill-key-scopes.ts
-//
-// Run with DATABASE_URL / DIRECT_URL pointed at the target database.
+// Idempotent — safe to run repeatedly. Registered in the ordered backfill
+// runner (prisma/backfill/run.ts), which runs after `prisma migrate deploy`.
+// Can also be run standalone: `bun prisma/backfill-key-scopes.ts`.
 
 import { PrismaClient } from '@prisma/client'
 import { ALL_SCOPES } from '../src/lib/api-key-auth'
-
-const db = new PrismaClient()
 
 function isEmptyScopes(scopesJson: string | null | undefined): boolean {
   if (!scopesJson || !scopesJson.trim()) return true
@@ -28,7 +22,8 @@ function isEmptyScopes(scopesJson: string | null | undefined): boolean {
   }
 }
 
-async function main() {
+/** Idempotent. Accepts a shared PrismaClient (from the runner) or makes its own. */
+export async function backfillKeyScopes(db: PrismaClient): Promise<{ updated: number }> {
   const keys = await db.apiKey.findMany({ select: { id: true, scopesJson: true } })
   const stale = keys.filter((k) => isEmptyScopes(k.scopesJson))
   console.log(`[backfill-key-scopes] ${keys.length} keys, ${stale.length} with empty scopes → full scopes`)
@@ -40,11 +35,16 @@ async function main() {
     updated++
   }
   console.log(`[backfill-key-scopes] updated ${updated} key(s).`)
+  return { updated }
 }
 
-main()
-  .catch((err) => {
-    console.error('[backfill-key-scopes] failed:', err)
-    process.exit(1)
-  })
-  .finally(() => void db.$disconnect())
+// Standalone execution.
+if (import.meta.main) {
+  const db = new PrismaClient()
+  backfillKeyScopes(db)
+    .catch((err) => {
+      console.error('[backfill-key-scopes] failed:', err)
+      process.exit(1)
+    })
+    .finally(() => void db.$disconnect())
+}
