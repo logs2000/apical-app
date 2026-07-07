@@ -35,11 +35,12 @@ import { emitWebhookEvent } from '@/lib/platform/webhooks'
 import { resolveActiveRevision } from '@/lib/platform/workflow-revisions'
 import { db } from './db'
 import { broadcastRun } from './relay-client'
-import { parseWorkflowJSON } from './apical-server'
+import { parseWorkflowJSON, resolveRefs } from './apical-server'
 import type {
   RunReport,
   RunReportItem,
   RunStepStatus,
+  StepCondition,
   WorkflowStep,
 } from './types'
 
@@ -345,6 +346,335 @@ async function runReasonStep(
   })
 
   return { output: parsed, aiTokens, aiCostCents, belowThreshold, confidence }
+}
+
+// ---------------- Control flow (branch / loop / map / spawn) ----------------
+
+/** A child ExecState for a nested scope — its own outputs map, shared counters
+ *  merged back into the parent afterward. */
+function childState(parent: ExecState, extraVars: Record<string, unknown>): ExecState {
+  return {
+    outputs: { ...parent.outputs, ...extraVars },
+    stepsExecuted: 0,
+    flaggedCount: 0,
+    aiCallsUsed: 0,
+    aiCallsSaved: 0,
+    flaggedItems: [],
+  }
+}
+
+/** Fold a completed child scope's counters back into the parent. */
+function mergeChildCounters(parent: ExecState, child: ExecState): void {
+  parent.stepsExecuted += child.stepsExecuted
+  parent.flaggedCount += child.flaggedCount
+  parent.aiCallsUsed += child.aiCallsUsed
+  parent.aiCallsSaved += child.aiCallsSaved
+  parent.flaggedItems.push(...child.flaggedItems)
+}
+
+/** Resolve a condition operand: a {{ref}} string resolves against outputs;
+ *  anything else is a literal. */
+function resolveOperand(value: unknown, outputs: Record<string, unknown>): unknown {
+  if (typeof value !== 'string') return value
+  // A bare, whole-string {{ref}} keeps its resolved type (number/object);
+  // interpolated strings become strings.
+  const whole = value.match(/^\{\{\s*([\w$.]+)\s*\}\}$/)
+  if (whole) {
+    const parts = whole[1].split('.')
+    let cur: unknown = outputs
+    for (const p of parts) {
+      cur = (cur as Record<string, unknown>)?.[p]
+      if (cur === undefined) return undefined
+    }
+    return cur
+  }
+  return resolveRefs(value, outputs)
+}
+
+function evalCondition(cond: StepCondition, outputs: Record<string, unknown>): boolean {
+  const left = resolveOperand(cond.left, outputs)
+  const right = resolveOperand(cond.right, outputs)
+  const num = (v: unknown) => (typeof v === 'number' ? v : Number(v))
+  switch (cond.op) {
+    case 'truthy':
+      return !!left && left !== 'false' && left !== '0'
+    case 'falsy':
+      return !left || left === 'false' || left === '0'
+    case 'eq':
+      return left === right || String(left) === String(right)
+    case 'neq':
+      return !(left === right || String(left) === String(right))
+    case 'gt':
+      return num(left) > num(right)
+    case 'gte':
+      return num(left) >= num(right)
+    case 'lt':
+      return num(left) < num(right)
+    case 'lte':
+      return num(left) <= num(right)
+    case 'contains':
+      if (Array.isArray(left)) return left.some((x) => x === right || String(x) === String(right))
+      return String(left).includes(String(right))
+    default:
+      return false
+  }
+}
+
+/** Resolve a ref to an array (for loopOver / itemsRef). */
+function resolveArray(ref: string | undefined, outputs: Record<string, unknown>): unknown[] {
+  if (!ref) return []
+  const v = resolveOperand(ref, outputs)
+  if (Array.isArray(v)) return v
+  if (typeof v === 'string') {
+    try {
+      const parsed = JSON.parse(v)
+      if (Array.isArray(parsed)) return parsed
+    } catch {
+      /* not JSON */
+    }
+  }
+  return []
+}
+
+const MAX_MAP_CONCURRENCY = 8
+
+/** Execute one step in a given scope, dispatching by kind. Returns its output
+ *  + AI usage. Does NOT persist the RunStep row (the caller owns that, since
+ *  top-level vs nested rows differ). Throws on failure. */
+async function executeStepInScope(
+  runId: string,
+  workflow: WorkflowRow,
+  step: WorkflowStep,
+  state: ExecState,
+): Promise<{ output: unknown; aiTokens: number; aiCostCents: number; flagged?: { reason: string } }> {
+  switch (step.kind) {
+    case 'tool': {
+      const r = await runToolStep(runId, step, state, {
+        id: workflow.id,
+        runtime: (workflow.runtime as 'local' | 'hosted') ?? 'hosted',
+        userId: workflow.userId ?? '',
+      })
+      return { output: r.output, aiTokens: r.aiTokens, aiCostCents: r.aiCostCents }
+    }
+    case 'reason': {
+      const r = await runReasonStep(runId, step, state, workflow)
+      state.aiCallsUsed += 1
+      return {
+        output: r.output,
+        aiTokens: r.aiTokens,
+        aiCostCents: r.aiCostCents,
+        flagged: r.belowThreshold ? { reason: `Confidence ${r.confidence.toFixed(2)} below threshold` } : undefined,
+      }
+    }
+    case 'branch':
+      return runBranchStep(runId, workflow, step, state)
+    case 'loop':
+      return runLoopStep(runId, workflow, step, state)
+    case 'map':
+      return runMapStep(runId, workflow, step, state)
+    case 'spawn':
+      return runSpawnStep(runId, workflow, step, state)
+    default:
+      throw new Error(`Step "${step.id}" has unsupported kind "${step.kind}" in this context.`)
+  }
+}
+
+/** Run a list of body steps sequentially in `scopeState`, persisting a child
+ *  RunStep row per step (parentStepId + iterationIndex). Returns the last
+ *  step's output. Throws on the first failure. */
+async function executeBody(
+  runId: string,
+  workflow: WorkflowRow,
+  steps: WorkflowStep[],
+  scopeState: ExecState,
+  meta: { parentStepId: string; iterationIndex: number | null },
+): Promise<unknown> {
+  let last: unknown = null
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]
+    const row = await db.runStep.create({
+      data: {
+        runId,
+        stepId: step.id,
+        kind: step.kind,
+        label: step.label,
+        status: 'running',
+        order: i,
+        parentStepId: meta.parentStepId,
+        iterationIndex: meta.iterationIndex,
+        startedAt: new Date(),
+      },
+    })
+    try {
+      const r = await executeStepInScope(runId, workflow, step, scopeState)
+      scopeState.outputs[step.id] = r.output
+      scopeState.stepsExecuted += 1
+      last = r.output
+      await db.runStep.update({
+        where: { id: row.id },
+        data: {
+          status: r.flagged ? 'flagged' : 'completed',
+          outputJson: JSON.stringify(r.output ?? null),
+          aiTokens: r.aiTokens,
+          aiCostCents: r.aiCostCents,
+          finishedAt: new Date(),
+        },
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      await db.runStep.update({
+        where: { id: row.id },
+        data: { status: 'failed', outputJson: JSON.stringify({ error: msg }), finishedAt: new Date() },
+      })
+      throw err
+    }
+  }
+  return last
+}
+
+async function runBranchStep(
+  runId: string,
+  workflow: WorkflowRow,
+  step: WorkflowStep,
+  state: ExecState,
+): Promise<{ output: unknown; aiTokens: number; aiCostCents: number }> {
+  const taken = step.when && evalCondition(step.when, state.outputs) ? 'then' : 'else'
+  const body = (taken === 'then' ? step.thenSteps : step.elseSteps) ?? []
+  const scope = childState(state, {})
+  const lastOutput = await executeBody(runId, workflow, body, scope, { parentStepId: step.id, iterationIndex: null })
+  mergeChildCounters(state, scope)
+  return { output: { taken, ran: body.length, lastOutput }, aiTokens: 0, aiCostCents: 0 }
+}
+
+async function runLoopStep(
+  runId: string,
+  workflow: WorkflowRow,
+  step: WorkflowStep,
+  state: ExecState,
+): Promise<{ output: unknown; aiTokens: number; aiCostCents: number }> {
+  const body = step.bodySteps ?? []
+  const maxIterations = step.maxIterations ?? 10
+  const outputs: unknown[] = []
+  const items = step.loopOver ? resolveArray(step.loopOver, state.outputs) : null
+
+  for (let i = 0; i < maxIterations; i++) {
+    if (items && i >= items.length) break
+    const vars: Record<string, unknown> = { $index: i, $iteration: i }
+    if (items) vars.item = items[i]
+    const scope = childState(state, vars)
+    const last = await executeBody(runId, workflow, body, scope, { parentStepId: step.id, iterationIndex: i })
+    mergeChildCounters(state, scope)
+    outputs.push(last)
+    // `until` is checked AFTER each iteration against that iteration's scope.
+    if (step.until && evalCondition(step.until, scope.outputs)) break
+  }
+  return { output: { iterations: outputs.length, outputs }, aiTokens: 0, aiCostCents: 0 }
+}
+
+async function runMapStep(
+  runId: string,
+  workflow: WorkflowRow,
+  step: WorkflowStep,
+  state: ExecState,
+): Promise<{ output: unknown; aiTokens: number; aiCostCents: number }> {
+  const body = step.bodySteps ?? []
+  const items = resolveArray(step.itemsRef, state.outputs)
+  const concurrency = Math.min(step.concurrency ?? 4, MAX_MAP_CONCURRENCY)
+  const results: unknown[] = new Array(items.length).fill(null)
+  const errors: Array<{ index: number; error: string }> = []
+
+  // Run in concurrency-sized batches.
+  for (let start = 0; start < items.length; start += concurrency) {
+    const batch = items.slice(start, start + concurrency)
+    const settled = await Promise.allSettled(
+      batch.map((item, j) => {
+        const index = start + j
+        const scope = childState(state, { item, $index: index })
+        return executeBody(runId, workflow, body, scope, { parentStepId: step.id, iterationIndex: index }).then((last) => {
+          mergeChildCounters(state, scope)
+          return last
+        })
+      }),
+    )
+    settled.forEach((r, j) => {
+      const index = start + j
+      if (r.status === 'fulfilled') {
+        results[index] = r.value
+      } else {
+        errors.push({ index, error: r.reason instanceof Error ? r.reason.message : String(r.reason) })
+      }
+    })
+  }
+
+  if (errors.length > 0 && !step.continueOnError) {
+    throw new Error(`Map step "${step.id}" had ${errors.length}/${items.length} item(s) fail. First: ${errors[0].error}`)
+  }
+  return { output: { count: items.length, outputs: results, errors }, aiTokens: 0, aiCostCents: 0 }
+}
+
+/** Tools a spawned subagent may use — a safe subset (no meta/desktop tools). */
+const SAFE_SPAWN_TOOLS = new Set([
+  'web_search',
+  'web_read',
+  'http_request',
+  'code_eval',
+  'script_run',
+  'image_read',
+  'browser',
+  'job_submit',
+  'job_status',
+  'job_collect',
+  'data_table_query',
+])
+
+/** Spawn a subagent as a durable AgentRun and wait for it to finish. Requires
+ *  the agent-worker to be running (it executes the AgentRun). */
+async function runSpawnStep(
+  runId: string,
+  workflow: WorkflowRow,
+  step: WorkflowStep,
+  state: ExecState,
+): Promise<{ output: unknown; aiTokens: number; aiCostCents: number }> {
+  const goal = String(resolveRefs(step.spawnPrompt ?? '', state.outputs) || '').trim()
+  if (!goal) throw new Error(`Spawn step "${step.id}" resolved to an empty prompt.`)
+  const allowedTools = (step.spawnTools ?? []).filter((t) => SAFE_SPAWN_TOOLS.has(t))
+
+  const agentRun = await db.agentRun.create({
+    data: {
+      userId: workflow.userId ?? '',
+      workspaceId: workflow.workspaceId ?? null,
+      agentId: workflow.id,
+      origin: 'spawn',
+      parentRunId: runId,
+      goal,
+      optsJson: JSON.stringify({
+        maxIterations: 16,
+        source: 'workflow',
+        allowedTools: allowedTools.length ? allowedTools : undefined,
+        outputShape: step.spawnOutputShape,
+        // A spawned run cannot spawn again (depth cap enforced at tool level).
+      }),
+    },
+  })
+
+  broadcastRun(runId, 'step:progress', { runId, stepId: step.id, message: `Delegated to subagent…` })
+
+  // Poll to terminal (the agent-worker executes it).
+  const timeoutMs = step.timeoutMs ?? 15 * 60_000
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const r = await db.agentRun.findUnique({ where: { id: agentRun.id }, select: { status: true, finalJson: true, error: true } })
+    if (!r) throw new Error(`Spawned run ${agentRun.id} vanished`)
+    if (['completed', 'awaiting_input'].includes(r.status)) {
+      const final = r.finalJson ? (JSON.parse(r.finalJson) as { answer?: string; structured?: unknown }) : {}
+      return { output: final.structured ?? { answer: final.answer ?? '' }, aiTokens: 0, aiCostCents: 0 }
+    }
+    if (['failed', 'cancelled'].includes(r.status)) {
+      throw new Error(`Spawned subagent ${r.status}: ${r.error ?? 'no detail'}`)
+    }
+    if (Date.now() > deadline) throw new Error(`Spawned subagent did not finish within ${Math.round(timeoutMs / 1000)}s`)
+    await sleep(3000)
+  }
 }
 
 // ---------------- Gate pause / resume ----------------
@@ -1017,11 +1347,11 @@ async function executeRunSteps(
               item: step.label,
             })
           }
-        } else if (step.kind === 'spawn') {
-          throw new Error(
-            `Spawn step "${step.id}" cannot run agent-free yet. ` +
-              `Convert it to deterministic tool steps, or run this workflow through the agent.`,
-          )
+        } else if (step.kind === 'branch' || step.kind === 'loop' || step.kind === 'map' || step.kind === 'spawn') {
+          const r = await executeStepInScope(runId, workflow, step, state)
+          output = r.output
+          aiTokens = r.aiTokens
+          aiCostCents = r.aiCostCents
         }
         state.outputs[step.id] = output
         state.stepsExecuted += 1

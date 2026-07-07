@@ -39,6 +39,9 @@ export const EXPLORATION_ONLY_TOOLS = new Set([
   'job_status',
   'job_collect',
   'job_cancel',
+  // Subagent polling glue — an agent_spawn freezes into a single spawn step.
+  'agent_status',
+  'agent_collect',
   'agent_list',
   'agent_create',
   'credential_list',
@@ -283,6 +286,19 @@ export function buildWorkflowStepFromTrace(step: EngineTraceStep, index: number)
       },
       inputs: sanitizeTraceInput(input),
       hardened: true,
+    }
+  }
+
+  // An agent_spawn in the trace freezes into a single spawn step — the
+  // runtime creates the subagent run and waits. Polling calls are glue.
+  if (agentTool === 'agent_spawn') {
+    return {
+      id: `s${index + 1}`,
+      kind: 'spawn',
+      label,
+      spawnPrompt: str(input.goal, 20_000),
+      ...(Array.isArray(input.tools) ? { spawnTools: input.tools.filter((t) => typeof t === 'string') as string[] } : {}),
+      ...(str(input.outputShape) ? (() => { try { return { spawnOutputShape: JSON.parse(str(input.outputShape, 4000)) as Record<string, string> } } catch { return {} } })() : {}),
     }
   }
 

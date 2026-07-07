@@ -148,6 +148,11 @@ export interface AgentRunOptions {
   onCheckpoint?: (checkpoint: EngineCheckpoint) => void
   /** Durable runs: continue from a persisted snapshot instead of starting fresh. */
   resumeFrom?: EngineCheckpoint
+  /** This run is a spawned subagent — blocks further spawning. */
+  isSubagent?: boolean
+  /** Spawn runs: the agent is told to end with JSON matching this shape; the
+   *  parsed object surfaces on the final event as `structured`. */
+  outputShape?: Record<string, string>
 }
 
 /** A resumable snapshot of an in-flight native loop. JSON-serializable. */
@@ -1357,6 +1362,7 @@ export async function runAgent(
     producedAssets: [],
     userGoal: goal,
     signal: opts.signal,
+    isSubagent: opts.isSubagent,
   }
 
   // Carry an unfinished checklist forward so the agent resumes it.
@@ -1492,7 +1498,12 @@ export async function runAgent(
 
   const userContextBlock = await userContextBlockPromise
 
-  const contextPrefix = `${userContextBlock}${ownWorkflowBlock}${planBlock}${attachmentBlock}${scriptBlock}`
+  // Spawned subagents with a requested output shape are told to end in JSON.
+  const outputShapeBlock = opts.outputShape
+    ? `IMPORTANT: When you have finished, your FINAL message must be ONLY a JSON object matching this shape (no prose, no code fences):\n${JSON.stringify(opts.outputShape)}\n\n`
+    : ''
+
+  const contextPrefix = `${userContextBlock}${ownWorkflowBlock}${planBlock}${attachmentBlock}${scriptBlock}${outputShapeBlock}`
   const goalLine = `Goal: ${goal}${context ? `\n\nAdditional context:\n${context}` : ''}`
 
   const state: LoopState = {

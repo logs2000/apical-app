@@ -47,6 +47,8 @@ export interface StoredAgentRunOpts {
   source?: 'chat' | 'agent' | 'workflow' | 'reason' | 'research'
   /** Spawn runs: the JSON shape the final answer must match. */
   outputShape?: Record<string, string>
+  /** Subagent runs may be given a restricted tool set. */
+  allowedTools?: string[]
 }
 
 function parseJson<T>(raw: string | null | undefined, fallback: T): T {
@@ -194,6 +196,8 @@ export async function executeAgentRun(agentRunId: string, workerId: string): Pro
         signal: abort.signal,
         onCheckpoint,
         resumeFrom: checkpoint ?? undefined,
+        isSubagent: row.origin === 'spawn',
+        outputShape: opts.outputShape,
       },
       onEvent,
     )
@@ -205,11 +209,25 @@ export async function executeAgentRun(agentRunId: string, workerId: string): Pro
     const awaitingInput = !!(result.clarification || result.credentialRequests?.length || result.connectionRequests?.length)
     const status = cancelled || wasCancelling ? 'cancelled' : awaitingInput ? 'awaiting_input' : 'completed'
 
+    // Spawn runs with a requested output shape: parse the JSON answer so the
+    // parent workflow step / agent_collect gets structured data.
+    let structured: unknown
+    if (opts.outputShape && result.answer) {
+      try {
+        const text = result.answer.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim()
+        const start = text.indexOf('{')
+        const end = text.lastIndexOf('}')
+        if (start >= 0 && end > start) structured = JSON.parse(text.slice(start, end + 1))
+      } catch {
+        /* leave structured undefined — the raw answer is still available */
+      }
+    }
+
     await db.agentRun.updateMany({
       where: { id: agentRunId, claimedBy: workerId },
       data: {
         status,
-        finalJson: JSON.stringify(finalEvent ?? { type: 'final', answer: result.answer }),
+        finalJson: JSON.stringify({ ...(finalEvent ?? { type: 'final', answer: result.answer }), ...(structured !== undefined ? { structured } : {}) }),
         iterations: result.iterations,
         checkpointJson: null,
         claimedBy: null,

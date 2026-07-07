@@ -3,7 +3,7 @@
  * Ported from the production Apical app — used by the logged-in AppShell.
  */
 
-export type StepKind = "tool" | "reason" | "gate" | "spawn";
+export type StepKind = "tool" | "reason" | "gate" | "spawn" | "branch" | "loop" | "map";
 export type AgentRuntime = "local" | "hosted";
 export type WorkflowStatus = "draft" | "active" | "paused";
 export type RunStatus = "running" | "completed" | "failed" | "awaiting_gate" | "cancelled";
@@ -286,6 +286,24 @@ export const STEP_KIND_META: Record<
     short: "S",
     color: "reason",
     description: "Delegate. Spins up a temporary subagent to handle a subtask, collects the result.",
+  },
+  branch: {
+    label: "Branch",
+    short: "IF",
+    color: "tool",
+    description: "Fork. Runs one set of steps or another based on a deterministic condition.",
+  },
+  loop: {
+    label: "Loop",
+    short: "LP",
+    color: "tool",
+    description: "Repeat. Runs its body over each item of a list, or until a condition holds.",
+  },
+  map: {
+    label: "Map",
+    short: "MP",
+    color: "tool",
+    description: "Fan out. Runs its body once per item, several in parallel, and collects the results.",
   },
 };
 

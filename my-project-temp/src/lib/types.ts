@@ -3,7 +3,15 @@
 // (code, HTTP, MCP, integrations, gates). Production runs execute WITHOUT an
 // agent. Agents design, freeze, schedule, monitor, and improve workflows.
 
-export type StepKind = 'tool' | 'reason' | 'gate' | 'spawn'
+export type StepKind = 'tool' | 'reason' | 'gate' | 'spawn' | 'branch' | 'loop' | 'map'
+
+export type ConditionOp = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'truthy' | 'falsy'
+
+export interface StepCondition {
+  left: string
+  op: ConditionOp
+  right?: unknown
+}
 
 export type TriggerKind = 'manual' | 'schedule' | 'hook' | 'watch' | 'rerun'
 
@@ -178,6 +186,27 @@ export interface WorkflowStep {
   retry?: RetryPolicy
   /** v2: hard per-step timeout in ms. */
   timeoutMs?: number
+  // ---- control flow (v2) ----
+  /** branch: the condition deciding then vs else. */
+  when?: StepCondition
+  /** branch: steps run when `when` is true. */
+  thenSteps?: WorkflowStep[]
+  /** branch: steps run when `when` is false. */
+  elseSteps?: WorkflowStep[]
+  /** loop: a {{stepId.field}} ref to an array to iterate. */
+  loopOver?: string
+  /** loop: stop when this condition becomes true. */
+  until?: StepCondition
+  /** loop/map: the steps run each iteration. */
+  bodySteps?: WorkflowStep[]
+  /** loop: hard cap on iterations (default 10). */
+  maxIterations?: number
+  /** map: a {{stepId.field}} ref to the array to map over. */
+  itemsRef?: string
+  /** map: parallel iterations (default 4). */
+  concurrency?: number
+  /** map: keep going if one item fails. */
+  continueOnError?: boolean
 }
 
 /** v2: per-step retry policy. */

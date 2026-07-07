@@ -81,5 +81,27 @@ function describeStep(step: WorkflowStep): Record<string, unknown> {
         action: 'delegate_to_subagent',
         taskPreview: (step.spawnPrompt ?? '').slice(0, 200),
       }
+    case 'branch':
+      return {
+        action: 'conditional_branch',
+        when: step.when ?? null,
+        thenSteps: step.thenSteps?.length ?? 0,
+        elseSteps: step.elseSteps?.length ?? 0,
+      }
+    case 'loop':
+      return {
+        action: 'loop',
+        over: step.loopOver ?? null,
+        until: step.until ?? null,
+        maxIterations: step.maxIterations ?? 10,
+        bodySteps: step.bodySteps?.length ?? 0,
+      }
+    case 'map':
+      return {
+        action: 'map_over_items',
+        itemsRef: step.itemsRef ?? null,
+        concurrency: step.concurrency ?? 4,
+        bodySteps: step.bodySteps?.length ?? 0,
+      }
   }
 }

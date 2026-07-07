@@ -161,6 +161,24 @@ export const STEP_KIND_META: Record<
     color: 'reason',
     description: 'Delegate. Spins up a temporary subagent to handle a subtask, collects the result.',
   },
+  branch: {
+    label: 'Branch',
+    short: 'IF',
+    color: 'tool',
+    description: 'Fork. Runs one set of steps or another based on a deterministic condition.',
+  },
+  loop: {
+    label: 'Loop',
+    short: 'LP',
+    color: 'tool',
+    description: 'Repeat. Runs its body over each item of a list, or until a condition holds.',
+  },
+  map: {
+    label: 'Map',
+    short: 'MP',
+    color: 'tool',
+    description: 'Fan out. Runs its body once per item, several in parallel, and collects the results.',
+  },
 }
 
 /** Thrown when a stored workflow document is corrupt or fails the schema. */
@@ -238,13 +256,17 @@ export function parseConfig<T = unknown>(raw: string, fallback: T): T {
   }
 }
 
-/** Resolve {{stepId.field.path}} references against step outputs. */
+const countKindsInit = { tool: 0, reason: 0, gate: 0, spawn: 0, branch: 0, loop: 0, map: 0 }
+
+/** Resolve {{stepId.field.path}} references against step outputs. The `$` in
+ *  the token class lets loop/map scope vars ({{item}}, {{$index}},
+ *  {{$iteration}}) resolve — the runtime injects them into `outputs`. */
 export function resolveRefs(
   value: unknown,
   outputs: Record<string, unknown>,
 ): unknown {
   if (typeof value === 'string') {
-    return value.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, path: string) => {
+    return value.replace(/\{\{\s*([\w$.]+)\s*\}\}/g, (_, path: string) => {
       const parts = path.split('.')
       let cur: unknown = outputs
       for (const p of parts) {
@@ -273,14 +295,13 @@ export function countKinds(steps: WorkflowStep[]): {
   gate: number
   hardened: number
 } {
-  return steps.reduce(
-    (acc, s) => {
-      acc[s.kind] += 1
-      if (s.hardened) acc.hardened += 1
-      return acc
-    },
-    { tool: 0, reason: 0, gate: 0, hardened: 0 },
-  )
+  const counts = { ...countKindsInit }
+  let hardened = 0
+  for (const s of steps) {
+    if (s.kind in counts) counts[s.kind as keyof typeof counts] += 1
+    if (s.hardened) hardened += 1
+  }
+  return { tool: counts.tool, reason: counts.reason, gate: counts.gate, hardened }
 }
 
 export function formatCurrency(cents: number): string {

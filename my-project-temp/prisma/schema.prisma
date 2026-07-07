@@ -418,6 +418,10 @@ model RunStep {
   startedAt   DateTime?
   finishedAt  DateTime?
   order       Int       @default(0)
+  // Control flow: body steps of a branch/loop/map point at their parent step,
+  // and loop/map iterations carry the 0-based iteration index.
+  parentStepId   String?
+  iterationIndex Int?
 }
 
 // Self-optimization: tracks how consistently a `reason` step resolves,

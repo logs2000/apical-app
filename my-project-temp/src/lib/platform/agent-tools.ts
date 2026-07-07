@@ -214,6 +214,9 @@ export interface ToolContext {
   /** The browser session opened for this run (lazily, by the browser tool);
    *  closed by the engine when the run ends. */
   browserSessionId?: string | null
+  /** True when this run is itself a spawned subagent — blocks further spawning
+   *  (no recursive subagent forests in v1). */
+  isSubagent?: boolean
   /**
    * Abort signal from the originating HTTP request. Long-running tools
    * (network fetches, CLI/script runs) should pass this to their I/O so a
@@ -878,6 +881,110 @@ const jobCancel: ToolDef = {
     const { cancelJob } = await import('@/lib/platform/jobs')
     await cancelJob(jobId)
     return { ok: true, output: { jobId, status: 'cancelled' }, display: { title: 'Job cancelled', summary: jobId, kind: 'info' } }
+  },
+}
+
+// agent_spawn / agent_status / agent_collect — live subagents. The agent
+// delegates a bounded subtask to a fresh durable AgentRun (executed by the
+// agent-worker) and collects its result. Freezing an agent_spawn+collect pair
+// yields a "spawn" workflow step. A spawned run cannot spawn again (depth cap).
+const SPAWN_SAFE_TOOLS = new Set([
+  'web_search', 'web_read', 'http_request', 'code_eval', 'script_run',
+  'image_read', 'browser', 'job_submit', 'job_status', 'job_collect', 'data_table_query',
+])
+
+const agentSpawn: ToolDef = {
+  name: 'agent_spawn',
+  description:
+    'Delegate a bounded subtask to a temporary subagent that runs independently (in parallel with your other work) and returns a result. Use this to fan out — research several things at once, process items concurrently, or offload a self-contained investigation. Returns an agentRunId; check it with agent_status and gather the result with agent_collect. Subagents cannot spawn further subagents.',
+  inputSchema: {
+    goal: { type: 'string', description: 'The self-contained task for the subagent.', required: true },
+    tools: { type: 'array', description: 'Tool names the subagent may use (subset of safe tools).', items: { type: 'string' } },
+    maxIterations: { type: 'number', description: 'Max reasoning steps (default 16, max 40).' },
+    outputShape: { type: 'string', description: 'Optional JSON describing the fields you want back.' },
+  },
+  async run(input, ctx) {
+    if (ctx.isSubagent) {
+      return { ok: false, output: null, error: 'subagents cannot spawn further subagents' }
+    }
+    const goal = asString(input.goal, 20_000)
+    if (!goal) return { ok: false, output: null, error: 'goal is required' }
+    const tools = Array.isArray(input.tools)
+      ? (input.tools as unknown[]).filter((t) => typeof t === 'string' && SPAWN_SAFE_TOOLS.has(t)) as string[]
+      : []
+    let outputShape: Record<string, string> | undefined
+    if (input.outputShape) {
+      try {
+        outputShape = JSON.parse(asString(input.outputShape, 4000)) as Record<string, string>
+      } catch {
+        /* ignore malformed shape */
+      }
+    }
+    try {
+      const run = await db.agentRun.create({
+        data: {
+          userId: ctx.userId,
+          workspaceId: ctx.workspaceId ?? null,
+          agentId: ctx.agentId ?? null,
+          origin: 'spawn',
+          goal,
+          optsJson: JSON.stringify({
+            maxIterations: Math.max(1, Math.min(40, Number(input.maxIterations) || 16)),
+            source: 'workflow',
+            allowedTools: tools.length ? tools : undefined,
+            outputShape,
+          }),
+        },
+      })
+      return { ok: true, output: { agentRunId: run.id, status: 'queued' }, display: { title: 'Spawned subagent', summary: goal.slice(0, 80), kind: 'info' } }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const agentStatus: ToolDef = {
+  name: 'agent_status',
+  description: 'Check a spawned subagent’s status. Optionally wait up to a few seconds for it to progress.',
+  inputSchema: {
+    agentRunId: { type: 'string', description: 'From agent_spawn.', required: true },
+    waitSeconds: { type: 'number', description: 'Block up to this many seconds (max 55).' },
+  },
+  async run(input, ctx) {
+    const id = asString(input.agentRunId, 100)
+    if (!id) return { ok: false, output: null, error: 'agentRunId is required' }
+    const waitMs = Math.max(0, Math.min(55, Number(input.waitSeconds) || 0)) * 1000
+    const deadline = Date.now() + waitMs
+    const terminal = new Set(['completed', 'failed', 'cancelled', 'awaiting_input'])
+    for (;;) {
+      const run = await db.agentRun.findFirst({ where: { id, userId: ctx.userId }, select: { status: true, iterations: true, error: true } })
+      if (!run) return { ok: false, output: null, error: 'subagent run not found' }
+      if (terminal.has(run.status) || Date.now() >= deadline) {
+        return { ok: true, output: { status: run.status, iterations: run.iterations, error: run.error ?? undefined } }
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  },
+}
+
+const agentCollect: ToolDef = {
+  name: 'agent_collect',
+  description: 'Gather a finished subagent’s answer (and structured output if you requested a shape). Call after agent_status reports completed.',
+  inputSchema: { agentRunId: { type: 'string', description: 'From agent_spawn.', required: true } },
+  async run(input, ctx) {
+    const id = asString(input.agentRunId, 100)
+    if (!id) return { ok: false, output: null, error: 'agentRunId is required' }
+    const run = await db.agentRun.findFirst({ where: { id, userId: ctx.userId }, select: { status: true, finalJson: true, error: true } })
+    if (!run) return { ok: false, output: null, error: 'subagent run not found' }
+    if (!['completed', 'awaiting_input', 'failed', 'cancelled'].includes(run.status)) {
+      return { ok: false, output: null, error: `subagent is still ${run.status} — poll agent_status first` }
+    }
+    const final = run.finalJson ? (JSON.parse(run.finalJson) as { answer?: string; structured?: unknown }) : {}
+    return {
+      ok: run.status === 'completed' || run.status === 'awaiting_input',
+      output: { status: run.status, answer: final.answer ?? '', structured: final.structured, error: run.error ?? undefined },
+      display: { title: `Subagent ${run.status}`, summary: (final.answer ?? '').slice(0, 80), kind: 'info' },
+    }
   },
 }
 
@@ -1700,7 +1807,7 @@ const toolConfigure: ToolDef = {
 // Shared {{...}} template-ref grammar, appended to every workflow-authoring
 // tool description so the model never invents namespaces (e.g. {{lead.x}}).
 const REF_GRAMMAR =
-  ' Template refs in step fields: {{stepId.field}} (an EARLIER step\'s output), {{trigger.field}} (the trigger payload), {{cred:service.field}} (vault credential — colon, not dot), {{env:VAR}}. These four are the ONLY namespaces — never invent others like {{lead.x}} or {{item.x}}; there is no per-item loop variable. For per-row data, reference the step that produced the rows (e.g. {{s2.rows}}) and iterate inside a code node.'
+  ' Template refs in step fields: {{stepId.field}} (an EARLIER step\'s output), {{trigger.field}} (the trigger payload), {{cred:service.field}} (vault credential — colon, not dot), {{env:VAR}}. Inside a loop or map body ONLY, you may also use {{item}} / {{item.field}} (the current element) and {{$index}} (0-based position); loops also expose {{$iteration}}. Outside a loop/map body those per-item refs are invalid — never invent other namespaces like {{lead.x}}. Control-flow step kinds: "branch" ({ when: {left,op,right}, thenSteps[], elseSteps[] }), "loop" ({ loopOver: "{{s.rows}}" or until: {...}, bodySteps[], maxIterations }), "map" ({ itemsRef: "{{s.rows}}", bodySteps[], concurrency }). A map exposes {{mapStepId.outputs}} (array of each item\'s last body output) and {{mapStepId.count}}. Gates must stay at the top level (not inside a body).'
 
 const workflowFreeze: ToolDef = {
   name: 'workflow_freeze',
@@ -3087,6 +3194,9 @@ export const AGENT_TOOLS: ToolDef[] = [
   jobCollect,
   jobCancel,
   jobRun,
+  agentSpawn,
+  agentStatus,
+  agentCollect,
   scriptRun,
   cliRun,
   fsList,

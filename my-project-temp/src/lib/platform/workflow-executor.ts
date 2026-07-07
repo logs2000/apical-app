@@ -67,24 +67,14 @@ export function workflowStepToToolCall(
   if (step.code?.source) {
     const lang = step.code.language
     const packages = step.code.packages?.length ? step.code.packages : undefined
+    // Resolve {{stepId.field}} / {{item}} / {{$index}} refs in the data payload
+    // (and the source, so loop/map bodies can interpolate the current item).
+    const resolvedData = step.code.data != null ? JSON.stringify(resolveRefs(step.code.data, outputs)) : undefined
+    const resolvedSource = resolveRefs(step.code.source, outputs) as string
     if (lang === 'javascript' && !packages) {
-      return {
-        tool: 'code_eval',
-        input: {
-          code: step.code.source,
-          data: step.code.data != null ? JSON.stringify(step.code.data) : undefined,
-        },
-      }
+      return { tool: 'code_eval', input: { code: resolvedSource, data: resolvedData } }
     }
-    return {
-      tool: 'script_run',
-      input: {
-        language: lang,
-        code: step.code.source,
-        packages,
-        data: step.code.data != null ? JSON.stringify(step.code.data) : undefined,
-      },
-    }
+    return { tool: 'script_run', input: { language: lang, code: resolvedSource, packages, data: resolvedData } }
   }
 
   const tool = step.tool ? agentToolName(step.tool) : ''
@@ -300,6 +290,8 @@ async function detectPipedreamReconnect(
 /** Whether a saved workflow can run agent-free (has executable production nodes). */
 export function isProductionExecutableStep(step: WorkflowStep): boolean {
   if (step.kind === 'gate') return true
+  // Control flow + spawn execute directly in the runtime (not via a tool call).
+  if (step.kind === 'branch' || step.kind === 'loop' || step.kind === 'map' || step.kind === 'spawn') return true
   if (step.kind === 'reason' && step.hardened) return true
   if (step.http?.url) return true
   if (step.mcp?.integrationId && step.mcp.tool) return true

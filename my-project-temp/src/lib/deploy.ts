@@ -163,6 +163,20 @@ export function normalizeSteps(raw: unknown[]): WorkflowStep[] {
         if (s.spawnOutputShape && typeof s.spawnOutputShape === 'object') {
           out.spawnOutputShape = s.spawnOutputShape as Record<string, string>
         }
+      } else if (kind === 'branch') {
+        if (s.when && typeof s.when === 'object') out.when = s.when as WorkflowStep['when']
+        if (Array.isArray(s.thenSteps)) out.thenSteps = normalizeSteps(s.thenSteps)
+        if (Array.isArray(s.elseSteps)) out.elseSteps = normalizeSteps(s.elseSteps)
+      } else if (kind === 'loop') {
+        if (typeof s.loopOver === 'string') out.loopOver = s.loopOver
+        if (s.until && typeof s.until === 'object') out.until = s.until as WorkflowStep['until']
+        if (Array.isArray(s.bodySteps)) out.bodySteps = normalizeSteps(s.bodySteps)
+        if (typeof s.maxIterations === 'number') out.maxIterations = s.maxIterations
+      } else if (kind === 'map') {
+        if (typeof s.itemsRef === 'string') out.itemsRef = s.itemsRef
+        if (Array.isArray(s.bodySteps)) out.bodySteps = normalizeSteps(s.bodySteps)
+        if (typeof s.concurrency === 'number') out.concurrency = s.concurrency
+        if (typeof s.continueOnError === 'boolean') out.continueOnError = s.continueOnError
       }
       if (s.retry && typeof s.retry === 'object' && !Array.isArray(s.retry)) {
         const r = s.retry as Record<string, unknown>
