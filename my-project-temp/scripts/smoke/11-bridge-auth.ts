@@ -25,8 +25,15 @@ const BRIDGE = 'http://127.0.0.1:3005'
 const serviceDir = new URL('../../mini-services/desktop-bridge/', import.meta.url).pathname
 
 // 1) Fail-closed startup: no APICAL_BRIDGE_SECRET → process exits nonzero.
+// Force the secret to an explicit empty string rather than merely unsetting it:
+// `bun index.ts` auto-loads the repo .env, which would re-supply the real secret
+// and defeat this check. An explicit empty value is kept by bun's dotenv
+// (process.env wins over .env) and still trips the guard.
 const { APICAL_BRIDGE_SECRET: _drop, ...envWithoutSecret } = process.env
-const noSecret = spawn('bun', ['index.ts'], { cwd: serviceDir, env: envWithoutSecret })
+const noSecret = spawn('bun', ['index.ts'], {
+  cwd: serviceDir,
+  env: { ...envWithoutSecret, APICAL_BRIDGE_SECRET: '' },
+})
 const noSecretExit: number = await new Promise((resolve) => noSecret.on('exit', (code) => resolve(code ?? -1)))
 assert(noSecretExit !== 0, 'bridge should refuse to start without APICAL_BRIDGE_SECRET')
 console.log('startup: refuses to boot without APICAL_BRIDGE_SECRET')
