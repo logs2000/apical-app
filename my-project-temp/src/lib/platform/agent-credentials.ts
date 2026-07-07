@@ -83,7 +83,7 @@ export interface ResolvedCredential {
 export async function resolveCredentialForAgent(
   credentialId: string,
   userId: string,
-  opts: { connectedAccountId?: string | null } = {},
+  opts: { connectedAccountId?: string | null; allowPay?: boolean } = {},
 ): Promise<ResolvedCredential | null> {
   if (!credentialId || !userId) return null
   let row = await db.credential.findFirst({
@@ -93,6 +93,7 @@ export async function resolveCredentialForAgent(
       kind: true,
       status: true,
       service: true,
+      canPay: true,
       connectedAccountId: true,
       oauthAccessToken: true,
       oauthProvider: true,
@@ -118,6 +119,7 @@ export async function resolveCredentialForAgent(
         kind: true,
         status: true,
         service: true,
+        canPay: true,
         connectedAccountId: true,
         oauthAccessToken: true,
         oauthProvider: true,
@@ -128,6 +130,14 @@ export async function resolveCredentialForAgent(
     })
     if (accountRow) row = accountRow
   }
+
+  // Payment-capable credentials (canPay — e.g. a Stripe secret key or a card
+  // reference) are refused unless the caller carries an explicit grant.
+  // Previously the flag was stored but never checked, so any agent turn could
+  // silently spend with a payment credential the user had merely SAVED. The
+  // grant comes from the agent's allowedCredentialsJson (see
+  // buildSecureHeaders) — a human listing the credential on that agent.
+  if (row.canPay && !opts.allowPay) return null
 
   // Pipedream-managed connection: there is no local secret — the token lives
   // in Pipedream's vault. Return the account reference; callers branch on
@@ -221,12 +231,21 @@ export async function buildSecureHeaders(
   llmHeaders: Record<string, string> | undefined,
   credentialId: string | undefined,
   userId: string,
-  opts: { connectedAccountId?: string | null } = {},
+  opts: {
+    connectedAccountId?: string | null
+    agentId?: string | null
+    /** Caller-asserted explicit human grant (e.g. a credential the user wired
+     *  into a frozen integration's config). Skips the agent-allowlist lookup. */
+    allowPay?: boolean
+  } = {},
 ): Promise<{
   headers: Record<string, string>
   hadCredential: boolean
   /** Set when the credential is Pipedream-managed — route via the proxy. */
   pipedream?: ResolvedCredential
+  /** Set when the credential exists but is payment-capable (canPay) and the
+   *  acting agent has no explicit grant for it — tell the user, not a 401. */
+  paymentBlocked?: boolean
 }> {
   // 1. Strip auth-shaped headers the LLM tried to set.
   const headers: Record<string, string> = {}
@@ -240,7 +259,23 @@ export async function buildSecureHeaders(
 
   // 2. Resolve credential + inject.
   if (credentialId) {
-    const cred = await resolveCredentialForAgent(credentialId, userId, opts)
+    // canPay grant: the human listed this credential id on the acting agent
+    // (allowedCredentialsJson). Chat turns with no agent get no grant.
+    let allowPay = opts.allowPay === true
+    if (!allowPay && opts.agentId) {
+      const agent = await db.workflow.findFirst({
+        where: { id: opts.agentId, userId },
+        select: { allowedCredentialsJson: true },
+      })
+      try {
+        const allowed = JSON.parse(agent?.allowedCredentialsJson || '[]') as unknown
+        allowPay = Array.isArray(allowed) && allowed.includes(credentialId)
+      } catch {
+        allowPay = false
+      }
+    }
+
+    const cred = await resolveCredentialForAgent(credentialId, userId, { ...opts, allowPay })
     if (cred) {
       // Pipedream-managed credentials have no local secret to inject — the
       // caller must take the proxy branch. Returning hadCredential:false here
@@ -251,6 +286,15 @@ export async function buildSecureHeaders(
       }
       headers[cred.headerName] = `${cred.headerPrefix}${cred.secret}`.trim()
       return { headers, hadCredential: true }
+    }
+    // Distinguish "payment-capable but not granted" from "not found" so the
+    // tools can explain the block instead of reporting a phantom credential.
+    if (!allowPay) {
+      const paymentRow = await db.credential.findFirst({
+        where: { id: credentialId, userId, status: 'active', canPay: true },
+        select: { id: true },
+      })
+      if (paymentRow) return { headers, hadCredential: false, paymentBlocked: true }
     }
     // Credential not found — surface a clear error to the LLM via the headers
     // (the caller will see the 401/403 and report it).

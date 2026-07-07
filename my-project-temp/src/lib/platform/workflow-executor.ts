@@ -153,7 +153,11 @@ async function executeFrozenIntegrationTool(
   const headers: Record<string, string> = { Accept: 'application/json' }
   let credSecret: string | null = null
   if (artifact.auth.credentialId) {
-    const { headers: secure } = await buildSecureHeaders({}, artifact.auth.credentialId, userId)
+    // allowPay: the user wired this credential into the frozen integration's
+    // config themselves — that IS the explicit payment grant.
+    const { headers: secure } = await buildSecureHeaders({}, artifact.auth.credentialId, userId, {
+      allowPay: true,
+    })
     Object.assign(headers, secure)
   }
 

@@ -435,11 +435,19 @@ const webRead: ToolDef = {
 
     // SECURITY: resolve credential + build headers server-side. Strips any
     // auth-shaped headers the LLM tried to set.
-    const { headers, hadCredential } = await buildSecureHeaders(
+    const { headers, hadCredential, paymentBlocked } = await buildSecureHeaders(
       { 'User-Agent': 'Apical-Research-Bot/1.0', Accept: 'text/html,application/json,text/plain,*/*' },
       credentialId || undefined,
       ctx.userId,
+      { agentId: ctx.agentId },
     )
+    if (credentialId && paymentBlocked) {
+      return {
+        ok: false,
+        output: null,
+        error: `credentialId "${credentialId}" is payment-capable and this agent has no explicit grant for it. The user must add it to the agent's allowed credentials before it can be used.`,
+      }
+    }
     if (credentialId && !hadCredential) {
       return {
         ok: false,
@@ -539,11 +547,20 @@ const httpRequest: ToolDef = {
     // SECURITY: build headers server-side. Strips any auth-shaped headers
     // the LLM tried to set; injects the secret from the vault if credentialId
     // is provided.
-    const { headers, hadCredential, pipedream } = await buildSecureHeaders(
+    const { headers, hadCredential, pipedream, paymentBlocked } = await buildSecureHeaders(
       (input.headers as Record<string, string>) ?? {},
       credentialId || undefined,
       ctx.userId,
+      { agentId: ctx.agentId },
     )
+    if (credentialId && paymentBlocked) {
+      return {
+        ok: false,
+        output: null,
+        error: `credentialId "${credentialId}" is payment-capable and this agent has no explicit grant for it. The user must add it to the agent's allowed credentials before it can be used.`,
+        display: { title: `${method} ${url}`, summary: 'payment credential blocked', kind: 'http' },
+      }
+    }
 
     // Pipedream-managed credential: the token lives in Pipedream's vault, so
     // the request routes through their proxy (auth injected upstream). Same
