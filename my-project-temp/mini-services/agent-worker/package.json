@@ -7,8 +7,8 @@
     "dev": "bun --hot index.ts",
     "start": "bun index.ts"
   },
+  "_note": "No @prisma/client dependency here on purpose: this service imports the root src/lib platform modules, which resolve the single root-generated Prisma client up-tree. A per-service copy would drift from the root schema.",
   "dependencies": {
-    "@prisma/client": "^6.11.1",
     "playwright": "1.56.0"
   }
 }
