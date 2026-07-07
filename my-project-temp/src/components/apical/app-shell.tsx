@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useAppStore } from "@/lib/apical/store";
+import { NEW_CHAT_CONVERSATION_ID } from "@/lib/apical/agents-data";
 import { AgentsView } from "./agents-view";
 import { VaultTab } from "./vault-tab";
 import { DataTab } from "./data-tab";
@@ -58,7 +59,19 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
   const toggleInspector = useAppStore((s) => s.toggleInspector);
   const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const setPopoutConversation = useAppStore((s) => s.setPopoutConversation);
+  const setPendingQuickAsk = useAppStore((s) => s.setPendingQuickAsk);
   const { signOut, closeApp } = useAuth();
+
+  // Quick Ask: land in a fresh ephemeral chat with the question queued for the
+  // composer — the lightest way to ask apical anything, from the palette.
+  const askApical = React.useCallback(
+    (text: string) => {
+      setMode("agents");
+      setActiveConversation(NEW_CHAT_CONVERSATION_ID);
+      if (text) setPendingQuickAsk(text);
+    },
+    [setMode, setActiveConversation, setPendingQuickAsk],
+  );
 
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
@@ -387,6 +400,7 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
         onSignOut={signOut}
         onGoHome={IS_TAURI ? undefined : closeApp}
         onNewWindow={IS_TAURI ? () => void openAppWindow() : undefined}
+        onAskApical={askApical}
       />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>

@@ -1157,6 +1157,8 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
   const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const setPendingAgentHandoff = useAppStore((s) => s.setPendingAgentHandoff);
   const setMobilePane = useAppStore((s) => s.setMobilePane);
+  const pendingQuickAsk = useAppStore((s) => s.pendingQuickAsk);
+  const setPendingQuickAsk = useAppStore((s) => s.setPendingQuickAsk);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { workflows, createConversationFromMessage } = useAgentsData();
@@ -1176,6 +1178,15 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
     pendingUserMsg: ChatMessage;
   } | null>(null);
   const [analyzingId, setAnalyzingId] = React.useState<string | null>(null);
+
+  // Quick Ask (⌘K / palette): when we land in a fresh chat with a queued
+  // question, drop it into the composer so the user just hits send. Consumed once.
+  React.useEffect(() => {
+    if (isNewChat && pendingQuickAsk) {
+      setInput(pendingQuickAsk);
+      setPendingQuickAsk(null);
+    }
+  }, [isNewChat, pendingQuickAsk, setPendingQuickAsk]);
   // ChatPane is keyed by agent id, so these refs reset on a genuine agent
   // switch via remount. We intentionally do NOT reset them in an effect — doing
   // so makes the handoff guard fire twice under React StrictMode, which double-

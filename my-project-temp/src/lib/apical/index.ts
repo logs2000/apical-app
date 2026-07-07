@@ -375,28 +375,26 @@ export function formatDuration(ms: number): string {
 
 export const DEFAULT_PROMPTS = [
   {
-    title: "Sort my scanner PDFs",
-    prompt:
-      "Sort the PDFs my scanner dumps into /Scan Inbox by client, and file them. Ask me if anything is unclear.",
-    reason: "A common starting point.",
+    title: "Combine files into a PDF",
+    prompt: "Combine these files into a single PDF and give me the download.",
+    reason: "A quick one-off.",
   },
   {
-    title: "Weekly client updates",
+    title: "How much space do I have?",
+    prompt: "How much free disk space is left on my computer?",
+    reason: "Ask about this machine.",
+  },
+  {
+    title: "Rename files by date",
+    prompt:
+      "Rename the files in this folder so each starts with its date, like 2026-07-07-name.",
+    reason: "Tidy up, fast.",
+  },
+  {
+    title: "Draft weekly client updates",
     prompt:
       "Every Monday, draft a short summary email to each client about last week. Send me the drafts first.",
-    reason: "Recurring client comms.",
-  },
-  {
-    title: "Chase overdue invoices",
-    prompt:
-      "Check unpaid invoices every day. Send a polite reminder if 7 days late; if 30 days, draft an escalation for me to approve.",
-    reason: "Cash flow.",
-  },
-  {
-    title: "Audit expense reports",
-    prompt:
-      "Audit new expense reports against our policy. Flag anything over $500 or missing a receipt for me; auto-approve the rest.",
-    reason: "Policy enforcement.",
+    reason: "Set it once, it repeats.",
   },
 ];
 

@@ -36,6 +36,7 @@ import {
   LogOut,
   Home,
   SquareStack,
+  Sparkles,
 } from "lucide-react";
 
 export type NavItem = {
@@ -108,6 +109,7 @@ export function CommandMenu({
   onSignOut,
   onGoHome,
   onNewWindow,
+  onAskApical,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -119,10 +121,19 @@ export function CommandMenu({
   onGoHome?: () => void;
   /** Provided only in the desktop build — opens a new native window. */
   onNewWindow?: () => void;
+  /** Drop the typed text into a fresh ephemeral ask — the lightest way to ask
+   *  apical anything, from anywhere. */
+  onAskApical?: (text: string) => void;
 }) {
   const setMode = useAppStore((s) => s.setMode);
   const mode = useAppStore((s) => s.mode);
   const toggleInspector = useAppStore((s) => s.toggleInspector);
+  // Track what the user has typed so the "Ask apical" item can carry it as the
+  // question when nothing else matches.
+  const [query, setQuery] = React.useState("");
+  React.useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
 
   // Run an action then close the palette.
   const run = React.useCallback(
@@ -135,9 +146,32 @@ export function CommandMenu({
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} className="z-[320] sm:max-w-xl">
-      <CommandInput placeholder="Search actions, or jump to a view…" />
+      <CommandInput
+        placeholder="Ask apical to do anything, or jump to a view…"
+        value={query}
+        onValueChange={setQuery}
+      />
       <CommandList>
         <CommandEmpty>No results.</CommandEmpty>
+
+        {onAskApical && (
+          <>
+            <CommandGroup heading="Ask">
+              <CommandItem
+                forceMount
+                value={`ask apical ${query}`}
+                onSelect={() => run(() => onAskApical(query.trim()))}
+              >
+                <Sparkles className="h-4 w-4" />
+                <span>
+                  {query.trim() ? `Ask apical: “${query.trim()}”` : "Ask apical to do anything…"}
+                </span>
+                <CommandShortcut>↵</CommandShortcut>
+              </CommandItem>
+            </CommandGroup>
+            <CommandSeparator />
+          </>
+        )}
 
         <CommandGroup heading="Go to">
           {PRIMARY_NAV.concat(SECONDARY_NAV).map((item) => {

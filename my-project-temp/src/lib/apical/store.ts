@@ -114,6 +114,11 @@ interface AppState {
   /** Drives tab switch + auto-sent prompt when routing to another agent. */
   pendingAgentHandoff: PendingAgentHandoff | null;
   setPendingAgentHandoff: (handoff: PendingAgentHandoff | null) => void;
+  /** Quick Ask: text to drop into a fresh ephemeral chat's composer — the
+   *  "ask apical from anywhere" entry (⌘K / palette). Consumed once by the new
+   *  chat pane, which prefills the composer so the user just hits send. */
+  pendingQuickAsk: string | null;
+  setPendingQuickAsk: (text: string | null) => void;
   /** Sidebar pin order — persisted in localStorage (conversation ids). */
   pinnedConversationIds: string[];
   hydratePinnedConversations: () => void;
@@ -187,6 +192,8 @@ export const useAppStore = create<AppState>((set) => ({
     })),
   pendingAgentHandoff: null,
   setPendingAgentHandoff: (handoff) => set({ pendingAgentHandoff: handoff }),
+  pendingQuickAsk: null,
+  setPendingQuickAsk: (text) => set({ pendingQuickAsk: text }),
   pinnedConversationIds: DEFAULT_PINNED,
   hydratePinnedConversations: () =>
     set({ pinnedConversationIds: readPinnedConversationIds() }),
