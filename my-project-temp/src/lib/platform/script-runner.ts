@@ -24,6 +24,33 @@ const ENV_ROOT = path.join(tmpdir(), 'apical-script-envs')
 const INSTALL_TIMEOUT_MS = 150_000
 const MAX_OUTPUT = 20_000
 
+// Env vars a child process is allowed to inherit. Everything else — most
+// importantly DATABASE_URL, APICAL_VAULT_KEY, and every provider/relay/worker
+// secret — is withheld, so a malicious or hallucinated script can't read
+// secrets or connect to the platform DB. Package managers still get PATH +
+// proxy vars so installs work. The keys we DO pass a child (APICAL_DATA,
+// APICAL_JOB_DIR, NODE_PATH) are added explicitly via opts.env.
+const ENV_ALLOWLIST = new Set([
+  'PATH', 'HOME', 'HOSTNAME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'TERM',
+  'SHELL', 'USER', 'LOGNAME', 'TZ', 'NODE_VERSION', 'PYTHONUNBUFFERED',
+  // Proxy config so npm/pip installs reach the registry through the agent proxy.
+  'HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'NO_PROXY', 'no_proxy',
+  'npm_config_registry', 'PIP_INDEX_URL', 'NODE_EXTRA_CA_CERTS', 'REQUESTS_CA_BUNDLE',
+])
+
+/** A minimal, secret-free environment for a child process. */
+function scrubbedEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {
+    // Scripts must never see the server's real mode/config — pin a neutral one.
+    NODE_ENV: 'production',
+  }
+  for (const k of ENV_ALLOWLIST) {
+    const v = process.env[k]
+    if (typeof v === 'string') out[k] = v
+  }
+  return { ...out, ...(extra ?? {}) }
+}
+
 // Package-name allowlists — installed via spawn (no shell), but keep names sane.
 const NPM_PKG_RE = /^(@[a-z0-9~-][a-z0-9._~-]*\/)?[a-z0-9~-][a-z0-9._~-]*(@[a-zA-Z0-9.^~<>=*-]+)?$/
 const PIP_PKG_RE = /^[A-Za-z0-9._-]+(\[[A-Za-z0-9,._-]+\])?([=<>!~]=?[A-Za-z0-9.*]+)*$/
@@ -55,7 +82,7 @@ function run(
     try {
       child = spawn(cmd, args, {
         cwd: opts.cwd,
-        env: { ...process.env, ...opts.env },
+        env: scrubbedEnv(opts.env),
         stdio: ['pipe', 'pipe', 'pipe'],
       })
     } catch (e) {
@@ -202,6 +229,68 @@ export async function runPythonScript(
   })
 }
 
+// ---------------- code_eval (isolated) ----------------
+//
+// code_eval used to run in-process via `new Function`, which is NOT a sandbox:
+// `({}).constructor.constructor('return process')()` reaches Node globals and
+// leaks process.env (vault key, DB URL, secrets). It now runs in a scrubbed
+// short-lived subprocess with no secrets in its env, so even a full escape
+// yields nothing useful. Returns the last-expression value + captured logs.
+
+export interface CodeEvalResult {
+  ok: boolean
+  result?: unknown
+  logs?: string
+  error?: string
+}
+
+const CODE_EVAL_TIMEOUT_MS = 10_000
+
+export async function runCodeEval(code: string, data?: unknown): Promise<CodeEvalResult> {
+  const wrapper =
+    `const __logs=[];` +
+    `const __push=(...a)=>__logs.push(a.map(x=>typeof x==='string'?x:(()=>{try{return JSON.stringify(x)}catch{return String(x)}})()).join(' '));` +
+    `const console={log:__push,info:__push,warn:__push,error:__push,debug:__push};` +
+    `const data=process.env.APICAL_DATA?JSON.parse(process.env.APICAL_DATA):undefined;` +
+    `(async()=>{return (function(){\n${code}\n})()})().then((r)=>{` +
+    `process.stdout.write('__APICAL_EVAL__'+JSON.stringify({ok:true,result:r===undefined?undefined:r,logs:__logs.join('\\n')||undefined}));` +
+    `}).catch((e)=>{` +
+    `process.stdout.write('__APICAL_EVAL__'+JSON.stringify({ok:false,error:(e&&e.message)||String(e),logs:__logs.join('\\n')||undefined}));` +
+    `});`
+  const dir = path.join(tmpdir(), 'apical-code-eval')
+  await mkdir(dir, { recursive: true })
+  const scriptPath = path.join(dir, `eval-${process.pid}-${randomStamp()}.cjs`)
+  await writeFile(scriptPath, wrapper)
+  try {
+    const res = await run('node', [scriptPath], {
+      cwd: dir,
+      timeoutMs: CODE_EVAL_TIMEOUT_MS,
+      ...(data !== undefined ? { env: { APICAL_DATA: JSON.stringify(data) } } : {}),
+    })
+    if (!res.ok && res.error && !res.stdout.includes('__APICAL_EVAL__')) {
+      return { ok: false, error: res.error }
+    }
+    const marker = res.stdout.indexOf('__APICAL_EVAL__')
+    if (marker < 0) return { ok: false, error: 'code produced no result' }
+    try {
+      const parsed = JSON.parse(res.stdout.slice(marker + '__APICAL_EVAL__'.length)) as CodeEvalResult
+      return parsed
+    } catch {
+      return { ok: false, error: 'could not parse eval result' }
+    }
+  } finally {
+    void rm(scriptPath, { force: true }).catch(() => {})
+  }
+}
+
+// A collision-resistant stamp without Date.now/Math.random (avoids surprises in
+// resumable contexts) — a monotonic counter is enough for temp filenames.
+let __stamp = 0
+function randomStamp(): string {
+  __stamp = (__stamp + 1) % 1_000_000
+  return `${process.hrtime.bigint().toString(36)}-${__stamp}`
+}
+
 // ---------------- Long-running detached jobs ----------------
 //
 // Unlike run() above (which buffers output and resolves on close), a job runs
@@ -344,7 +433,7 @@ export async function startScriptJob(params: {
 
   let child: ChildProcess
   try {
-    child = spawn(cmd, cmdArgs, { cwd: dir, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
+    child = spawn(cmd, cmdArgs, { cwd: dir, env: scrubbedEnv(env), stdio: ['ignore', 'pipe', 'pipe'] })
   } catch (e) {
     return { cancel() {}, done: Promise.resolve(jobFail((e as Error).message)) }
   }

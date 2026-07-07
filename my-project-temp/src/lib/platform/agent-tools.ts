@@ -1309,49 +1309,23 @@ const codeEval: ToolDef = {
         return { ok: false, output: null, error: 'data is not valid JSON' }
       }
     }
-    try {
-      // Sandbox: wrap in a function with no access to globals. We provide a
-      // minimal `data` binding + JSON + Math + standard built-ins, plus a
-      // `console` shim that captures log output (so scripts behave like a REPL).
-      const logs: string[] = []
-      const mkLog =
-        () =>
-        (...args: unknown[]) => {
-          logs.push(
-            args
-              .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
-              .join(' '),
-          )
-        }
-      const console = { log: mkLog(), info: mkLog(), warn: mkLog(), error: mkLog(), debug: mkLog() }
-      const fn = new Function(
-        'data',
-        'console',
-        '"use strict";\n' +
-          'return (function(){\n' +
-          code +
-          '\n})();',
-      )
-      const result = fn(data, console)
-      const logText = logs.join('\n')
-      const resultStr =
-        result === undefined
-          ? ''
-          : typeof result === 'string'
-            ? result
-            : JSON.stringify(result, null, 2)
-      const combined = [logText, resultStr].filter(Boolean).join('\n')
-      return {
-        ok: true,
-        output: {
-          result: typeof result === 'string' ? truncate(result, 10_000) : result,
-          logs: logText || undefined,
-          stdout: truncate(combined, 10_000) || '(no output)',
-        },
-        display: { title: 'Ran code', summary: 'evaluated JS', kind: 'code' },
-      }
-    } catch (e) {
-      return { ok: false, output: null, error: (e as Error).message }
+    // Runs in an isolated, secret-free subprocess (see runCodeEval) so an
+    // escape from the JS context can't read env secrets or reach the DB.
+    const { runCodeEval } = await import('@/lib/platform/script-runner')
+    const res = await runCodeEval(code, data)
+    if (!res.ok) return { ok: false, output: null, error: res.error || 'code failed' }
+    const result = res.result
+    const resultStr =
+      result === undefined ? '' : typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+    const combined = [res.logs, resultStr].filter(Boolean).join('\n')
+    return {
+      ok: true,
+      output: {
+        result: typeof result === 'string' ? truncate(result, 10_000) : result,
+        logs: res.logs || undefined,
+        stdout: truncate(combined, 10_000) || '(no output)',
+      },
+      display: { title: 'Ran code', summary: 'evaluated JS', kind: 'code' },
     }
   },
 }
