@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # Feature branches are covered by their pull_request (which re-runs on every
+  # new commit), so push only needs to guard main itself — avoids double runs.
   push:
-    branches: [main, 'claude/**']
+    branches: [main]
   pull_request:
     branches: [main]
 
