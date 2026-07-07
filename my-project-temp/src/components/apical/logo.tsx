@@ -159,22 +159,6 @@ export function FlaggedCountBadge({
   );
 }
 
-export function RuntimeBadge({ runtime }: { runtime: "local" | "hosted" }) {
-  const isLocal = runtime === "local";
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${
-        isLocal
-          ? "border-border bg-muted text-foreground"
-          : "border-border bg-muted text-muted-foreground"
-      }`}
-      title={
-        isLocal
-          ? "Runs on your machine (desktop app) — has filesystem, CLI, and network access"
-          : "Runs on the Apical server — accessible from anywhere, no direct filesystem access"
-      }
-    >
-      {isLocal ? "Local" : "Hosted"}
-    </span>
-  );
-}
+// (RuntimeBadge was removed: runtime is derived from the workflow's steps and
+// explained in plain language where it matters — the agent Config tab and the
+// inspector status card — instead of a jargon badge on every header.)

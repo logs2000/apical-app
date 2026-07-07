@@ -1231,7 +1231,7 @@ function ModelRow({
 }) {
   const enabled = model.enabled !== false; // default to enabled
   const tierBadge =
-    model.tier === "hosted" ? "Hosted" : model.tier === "byok" ? "BYOK" : model.tier === "local" ? "Local" : model.tier;
+    model.tier === "hosted" ? "Hosted" : model.tier === "byok" ? "BYOK" : model.tier === "local" ? "Self-hosted" : model.tier;
   const tierColor =
     model.tier === "hosted"
       ? "border-border text-foreground"
@@ -1253,7 +1253,7 @@ function ModelRow({
             </Badge>
           )}
           {model.badge && (
-            <Badge variant="outline" className="text-[9px] capitalize">{model.badge}</Badge>
+            <Badge variant="outline" className="text-[9px] capitalize">{model.badge === "local" ? "Self-hosted" : model.badge}</Badge>
           )}
         </div>
         <div className="truncate text-[10px] text-muted-foreground">

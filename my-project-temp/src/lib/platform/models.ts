@@ -7,8 +7,11 @@
 //      otherwise it is hidden entirely.
 //   2. BYOK (user's own key) — the user pays the provider directly. Free to
 //      route through Apical; we just meter for the dashboard (cost = 0).
-//   3. Local (self-hosted Ollama / llama.cpp / vLLM) — runs on the user's
-//      machine (or the desktop bridge). No per-token cost.
+//   3. Self-hosted (Ollama / llama.cpp / vLLM behind a base URL) — the user
+//      runs the model server themselves; we just point at it. No per-token
+//      cost. (The tier's internal value stays 'local' — it's persisted in
+//      model ids and preferences — but every user-facing label says
+//      "Self-hosted".)
 //
 // The Models settings page reads this registry + the user's CustomModel rows
 // to render the picker. The LLM gateway resolves a modelId → adapter.
@@ -217,7 +220,7 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     supportsStreaming: true,
     supportsTools: true,
     supportsVision: false,
-    description: 'Runs locally via Ollama. Free, private, offline-capable.',
+    description: 'Self-hosted via Ollama. Free, private, runs on hardware you control.',
     badge: 'local',
   },
 
@@ -234,7 +237,7 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     supportsStreaming: true,
     supportsTools: false,
     supportsVision: false,
-    description: 'Any GGUF model served by llama.cpp. Point at your server URL.',
+    description: 'Any GGUF model served by llama.cpp. Point at your self-hosted server URL.',
     badge: 'local',
   },
 ]

@@ -28,7 +28,7 @@ import { agentWorkflowRingClass, buildEditHandoffPrompt } from "@/lib/apical/age
 import type { AgentRingState } from "@/lib/apical/agent-display";
 import { routeAgentMessage } from "@/lib/apical/agent-route";
 import { useToast } from "@/hooks/use-toast";
-import { ApicalMark, RuntimeBadge, AgentAvatar, FlaggedCountBadge } from "./logo";
+import { ApicalMark, AgentAvatar, FlaggedCountBadge } from "./logo";
 import { DesktopStatusChip } from "@/components/desktop/desktop-status-chip";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -1060,7 +1060,6 @@ function CenterPane({
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-semibold">{agent.name}</span>
-                <RuntimeBadge runtime={agent.runtime} />
               </div>
               <div className="text-[10px] text-muted-foreground">{agent.trigger === "schedule" ? humanizeSchedule(agent.schedule) : "Manual"}</div>
             </div>
@@ -2657,10 +2656,14 @@ function InspectorOverview({
         <div className="mb-2 flex items-center gap-2">
           <span className={cn("h-2 w-2 rounded-full", status.color)} />
           <span className="text-xs font-semibold capitalize">{status.label}</span>
-          <RuntimeBadge runtime={agent.runtime} />
         </div>
         <div className="text-[10px] text-muted-foreground">
           {agent.trigger === "schedule" ? `Schedule · ${humanizeSchedule(agent.schedule)}` : "Manual trigger"}
+        </div>
+        <div className="mt-1 text-[10px] text-muted-foreground">
+          {agent.runtime === "local"
+            ? "Uses your computer (files or apps), so it runs through your desktop."
+            : "Runs in Apical's cloud."}
         </div>
         <div className="mt-1 text-[10px] text-muted-foreground">
           {agent.runsCount} runs · {agent.itemsProcessed.toLocaleString()} items
@@ -2832,7 +2835,8 @@ function AgentConfig({ agent }: { agent: Workflow }) {
   const [name, setName] = React.useState(agent.name);
   const [description, setDescription] = React.useState(agent.description);
   const [trigger, setTrigger] = React.useState<"manual" | "schedule">(agent.trigger);
-  const [runtime, setRuntime] = React.useState<AgentRuntime>(agent.runtime);
+  // Derived server-side from the workflow's steps — read-only here.
+  const runtime: AgentRuntime = agent.runtime;
   const [modelPref, setModelPref] = React.useState(agent.modelPreference ?? "");
   const [availableModels, setAvailableModels] = React.useState<Array<{ id: string; name: string; provider: string }>>([]);
   const [confidenceThreshold, setConfidenceThreshold] = React.useState("0.85");
@@ -2862,7 +2866,6 @@ function AgentConfig({ agent }: { agent: Workflow }) {
           name: name.trim(),
           description,
           trigger,
-          runtime,
           modelPreference: modelPref.trim() || null,
           confidenceThreshold: parseFloat(confidenceThreshold) || null,
           autoHardenAfter: parseInt(autoHardenAfter, 10) || null,
@@ -2904,31 +2907,29 @@ function AgentConfig({ agent }: { agent: Workflow }) {
               <DesktopStatusChip />
             </div>
           )}
+          {/* Runtime is DERIVED from what the workflow actually does (steps
+              touching your files/apps/CLI need the desktop; everything else
+              runs in the cloud) — not a setting anyone has to reason about.
+              The old manual Local/Hosted picker let you pick a value that
+              contradicted the workflow and broke runs. */}
           <div className="space-y-1.5">
             <Label className="text-xs">Where this agent runs</Label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setRuntime("local")}
-                className={cn("rounded-lg border p-3 text-left transition", runtime === "local" ? "border-foreground/20 bg-muted" : "border-border hover:border-border/80")}
-              >
-                <div className="flex items-center gap-2">
-                  <Monitor className={cn("h-4 w-4", runtime === "local" ? "text-foreground" : "text-muted-foreground")} />
-                  <span className="text-xs font-semibold">Local (desktop)</span>
-                  {runtime === "local" && <Check className="ml-auto h-3 w-3 text-foreground" />}
-                </div>
-                <div className="mt-1 text-[10px] text-muted-foreground">Uses this computer&apos;s files and apps. Requires the desktop app running in the background; enable Remote Access in desktop Settings for web/scheduled runs.</div>
-              </button>
-              <button
-                onClick={() => setRuntime("hosted")}
-                className={cn("rounded-lg border p-3 text-left transition", runtime === "hosted" ? "border-foreground/20 bg-muted" : "border-border hover:border-border/80")}
-              >
-                <div className="flex items-center gap-2">
-                  <Cloud className={cn("h-4 w-4", runtime === "hosted" ? "text-foreground" : "text-muted-foreground")} />
-                  <span className="text-xs font-semibold">Hosted (cloud)</span>
-                  {runtime === "hosted" && <Check className="ml-auto h-3 w-3 text-foreground" />}
-                </div>
-                <div className="mt-1 text-[10px] text-muted-foreground">Runs entirely in Apical&apos;s cloud. No desktop filesystem or CLI access.</div>
-              </button>
+            <div className="rounded-lg border border-border bg-muted/30 p-3">
+              <div className="flex items-center gap-2">
+                {runtime === "local" ? (
+                  <Monitor className="h-4 w-4 text-foreground" />
+                ) : (
+                  <Cloud className="h-4 w-4 text-foreground" />
+                )}
+                <span className="text-xs font-semibold">
+                  {runtime === "local" ? "On your computer" : "In Apical's cloud"}
+                </span>
+              </div>
+              <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                {runtime === "local"
+                  ? "This agent works with your computer's files or apps, so it runs through the desktop app. Keep the desktop app running (or enable Remote Access in its Settings) for scheduled and web-started runs."
+                  : "This agent doesn't touch your computer, so it runs entirely in the cloud — it works even when your computer is off. If you later ask it to use your files or apps, it switches automatically."}
+              </div>
             </div>
           </div>
           <div className="mt-3 space-y-1.5">
