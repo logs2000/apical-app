@@ -16,12 +16,18 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
-import { listAvailableModels } from '@/lib/platform/llm-gateway'
+import { listAvailableModels, getModelAvailability } from '@/lib/platform/llm-gateway'
 import { PROVIDER_META } from '@/lib/platform/models'
 
 export const GET = withUser(async (_req, { user }) => {
-  const { models } = await listAvailableModels(user.id)
-  return NextResponse.json({ models })
+  const [{ models }, available] = await Promise.all([
+    listAvailableModels(user.id),
+    getModelAvailability(user.id),
+  ])
+  // `available` is the honest gate signal: { hasModel, defaultModelId,
+  // needsSetup }. A surface can pre-select available.defaultModelId, or show an
+  // "add a model" gate when needsSetup is true.
+  return NextResponse.json({ models, available })
 })
 
 interface CreateCustomBody {

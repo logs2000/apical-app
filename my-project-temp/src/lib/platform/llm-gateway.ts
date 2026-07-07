@@ -1913,6 +1913,41 @@ export async function listAvailableModels(userId: string): Promise<{
   return { models }
 }
 
+/**
+ * Whether the user can get an answer right now, and which model to use by
+ * default. This is the single honest signal every ask-surface should gate on:
+ * a fresh install with no provider key, no linked cloud token, and no custom
+ * model returns { hasModel: false, needsSetup: true } so the UI can show an
+ * actionable "add a model" gate instead of letting the user type into a void.
+ *
+ * defaultModelId is the best model to pre-select: a hosted model when a
+ * provider key (or cloud relay) is configured, otherwise the user's first
+ * usable BYOK/local custom model. Passing it as `modelId` to the agent makes a
+ * zero-config ask "just work" for every tier, not only hosted.
+ */
+export async function getModelAvailability(userId: string): Promise<{
+  hasModel: boolean
+  defaultModelId: string | null
+  needsSetup: boolean
+}> {
+  // Prefer a hosted default (env provider key, or all hosted via cloud relay).
+  let defaultModelId = await resolveModelPreferenceForUser(userId, 'default')
+  if (!defaultModelId) {
+    // No hosted default — fall back to the user's first usable *custom* model
+    // so a BYOK-only account still answers without an explicit pick. Registry
+    // local models (e.g. local:ollama) are intentionally excluded: they are
+    // offered optimistically in the picker but a fresh account has not actually
+    // set anything up, so they must not defeat the "needs setup" gate.
+    const { models } = await listAvailableModels(userId)
+    defaultModelId = models.find((m) => m.custom === true && m.configured !== false)?.id ?? null
+  }
+  return {
+    hasModel: defaultModelId !== null,
+    defaultModelId,
+    needsSetup: defaultModelId === null,
+  }
+}
+
 // ---------------- Public: BYOK validation ----------------
 
 /**
