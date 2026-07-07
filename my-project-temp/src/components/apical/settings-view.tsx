@@ -407,13 +407,18 @@ function DesktopBackgroundSettings() {
 
 function RemoteAccessSettings() {
   const [settings, setSettings] = React.useState<import("@/lib/desktop/desktop-settings").DesktopSettings | null>(null);
+  // Draft text for the CLI allowlist — committed on blur/Enter.
+  const [cliAllowDraft, setCliAllowDraft] = React.useState("");
 
   React.useEffect(() => {
     let alive = true;
     void import("@/lib/desktop/tauri-bridge")
       .then((m) => m.loadDesktopSettings())
       .then((s) => {
-        if (alive) setSettings(s);
+        if (alive) {
+          setSettings(s);
+          setCliAllowDraft(s.remote.cli.allow.join(", "));
+        }
       });
     return () => {
       alive = false;
@@ -430,6 +435,18 @@ function RemoteAccessSettings() {
     const cloudUrl = process.env.NEXT_PUBLIC_APICAL_CLOUD_URL?.trim() || "https://api.apic.al";
     const { resyncCloudLinkAtBoot } = await import("@/lib/desktop/device-flow");
     await resyncCloudLinkAtBoot(cloudUrl);
+  }
+
+  async function commitCliAllow() {
+    if (!settings) return;
+    const allow = cliAllowDraft
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setCliAllowDraft(allow.join(", "));
+    if (allow.join(" ") !== settings.remote.cli.allow.join(" ")) {
+      await update({ cli: { mode: settings.remote.cli.mode, allow } });
+    }
   }
 
   if (!settings) return null;
@@ -467,13 +484,52 @@ function RemoteAccessSettings() {
         </div>
       </div>
 
+      <div className="mt-3">
+        <p className="text-[11px] font-medium text-foreground">Allow cloud workflows to run commands</p>
+        <div className="mt-1.5 flex gap-1.5">
+          {(["off", "allowlist", "always"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => void update({ cli: { mode, allow: settings.remote.cli.allow } })}
+              className={cn(
+                "rounded-md border px-2.5 py-1 text-[11px] transition",
+                settings.remote.cli.mode === mode
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border text-muted-foreground hover:bg-accent",
+              )}
+            >
+              {mode === "off" ? "Off" : mode === "allowlist" ? "Allowed commands only" : "Always"}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          {settings.remote.cli.mode === "off"
+            ? "Scheduled/web-triggered runs cannot execute anything on this machine."
+            : settings.remote.cli.mode === "allowlist"
+              ? "Only the programs listed below can run. Script jobs (arbitrary code) stay blocked — they need Always."
+              : "Any command or script job can run here. Only enable if you trust your workflows."}
+        </p>
+        {settings.remote.cli.mode === "allowlist" && (
+          <div className="mt-2 space-y-1">
+            <Input
+              value={cliAllowDraft}
+              onChange={(e) => setCliAllowDraft(e.target.value)}
+              onBlur={() => void commitCliAllow()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void commitCliAllow();
+              }}
+              placeholder="git, npm, python3"
+              className="h-8 text-xs"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Comma-separated program names. Matched against the command being run (e.g. &quot;git&quot; allows &quot;git status&quot;).
+            </p>
+          </div>
+        )}
+      </div>
+
       <div className="mt-3 space-y-2">
-        <Toggle
-          label="Allow cloud workflows to run commands"
-          desc="Lets scheduled/web-triggered runs execute shell commands and scripts on this machine. Only enable if you trust your workflows."
-          checked={settings.remote.cli}
-          onChange={(v) => void update({ cli: v })}
-        />
         <Toggle
           label="Allow cloud workflows to make network requests from this machine"
           desc="Lets runs reach your local network (e.g. internal services). Sensitive — off by default."

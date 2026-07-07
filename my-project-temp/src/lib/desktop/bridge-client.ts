@@ -177,6 +177,10 @@ function attachHandlers(socket: Socket, link: CloudLink) {
       args?: string[]
       timeoutMs?: number
     }
+    // Script jobs are arbitrary code with no command to match, so the cli
+    // allowlist can't vouch for them: policy allows them only in mode
+    // 'always' (evaluateRemoteInvoke sees no `cmd` in these args and denies
+    // under 'allowlist' by design).
     const decision = evaluateRemoteInvoke('desktop.cli.run', args)
     if (!decision.allowed) {
       socket.emit('desktop:result', { correlationId, error: decision.error ?? 'remote_access_denied' })

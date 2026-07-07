@@ -81,8 +81,10 @@ export function evaluateRemoteInvoke(
     return { allowed: false, error: 'remote_access_denied:local_only' }
   }
 
-  // Capability-level check (fs mode / cli / net / notify; secrets never).
-  const capError = checkRemoteToolAllowed(tool, settings.remote)
+  // Capability-level check (fs mode / cli policy / net / notify; secrets
+  // never). args matter for cli allowlist mode — the invoked program must be
+  // on the user's list, and script jobs (no command to match) are denied.
+  const capError = checkRemoteToolAllowed(tool, settings.remote, args)
   if (capError) return { allowed: false, error: capError }
 
   // Defense-in-depth for filesystem paths: re-enforce against the LOCAL mirror
