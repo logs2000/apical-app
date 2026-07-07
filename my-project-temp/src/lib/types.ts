@@ -13,6 +13,12 @@ export interface StepCondition {
   right?: unknown
 }
 
+export interface SkillRef {
+  name: string
+  version?: number
+  params?: Record<string, unknown>
+}
+
 export type TriggerKind = 'manual' | 'schedule' | 'hook' | 'watch' | 'rerun'
 
 export type IntegrationKind = 'mcp' | 'api' | 'http'
@@ -182,6 +188,8 @@ export interface WorkflowStep {
   mcp?: McpCallSpec
   /** Deterministic code/script — production runs execute without an agent. */
   code?: CodeCallSpec
+  /** Invoke a reusable Skill — the fragment is looked up at run time. */
+  skill?: SkillRef
   /** v2: per-step retry policy for retryable tool failures. */
   retry?: RetryPolicy
   /** v2: hard per-step timeout in ms. */

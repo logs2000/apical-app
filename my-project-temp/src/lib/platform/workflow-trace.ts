@@ -42,6 +42,8 @@ export const EXPLORATION_ONLY_TOOLS = new Set([
   // Subagent polling glue — an agent_spawn freezes into a single spawn step.
   'agent_status',
   'agent_collect',
+  // Skill/workflow meta — skill_docs is lookup; workflow_run is delegation glue.
+  'skill_docs',
   'agent_list',
   'agent_create',
   'credential_list',
@@ -285,6 +287,29 @@ export function buildWorkflowStepFromTrace(step: EngineTraceStep, index: number)
         args: (input.args as Record<string, unknown>) ?? {},
       },
       inputs: sanitizeTraceInput(input),
+      hardened: true,
+    }
+  }
+
+  // A skill_invoke freezes into a `skill` tool step — the workflow doc stores
+  // only the reference (name + version + params), never the expansion.
+  if (agentTool === 'skill_invoke') {
+    let params: Record<string, unknown> = {}
+    try {
+      params = input.params ? (JSON.parse(str(input.params, 100_000)) as Record<string, unknown>) : {}
+    } catch {
+      /* leave empty */
+    }
+    return {
+      id: `s${index + 1}`,
+      kind: 'tool',
+      label,
+      tool: 'skill.invoke',
+      skill: {
+        name: str(input.name, 100),
+        ...(typeof input.version === 'number' ? { version: input.version } : {}),
+        params,
+      },
       hardened: true,
     }
   }

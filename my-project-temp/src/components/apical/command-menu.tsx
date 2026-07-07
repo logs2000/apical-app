@@ -28,6 +28,7 @@ import {
   LayoutTemplate,
   Activity,
   Brain,
+  Wand2,
   PanelRight,
   FileText,
   LifeBuoy,
@@ -59,6 +60,7 @@ export const SECONDARY_NAV: NavItem[] = [
   { key: "templates", label: "Templates", icon: LayoutTemplate },
   { key: "activity", label: "Activity", icon: Activity },
   { key: "memory", label: "Memory", icon: Brain },
+  { key: "skills", label: "Skills", icon: Wand2 },
 ];
 
 /** True on Apple platforms — drives whether we show ⌘ or Ctrl. */

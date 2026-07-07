@@ -182,10 +182,25 @@ async function runToolStep(
     }
   }
 
+  // Skill reference: load the pinned fragment and run it with resolved params.
+  if (step.skill?.name) {
+    const { loadSkill, executeSkillFragment, recordSkillUse } = await import('@/lib/platform/skills')
+    const skill = await loadSkill(workflow.userId ?? '', step.skill.name, step.skill.version)
+    if (!skill) throw new Error(`Skill "${step.skill.name}" not found for this workflow's owner.`)
+    const params = resolveRefs(step.skill.params ?? {}, state.outputs) as Record<string, unknown>
+    const res = await executeSkillFragment(skill, params, {
+      userId: workflow.userId ?? '',
+      runtime: (workflow.runtime as 'local' | 'hosted') ?? 'hosted',
+    })
+    void recordSkillUse(skill.id)
+    if (!res.ok) throw new Error(`Skill "${step.skill.name}" failed: ${res.error}`)
+    return { output: res.output, aiTokens: 0, aiCostCents: 0 }
+  }
+
   broadcastRun(runId, 'step:progress', {
     runId,
     stepId: step.id,
-    message: `Executing ${step.tool || step.http?.url || step.mcp?.tool || 'step'}…`,
+    message: `Executing ${step.tool || step.skill?.name || step.http?.url || step.mcp?.tool || 'step'}…`,
   })
 
   const result = await withRetry(step, runId, async () => {

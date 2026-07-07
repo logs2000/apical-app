@@ -203,6 +203,16 @@ export function normalizeSteps(raw: unknown[]): WorkflowStep[] {
           }
         }
       }
+      if (s.skill && typeof s.skill === 'object' && !Array.isArray(s.skill)) {
+        const sk = s.skill as Record<string, unknown>
+        if (typeof sk.name === 'string' && sk.name) {
+          out.skill = {
+            name: sk.name,
+            ...(typeof sk.version === 'number' ? { version: sk.version } : {}),
+            ...(sk.params && typeof sk.params === 'object' ? { params: sk.params as Record<string, unknown> } : {}),
+          }
+        }
+      }
       if (s.code && typeof s.code === 'object' && !Array.isArray(s.code)) {
         const c = s.code as Record<string, unknown>
         const lang = c.language

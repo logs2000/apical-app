@@ -405,19 +405,19 @@ model AgentWidget {
 }
 
 model RunStep {
-  id          String    @id @default(cuid())
-  runId       String
-  run         Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
-  stepId      String // matches step.id in the workflow JSON
-  kind        String // "tool" | "reason" | "gate"
-  label       String
-  status      String    @default("pending") // "pending" | "running" | "completed" | "flagged" | "skipped" | "awaiting" | "failed"
-  outputJson  String? // step output (resolved variables, AI answer, etc.)
-  aiTokens    Int       @default(0)
-  aiCostCents Int       @default(0)
-  startedAt   DateTime?
-  finishedAt  DateTime?
-  order       Int       @default(0)
+  id             String    @id @default(cuid())
+  runId          String
+  run            Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stepId         String // matches step.id in the workflow JSON
+  kind           String // "tool" | "reason" | "gate"
+  label          String
+  status         String    @default("pending") // "pending" | "running" | "completed" | "flagged" | "skipped" | "awaiting" | "failed"
+  outputJson     String? // step output (resolved variables, AI answer, etc.)
+  aiTokens       Int       @default(0)
+  aiCostCents    Int       @default(0)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  order          Int       @default(0)
   // Control flow: body steps of a branch/loop/map point at their parent step,
   // and loop/map iterations carry the 0-based iteration index.
   parentStepId   String?
@@ -1222,4 +1222,52 @@ model Job {
   @@index([status, backend])
   @@index([userId, createdAt])
   @@index([agentRunId])
+}
+
+// ---------------- Skills (reusable, parameterized capabilities) ----------------
+// A Skill is the reusable "how": a versioned, parameterized WorkflowStep[]
+// fragment that both the interactive agent (skill_invoke) and frozen workflows
+// (a tool step with `skill`) can run. Workflows are the scheduled "what/when";
+// they compose skills. Freezing work that used a skill emits a skill reference,
+// not the expansion.
+model Skill {
+  id               String         @id @default(cuid())
+  userId           String
+  workspaceId      String?
+  name             String // slug, unique per user, e.g. "stitch-satellite-tiles"
+  title            String
+  description      String
+  // JSON Schema: { type:'object', properties, required } — the skill's params.
+  paramsSchemaJson String         @default("{\"type\":\"object\",\"properties\":{}}")
+  // WorkflowStep[] fragment; may reference {{param.x}} and its own step ids.
+  specJson         String
+  docsMd           String? // usage docs (NEVER secrets) — injected into the catalog.
+  version          Int            @default(1) // denormalized active version number
+  activeVersionId  String?
+  status           String         @default("active") // "active" | "archived"
+  sourceAgentId    String?
+  timesUsed        Int            @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  versions         SkillVersion[]
+
+  @@unique([userId, name])
+  @@index([userId, status])
+}
+
+// Immutable snapshot of a skill's spec — workflows pin the version they use,
+// so editing a skill never changes a deployed workflow's behavior.
+model SkillVersion {
+  id               String   @id @default(cuid())
+  skillId          String
+  skill            Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  number           Int
+  specJson         String
+  paramsSchemaJson String
+  docsMd           String?
+  author           String   @default("agent") // "agent" | "user" | "import"
+  note             String?
+  createdAt        DateTime @default(now())
+
+  @@unique([skillId, number])
 }

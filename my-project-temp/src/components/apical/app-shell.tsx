@@ -10,6 +10,7 @@ import { SettingsView } from "./settings-view";
 import { TemplatesView } from "./templates-view";
 import { ActivityView } from "./activity-view";
 import { MemoryView } from "./memory-view";
+import { SkillsView } from "./skills-view";
 import {
   CommandMenu,
   ShortcutsDialog,
@@ -327,6 +328,7 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
         {mode === "templates" && <TemplatesView />}
         {mode === "activity" && <ActivityView />}
         {mode === "memory" && <MemoryView />}
+        {mode === "skills" && <SkillsView />}
       </main>
 
       {/* Footer status bar */}

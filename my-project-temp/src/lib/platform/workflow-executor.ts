@@ -293,6 +293,7 @@ export function isProductionExecutableStep(step: WorkflowStep): boolean {
   // Control flow + spawn execute directly in the runtime (not via a tool call).
   if (step.kind === 'branch' || step.kind === 'loop' || step.kind === 'map' || step.kind === 'spawn') return true
   if (step.kind === 'reason' && step.hardened) return true
+  if (step.skill?.name) return true
   if (step.http?.url) return true
   if (step.mcp?.integrationId && step.mcp.tool) return true
   if (step.code?.source) return true

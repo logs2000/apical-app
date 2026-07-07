@@ -33,7 +33,8 @@ export type Mode =
   | "settings"
   | "templates"
   | "activity"
-  | "memory";
+  | "memory"
+  | "skills";
 
 /** Active tab in the right-rail inspector (desktop) or detail pane (mobile). */
 export type InspectorSection = "overview" | "progress" | "workflow" | "config" | "runs";

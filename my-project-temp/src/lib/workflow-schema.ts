@@ -58,6 +58,17 @@ export const CodeCallSpecSchema = z
   })
   .describe('A deterministic code/script node — executes without an agent.')
 
+// A reference to a reusable Skill. The workflow doc stores only name+version+
+// params; the executable fragment is looked up from the pinned SkillVersion at
+// run time (like an integration's frozen artifact — never inlined).
+export const SkillRefSchema = z
+  .object({
+    name: z.string().min(1).describe('The skill slug.'),
+    version: z.number().int().optional().describe('Pinned version (defaults to latest at deploy time).'),
+    params: z.record(z.string(), z.unknown()).optional().describe('Param values; may use {{stepId.field}} refs.'),
+  })
+  .describe('Invoke a reusable Skill. Runs its pinned fragment with these params.')
+
 export const RetryPolicySchema = z
   .object({
     maxAttempts: z.number().int().min(1).max(5).describe('Total attempts including the first (1-5).'),
@@ -101,6 +112,7 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
     http: HttpCallSpecSchema.optional(),
     mcp: McpCallSpecSchema.optional(),
     code: CodeCallSpecSchema.optional(),
+    skill: SkillRefSchema.optional(),
     integrationId: z.string().optional().describe('Integration that owns this tool step.'),
 
     // ---- reason steps ----
@@ -296,8 +308,8 @@ export function validateWorkflowJSON(data: unknown): WorkflowValidationResult {
       seen.add(step.id)
 
       // Kind-specific requirements.
-      if (step.kind === 'tool' && !step.tool && !step.http && !step.mcp && !step.code) {
-        issues.push({ path: at, message: `Tool step "${step.id}" needs one of: tool, http, mcp, or code.` })
+      if (step.kind === 'tool' && !step.tool && !step.http && !step.mcp && !step.code && !step.skill) {
+        issues.push({ path: at, message: `Tool step "${step.id}" needs one of: tool, http, mcp, code, or skill.` })
       }
       if (step.kind === 'reason' && !step.prompt) {
         issues.push({ path: `${at}.prompt`, message: `Reason step "${step.id}" requires a prompt.` })
@@ -361,7 +373,7 @@ export function validateWorkflowJSON(data: unknown): WorkflowValidationResult {
         }
       }
       checkRefs(
-        { inputs: step.inputs, http: step.http, mcp: step.mcp, code: step.code, prompt: step.prompt, spawnPrompt: step.spawnPrompt, loopOver: step.loopOver, itemsRef: step.itemsRef, when: step.when },
+        { inputs: step.inputs, http: step.http, mcp: step.mcp, code: step.code, skill: step.skill, prompt: step.prompt, spawnPrompt: step.spawnPrompt, loopOver: step.loopOver, itemsRef: step.itemsRef, when: step.when },
         scopeVars,
       )
       checkRefs({ until: step.until }, bodyScopeVars)

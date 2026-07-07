@@ -988,6 +988,158 @@ const agentCollect: ToolDef = {
   },
 }
 
+// skill_invoke / skill_save / skill_docs — reusable, parameterized
+// capabilities. skill_invoke runs a proven skill (records ONE trace step so a
+// later freeze emits the skill reference, not the expansion); skill_save
+// distills the turn's work into a new parameterized skill.
+const skillInvoke: ToolDef = {
+  name: 'skill_invoke',
+  description:
+    'Run one of YOUR saved skills — a reusable, parameterized capability you built earlier. This is the "lazy executor" move: instead of re-deriving multi-step work, call the proven skill with params. See your skills in the catalog above; get details with skill_docs.',
+  inputSchema: {
+    name: { type: 'string', description: 'The skill slug (from your skills catalog).', required: true },
+    version: { type: 'number', description: 'Pin a specific version (default: latest).' },
+    params: { type: 'string', description: 'JSON object of parameter values for the skill.', required: true },
+  },
+  async run(input, ctx) {
+    const name = asString(input.name, 100)
+    if (!name) return { ok: false, output: null, error: 'name is required' }
+    let params: Record<string, unknown> = {}
+    if (input.params) {
+      try {
+        params = JSON.parse(asString(input.params, 100_000)) as Record<string, unknown>
+      } catch {
+        return { ok: false, output: null, error: 'params must be a JSON object' }
+      }
+    }
+    const version = typeof input.version === 'number' ? input.version : undefined
+    const { loadSkill, executeSkillFragment, recordSkillUse } = await import('@/lib/platform/skills')
+    const skill = await loadSkill(ctx.userId, name, version)
+    if (!skill) return { ok: false, output: null, error: `skill "${name}"${version ? ` v${version}` : ''} not found` }
+    try {
+      const res = await executeSkillFragment(skill, params, {
+        userId: ctx.userId,
+        runtime: ctx.allowCli ? 'local' : 'hosted',
+      })
+      void recordSkillUse(skill.id)
+      return {
+        ok: res.ok,
+        output: res.ok ? { skill: name, version: skill.version, result: res.output } : { error: res.error },
+        error: res.ok ? undefined : res.error,
+        display: { title: `Skill: ${skill.title}`, summary: res.ok ? `v${skill.version}` : (res.error ?? 'failed'), kind: 'workflow' },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const skillSave: ToolDef = {
+  name: 'skill_save',
+  description:
+    'Save the multi-step work you just did as a REUSABLE, PARAMETERIZED skill — the "how" that future tasks (and workflows) can call in one step. Distills your recent freezable steps into a fragment, replacing task-specific literals with {{param.x}} per the params schema you declare. Different from workflow_freeze (a scheduled task): a skill is trigger-less and reusable.',
+  inputSchema: {
+    name: { type: 'string', description: 'Skill slug, e.g. "stitch-satellite-tiles".', required: true },
+    title: { type: 'string', description: 'Short human title.', required: true },
+    description: { type: 'string', description: 'What the skill does + when to use it.', required: true },
+    params: { type: 'string', description: 'JSON Schema of parameters: {"type":"object","properties":{...},"required":[...]}.', required: true },
+    docs: { type: 'string', description: 'Optional usage docs (no secrets).' },
+    fromStepIds: { type: 'array', description: 'Trace step ids to include (default: all freezable steps this turn).', items: { type: 'string' } },
+  },
+  async run(input, ctx) {
+    const name = asString(input.name, 100).toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+    const title = asString(input.title, 200)
+    const description = asString(input.description, 1000)
+    if (!name || !title || !description) return { ok: false, output: null, error: 'name, title, and description are required' }
+    let paramsSchema: Record<string, unknown> = { type: 'object', properties: {} }
+    if (input.params) {
+      try {
+        paramsSchema = JSON.parse(asString(input.params, 20_000)) as Record<string, unknown>
+      } catch {
+        return { ok: false, output: null, error: 'params must be a JSON Schema object' }
+      }
+    }
+    // Distill the freezable trace steps into a fragment.
+    const trace = ctx.executionTrace ?? []
+    const wanted = Array.isArray(input.fromStepIds) ? new Set(input.fromStepIds as string[]) : null
+    const traceSteps = trace.filter((s) => (wanted ? wanted.has(s.stepId) : true))
+    const engineSteps = workflowStepsFromExecutionTrace(traceSteps as never)
+    if (engineSteps.length === 0) {
+      return { ok: false, output: null, error: 'no freezable steps to build a skill from — do the work first, then save it' }
+    }
+    const { validateSkillFragment } = await import('@/lib/platform/skills')
+    const check = validateSkillFragment(engineSteps)
+    if (!check.ok) {
+      return { ok: false, output: null, error: `skill fragment invalid: ${check.issues.slice(0, 3).join('; ')}` }
+    }
+    try {
+      const specJson = JSON.stringify(engineSteps)
+      const paramsSchemaJson = JSON.stringify(paramsSchema)
+      const docsMd = asString(input.docs, 20_000) || null
+      const existing = await db.skill.findFirst({ where: { userId: ctx.userId, name } })
+      if (existing) {
+        const nextVersion = existing.version + 1
+        await db.skillVersion.create({
+          data: { skillId: existing.id, number: nextVersion, specJson, paramsSchemaJson, docsMd, author: 'agent' },
+        })
+        await db.skill.update({
+          where: { id: existing.id },
+          data: { title, description, specJson, paramsSchemaJson, docsMd, version: nextVersion, status: 'active' },
+        })
+        return { ok: true, output: { name, version: nextVersion, steps: engineSteps.length }, display: { title: `Updated skill: ${title}`, summary: `v${nextVersion}`, kind: 'workflow' } }
+      }
+      const skill = await db.skill.create({
+        data: { userId: ctx.userId, workspaceId: ctx.workspaceId ?? null, name, title, description, specJson, paramsSchemaJson, docsMd, sourceAgentId: ctx.agentId ?? null },
+      })
+      await db.skillVersion.create({ data: { skillId: skill.id, number: 1, specJson, paramsSchemaJson, docsMd, author: 'agent' } })
+      return { ok: true, output: { name, version: 1, steps: engineSteps.length }, display: { title: `Saved skill: ${title}`, summary: `${engineSteps.length} steps`, kind: 'workflow' } }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const skillDocs: ToolDef = {
+  name: 'skill_docs',
+  description: 'Get the full docs + parameter schema for one of your skills before invoking it.',
+  inputSchema: { name: { type: 'string', description: 'The skill slug.', required: true } },
+  async run(input, ctx) {
+    const name = asString(input.name, 100)
+    if (!name) return { ok: false, output: null, error: 'name is required' }
+    const { loadSkill } = await import('@/lib/platform/skills')
+    const skill = await loadSkill(ctx.userId, name)
+    if (!skill) return { ok: false, output: null, error: `skill "${name}" not found` }
+    return {
+      ok: true,
+      output: { name: skill.name, title: skill.title, description: skill.description, version: skill.version, paramsSchema: skill.paramsSchema, docs: skill.docsMd ?? undefined, steps: skill.spec.length },
+    }
+  },
+}
+
+// workflow_run — delegate to an existing proven workflow instead of redoing
+// its steps by hand. The "lazy executor" move at the workflow level.
+const workflowRun: ToolDef = {
+  name: 'workflow_run',
+  description:
+    'Run one of your existing workflows now (agent-triggered), instead of manually redoing the steps it already automates. Use this to reuse a proven automation as part of a larger task. Returns a runId; watch it with the run console.',
+  inputSchema: {
+    workflowId: { type: 'string', description: 'The workflow/agent id to run. Omit to run YOUR OWN workflow (the agent you are).', required: false },
+  },
+  async run(input, ctx) {
+    const workflowId = asString(input.workflowId, 100) || ctx.agentId || ''
+    if (!workflowId) return { ok: false, output: null, error: 'workflowId is required (or run as a specific agent)' }
+    const wf = await db.workflow.findFirst({ where: { id: workflowId, userId: ctx.userId } })
+    if (!wf) return { ok: false, output: null, error: 'workflow not found' }
+    try {
+      const { startWorkflowRun } = await import('@/lib/platform/start-run')
+      const { runId } = await startWorkflowRun(wf, { trigger: 'manual', actingUserId: ctx.userId })
+      return { ok: true, output: { runId, workflowId, status: 'running' }, display: { title: `Running workflow: ${wf.name}`, summary: runId, kind: 'workflow' } }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
 // job.run — deterministic submit+poll+collect for FROZEN WORKFLOWS only
 // (hidden from the interactive LLM, which uses the async trio + its own loop).
 // A frozen workflow can't poll across steps, so heavy compute freezes into one
@@ -3197,6 +3349,10 @@ export const AGENT_TOOLS: ToolDef[] = [
   agentSpawn,
   agentStatus,
   agentCollect,
+  skillInvoke,
+  skillSave,
+  skillDocs,
+  workflowRun,
   scriptRun,
   cliRun,
   fsList,

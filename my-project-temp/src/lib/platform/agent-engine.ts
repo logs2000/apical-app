@@ -55,6 +55,7 @@ import {
   type ClientPlatform,
 } from './runtime-context'
 import { loadUserContextBlock } from './user-context'
+import { loadSkillsBlock } from './skills'
 import { db } from '@/lib/db'
 import { parseWorkflowJSON } from '@/lib/apical-server'
 import type { WorkflowJSON } from '@/lib/types'
@@ -238,7 +239,9 @@ SCRIPTS run on Apical (server sandbox or the desktop bridge), NOT on the user's 
 
 AI MODEL ACCESS IS IN-HOUSE: You and your automations already have LLM access through Apical's own models, billed to the user's plan credits. NEVER ask the user for an AI provider key (OpenAI, Anthropic/Claude, Google AI/Gemini, xAI/Grok, Mistral, etc.) and never build http nodes that call AI provider APIs directly. For LLM work inside an automation — drafting emails, summarizing, classifying, extracting — use a reason step (kind:"reason" with a prompt + outputShape); the runtime executes it on Apical's models and meters the user's credits automatically.
 
-WORKFLOWS AS LIVING TOOLS: You own the outcome — workflows are accelerators you build and improve, not handoffs to a dumb runner. On first-time tasks, do the real work with tools; whenever a sub-step would plausibly repeat, capture it immediately with workflow_step_append (a script becomes a code node, an API call becomes an http node, a file operation becomes an fs tool node) — parameterize per-run values with template refs and generate output at runtime, never a snapshot of one run's data. Template refs have exactly four namespaces: {{stepId.field}} (an EARLIER step's output), {{trigger.field}} (the trigger payload), {{cred:service.field}} (vault credential — colon, not dot), {{env:VAR}}. Never invent other namespaces ({{lead.x}}, {{item.x}}, {{steps.x}} are all invalid — there is no per-item loop variable); for per-row data, reference the step that produced the rows and iterate inside a code node. When several steps work together, tie them into a named automation with workflow_freeze; for recurring jobs add schedule_agent (cron or fixed_rate), and for new-file triggers use watch_folder. On repeat runs the runtime replays the saved steps cheaply; when a step fails YOU fix it (workflow_step_patch for one node, workflow_update for a broad rewrite), rerun, and verify success — never leave a failure as a suggestion or a review comment. If recovery is genuinely impossible (auth revoked, resource deleted, gate rejected), fail honestly and say why. Prefer building tools over repeating manual work. Do not notify the user about automatic workflow fixes unless they ask; when the user explicitly asks you to change an existing automation, confirm the specific changes first.
+WORKFLOWS AS LIVING TOOLS: You own the outcome — workflows are accelerators you build and improve, not handoffs to a dumb runner. On first-time tasks, do the real work with tools; whenever a sub-step would plausibly repeat, capture it immediately with workflow_step_append (a script becomes a code node, an API call becomes an http node, a file operation becomes an fs tool node) — parameterize per-run values with template refs and generate output at runtime, never a snapshot of one run's data. Template refs: {{stepId.field}} (an EARLIER step's output), {{trigger.field}} (the trigger payload), {{cred:service.field}} (vault credential — colon, not dot), {{env:VAR}}; and INSIDE a loop/map body only, {{item}}/{{item.field}}/{{$index}} (loops also {{$iteration}}). Never invent other namespaces. For per-row work, use a "map" step (fan out over {{someStep.rows}}, runs items in parallel) or a "loop" step; branch on a condition with a "branch" step; delegate a subtask with a "spawn" step. Gates stay at the top level, not inside a body. When several steps work together, tie them into a named automation with workflow_freeze; for recurring jobs add schedule_agent (cron or fixed_rate), and for new-file triggers use watch_folder. On repeat runs the runtime replays the saved steps cheaply; when a step fails YOU fix it (workflow_step_patch for one node, workflow_update for a broad rewrite), rerun, and verify success — never leave a failure as a suggestion or a review comment. If recovery is genuinely impossible (auth revoked, resource deleted, gate rejected), fail honestly and say why. Prefer building tools over repeating manual work. Do not notify the user about automatic workflow fixes unless they ask; when the user explicitly asks you to change an existing automation, confirm the specific changes first.
+
+INTELLIGENT BUILDER, LAZY EXECUTOR: Be high-effort at figuring things out and building reusable machinery, but "lazy" about redoing work — spend LLM effort on the novel parts and on overseeing results, and delegate the rest to tools/skills/workflows you've built. (1) Before doing multi-step work with raw tools, check YOUR SKILLS and YOUR AUTOMATION above and prefer skill_invoke or workflow_run — reusing a proven capability costs a fraction of re-deriving it. (2) After you finish novel multi-step work that could recur, capture it: extract a reusable, parameterized SKILL with skill_save (the "how" — trigger-less, callable anywhere) or, for a scheduled task, freeze/extend a WORKFLOW. Treat repeating the same raw-tool sequence you've done before as a smell — build the skill instead. Skills and workflows compose: a workflow step can invoke a skill, and freezing skill-using work yields a workflow made of skill references. You never fully leave the loop — you supervise runs and keep improving your automations.
 
 HONESTY (non-negotiable): Never claim success, "done", or "workflow saved" if any tool returned an error this run. State exactly what succeeded and what failed. Your final answer must match the observed tool results, not your intent.`
 
@@ -1249,6 +1252,7 @@ export async function runAgent(
   // Preflight reads run concurrently (needs connection_limit > 1 to overlap).
   // Each is defensive so one slow/failed read can't stall the whole turn.
   const userContextBlockPromise = loadUserContextBlock(userId).catch(() => '')
+  const skillsBlockPromise = loadSkillsBlock(userId).catch(() => '')
   const allowancePromise = checkAllowance(userId).catch(
     () => ({ allowed: true, overrunEnabled: false }) as Awaited<ReturnType<typeof checkAllowance>>,
   )
@@ -1503,7 +1507,8 @@ export async function runAgent(
     ? `IMPORTANT: When you have finished, your FINAL message must be ONLY a JSON object matching this shape (no prose, no code fences):\n${JSON.stringify(opts.outputShape)}\n\n`
     : ''
 
-  const contextPrefix = `${userContextBlock}${ownWorkflowBlock}${planBlock}${attachmentBlock}${scriptBlock}${outputShapeBlock}`
+  const skillsBlock = await skillsBlockPromise
+  const contextPrefix = `${userContextBlock}${skillsBlock}${ownWorkflowBlock}${planBlock}${attachmentBlock}${scriptBlock}${outputShapeBlock}`
   const goalLine = `Goal: ${goal}${context ? `\n\nAdditional context:\n${context}` : ''}`
 
   const state: LoopState = {
