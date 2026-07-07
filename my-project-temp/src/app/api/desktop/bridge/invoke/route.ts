@@ -26,6 +26,12 @@ import { enforceGrantedRoots } from '@/lib/platform/granted-folders'
 
 const BRIDGE_URL = 'http://localhost:3005/invoke'
 
+// Shared secret the bridge requires on /invoke (it refuses to start without
+// one). Read lazily so tests can set it after import.
+function bridgeSecret(): string {
+  return (process.env.APICAL_BRIDGE_SECRET || '').trim()
+}
+
 interface InvokeBody {
   sessionId?: string
   tool?: string
@@ -87,12 +93,20 @@ export const POST = withUser(async (req, { user }) => {
     return NextResponse.json({ ok: false, error: rootViolation }, { status: 403 })
   }
 
+  // Fail closed: the bridge rejects unauthenticated /invoke, so without the
+  // shared secret configured here there is nothing useful to forward.
+  const secret = bridgeSecret()
+  if (!secret) {
+    console.error('[desktop-bridge/invoke] APICAL_BRIDGE_SECRET is not set — refusing to proxy')
+    return NextResponse.json({ ok: false, error: 'bridge_not_configured' }, { status: 503 })
+  }
+
   // Forward to the desktop-bridge mini-service.
   let bridgeRes: Response
   try {
     bridgeRes = await fetch(BRIDGE_URL, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-bridge-secret': secret },
       body: JSON.stringify({ sessionId, tool, args, timeoutMs }),
       // Don't let the fetch itself hang beyond the timeout + slack.
       signal: AbortSignal.timeout(timeoutMs + 5_000),

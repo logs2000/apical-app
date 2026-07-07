@@ -20,7 +20,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { Server, Socket } from 'socket.io'
 import { PrismaClient } from '@prisma/client'
-import { randomUUID } from 'crypto'
+import { randomUUID, timingSafeEqual } from 'crypto'
 
 // The desktop-bridge requires Postgres (same as the main app).
 if (!process.env.DATABASE_URL?.trim()) {
@@ -28,6 +28,25 @@ if (!process.env.DATABASE_URL?.trim()) {
     '[desktop-bridge] DATABASE_URL is not set. Point it at the same Postgres as the Next.js app.',
   )
   process.exit(1)
+}
+
+// POST /invoke is a remote-execution surface (fs/cli on someone's desktop).
+// Only the Next.js proxy may call it — it must present APICAL_BRIDGE_SECRET.
+// Fail closed: without the secret the service refuses to start, same contract
+// as APICAL_RELAY_SECRET on the run-relay.
+const BRIDGE_SECRET = (process.env.APICAL_BRIDGE_SECRET || '').trim()
+if (!BRIDGE_SECRET) {
+  console.error(
+    '[desktop-bridge] APICAL_BRIDGE_SECRET is not set. Set the same random secret ' +
+      'here and on the Next.js app, then restart. Exiting.',
+  )
+  process.exit(1)
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a)
+  const bb = Buffer.from(b)
+  return ab.length === bb.length && timingSafeEqual(ab, bb)
 }
 
 const db = new PrismaClient()
@@ -140,6 +159,14 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 
   // Invoke a tool on a connected desktop.
   if (req.method === 'POST' && req.url === '/invoke') {
+    // Only the Next.js proxy holds the bridge secret. Timing-safe compare;
+    // missing or wrong → 401 before reading the body.
+    const presented = typeof req.headers['x-bridge-secret'] === 'string' ? req.headers['x-bridge-secret'] : ''
+    if (!presented || !safeEqual(presented, BRIDGE_SECRET)) {
+      res.writeHead(401, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ ok: false, error: 'unauthorized' }))
+      return
+    }
     try {
       const body = await readJson(req)
       const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : ''
@@ -233,9 +260,26 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 // — Caddy forwards based on the query param, the path is irrelevant to the
 // gateway, and socket.io-client's default `path` option is `/socket.io/` so
 // the request URLs line up.)
+// CORS: the legitimate socket clients are the Tauri desktop app (webview
+// origins below; the Node-side socket.io-client sends no Origin header, which
+// passes an origin-list check) and, in dev, the web app itself. Production
+// deployments append their public origin via APICAL_BRIDGE_CORS_ORIGINS
+// (comma-separated). Never '*' — /invoke aside, an open origin would let any
+// website drive the socket surface from a logged-in browser.
+const BRIDGE_CORS_ORIGINS = [
+  'tauri://localhost',
+  'http://tauri.localhost',
+  'https://tauri.localhost',
+  'http://localhost:3000',
+  ...(process.env.APICAL_BRIDGE_CORS_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+]
+
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: BRIDGE_CORS_ORIGINS,
     methods: ['GET', 'POST'],
   },
   pingTimeout: 60000,
