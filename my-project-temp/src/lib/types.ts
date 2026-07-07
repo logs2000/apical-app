@@ -367,6 +367,11 @@ export interface RunReport {
   supervision?: RunSupervision
   /** @deprecated use supervision */
   review?: RunReview
+  /** Reason steps that have resolved consistently enough to suggest hardening
+   *  them into deterministic rules (human approves via the /harden route). */
+  hardenSuggestions?: { stepId: string; occurrences: number }[]
+  /** Set when supervision escalated to a full oversight agent run. */
+  oversightRunId?: string
 }
 
 export interface Run {

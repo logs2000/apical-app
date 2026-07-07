@@ -44,6 +44,9 @@ export const EXPLORATION_ONLY_TOOLS = new Set([
   'agent_collect',
   // Skill/workflow meta — skill_docs is lookup; workflow_run is delegation glue.
   'skill_docs',
+  // Memory tools are never part of a deterministic workflow.
+  'memory_save',
+  'memory_search',
   'agent_list',
   'agent_create',
   'credential_list',

@@ -17,6 +17,7 @@ import {
   type EngineCheckpoint,
 } from './agent-engine'
 import { broadcastAgentRun } from '@/lib/relay-client'
+import { extractMemories } from './memory'
 
 const LEASE_MS = 90_000
 const HEARTBEAT_MS = 30_000
@@ -258,6 +259,11 @@ export async function executeAgentRun(agentRunId: string, workerId: string): Pro
     }
 
     broadcastAgentRun(agentRunId, 'agentrun:completed', { status, answer: result.answer })
+
+    // Learn durable memories from this turn (chat runs only, not subagents).
+    if (row.origin === 'chat' && status === 'completed' && result.answer) {
+      void extractMemories({ userId: row.userId, agentId: row.agentId, userText: row.goal, answerText: result.answer })
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     console.error(`[agent-worker] run ${agentRunId} failed:`, message)

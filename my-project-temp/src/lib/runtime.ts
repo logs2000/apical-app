@@ -35,6 +35,7 @@ import { emitWebhookEvent } from '@/lib/platform/webhooks'
 import { resolveActiveRevision } from '@/lib/platform/workflow-revisions'
 import { db } from './db'
 import { broadcastRun } from './relay-client'
+import { createHash } from 'crypto'
 import { parseWorkflowJSON, resolveRefs } from './apical-server'
 import type {
   RunReport,
@@ -92,6 +93,7 @@ interface WorkflowRow {
   runtime?: string | null
   modelPreference?: string | null
   confidenceThreshold?: number | null
+  autoHardenAfter?: number | null
 }
 
 // ---------------- Retry + timeout (WorkflowJSON v2) ----------------
@@ -361,6 +363,113 @@ async function runReasonStep(
   })
 
   return { output: parsed, aiTokens, aiCostCents, belowThreshold, confidence }
+}
+
+// ---------------- Self-optimization: reason-step pattern tracking ----------------
+
+/** Stable fingerprint of a reason step's resolved input, so repeated identical
+ *  inputs → outputs can be counted toward auto-hardening. */
+function reasonSignature(step: WorkflowStep, outputs: Record<string, unknown>): string {
+  try {
+    const basis = JSON.stringify({ prompt: step.prompt, inputs: outputs })
+    return createHash('sha256').update(basis).digest('hex').slice(0, 16)
+  } catch {
+    return 'unsig'
+  }
+}
+
+/**
+ * Record that a reason step produced `output` for a given input signature.
+ * Occurrences accumulate while the output stays consistent (reset on drift).
+ * When a step crosses its workflow's autoHardenAfter threshold, a hardening
+ * SUGGESTION is available (surfaced in the run report) — never auto-flipped;
+ * a human approves via the /harden route.
+ */
+async function recordReasonPattern(
+  workflowId: string,
+  step: WorkflowStep,
+  inputs: Record<string, unknown>,
+  output: unknown,
+): Promise<void> {
+  const signature = reasonSignature(step, inputs)
+  const outputJson = JSON.stringify(output ?? null)
+  const existing = await db.executionPattern.findFirst({ where: { workflowId, stepId: step.id, signature } })
+  if (existing) {
+    const consistent = existing.outputJson === outputJson
+    await db.executionPattern.update({
+      where: { id: existing.id },
+      data: consistent
+        ? { occurrences: { increment: 1 } }
+        : { outputJson, occurrences: 1 }, // output drifted — reset the streak
+    })
+  } else {
+    await db.executionPattern.create({
+      data: { workflowId, stepId: step.id, signature, outputJson, occurrences: 1, hardened: false },
+    })
+  }
+}
+
+/** Reason steps whose consistent-run count has crossed autoHardenAfter — a
+ *  hardening suggestion for the run report. Returns [] when the knob is off. */
+async function hardenSuggestions(workflowId: string, autoHardenAfter: number | null | undefined): Promise<Array<{ stepId: string; occurrences: number }>> {
+  if (!autoHardenAfter || autoHardenAfter <= 0) return []
+  const patterns = await db.executionPattern.findMany({
+    where: { workflowId, hardened: false, occurrences: { gte: autoHardenAfter } },
+    select: { stepId: true, occurrences: true },
+  })
+  return patterns.map((p) => ({ stepId: p.stepId, occurrences: p.occurrences }))
+}
+
+/**
+ * Oversight escalation (rung 2): when node-level supervision can't fix a run,
+ * enqueue a durable AgentRun on the workflow's own agent to diagnose and
+ * rebuild the automation with full context (skills, memory, tools). The
+ * agent-worker executes it; the owner is notified. Cheap by design — this only
+ * fires after rung-1 supervision has already failed.
+ */
+async function escalateToOversight(
+  runId: string,
+  workflow: WorkflowRow,
+  supervision: import('./types').RunSupervision,
+): Promise<string | null> {
+  if (!workflow.userId) return null
+  // Don't stack oversight runs for the same workflow.
+  const inflight = await db.agentRun.findFirst({
+    where: { agentId: workflow.id, origin: 'oversight', status: { in: ['queued', 'running'] } },
+    select: { id: true },
+  })
+  if (inflight) return null
+
+  const goal =
+    `One of your automated runs (${runId}) failed and node-level self-repair could not fix it.\n\n` +
+    `Diagnosis so far: ${supervision.summary}\n\n` +
+    `Investigate the workflow "${workflow.name}", find the real cause, and fix or rebuild the automation so future runs succeed — ` +
+    `patch the broken step(s) (workflow_step_patch / workflow_update), and if a reusable capability would help, extract a skill. ` +
+    `Record what you learned with memory_save. Then verify by running it (workflow_run) and confirm success.`
+
+  const run = await db.agentRun.create({
+    data: {
+      userId: workflow.userId,
+      workspaceId: workflow.workspaceId ?? null,
+      agentId: workflow.id,
+      origin: 'oversight',
+      parentRunId: runId,
+      goal,
+      optsJson: JSON.stringify({ maxIterations: 32, source: 'workflow' }),
+    },
+  })
+
+  try {
+    await notifyGate(workflow.userId, {
+      workflowName: workflow.name,
+      stepLabel: 'Oversight',
+      runId,
+      summary: `Automated run needs attention — an oversight agent is investigating "${workflow.name}".`,
+    })
+  } catch {
+    /* notification is best-effort */
+  }
+  return run.id
 }
 
 // ---------------- Control flow (branch / loop / map / spawn) ----------------
@@ -1022,8 +1131,13 @@ async function finalizeRun(
     },
   })
 
-  // Supervision: the agent diagnoses the failure/degradation, patches the
-  // workflow, reruns from the broken step, and verifies — autonomously. On
+  // Self-optimization signal: reason steps that resolve consistently enough to
+  // suggest hardening (surfaced in the report; never auto-flipped).
+  const suggestions = await hardenSuggestions(workflow.id, workflow.autoHardenAfter).catch(() => [])
+  if (suggestions.length > 0) report.hardenSuggestions = suggestions
+
+  // Supervision (rung 1): the agent diagnoses the failure/degradation, patches
+  // the workflow, reruns from the broken step, and verifies — autonomously. On
   // recovery the run's effective status flips to completed.
   let effectiveStatus: 'completed' | 'failed' | 'cancelled' = finalStatus
   if (willSupervise && workflow.userId) {
@@ -1039,6 +1153,11 @@ async function finalizeRun(
     } else if (supervision.outcome === 'failed') {
       effectiveStatus = 'failed'
       report.summary = `${buildSupervisionSummary(supervision)} ${summary}`.slice(0, 800)
+      // Rung 2 — escalate to a full oversight agent run: the node-level patch
+      // failed, so bring the whole agent back into the loop on its own
+      // workflow (with its skills + memory) to fix or rebuild the automation.
+      const oversightRunId = await escalateToOversight(runId, workflow, supervision).catch(() => null)
+      if (oversightRunId) report.oversightRunId = oversightRunId
     }
     await db.run.update({
       where: { id: runId },
@@ -1361,6 +1480,10 @@ async function executeRunSteps(
               reason: `Confidence ${r.confidence.toFixed(2)} below threshold`,
               item: step.label,
             })
+          } else {
+            // Auto-populate the hardening signal: track how consistently this
+            // reason step resolves the same input to the same output.
+            void recordReasonPattern(workflow.id, step, state.outputs, output).catch(() => {})
           }
         } else if (step.kind === 'branch' || step.kind === 'loop' || step.kind === 'map' || step.kind === 'spawn') {
           const r = await executeStepInScope(runId, workflow, step, state)

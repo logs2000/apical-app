@@ -56,6 +56,7 @@ import {
 } from './runtime-context'
 import { loadUserContextBlock } from './user-context'
 import { loadSkillsBlock } from './skills'
+import { loadMemoryBlock } from './memory'
 import { db } from '@/lib/db'
 import { parseWorkflowJSON } from '@/lib/apical-server'
 import type { WorkflowJSON } from '@/lib/types'
@@ -1253,6 +1254,7 @@ export async function runAgent(
   // Each is defensive so one slow/failed read can't stall the whole turn.
   const userContextBlockPromise = loadUserContextBlock(userId).catch(() => '')
   const skillsBlockPromise = loadSkillsBlock(userId).catch(() => '')
+  const memoryBlockPromise = loadMemoryBlock(userId, opts.agentId).catch(() => '')
   const allowancePromise = checkAllowance(userId).catch(
     () => ({ allowed: true, overrunEnabled: false }) as Awaited<ReturnType<typeof checkAllowance>>,
   )
@@ -1508,7 +1510,8 @@ export async function runAgent(
     : ''
 
   const skillsBlock = await skillsBlockPromise
-  const contextPrefix = `${userContextBlock}${skillsBlock}${ownWorkflowBlock}${planBlock}${attachmentBlock}${scriptBlock}${outputShapeBlock}`
+  const memoryBlock = await memoryBlockPromise
+  const contextPrefix = `${userContextBlock}${memoryBlock}${skillsBlock}${ownWorkflowBlock}${planBlock}${attachmentBlock}${scriptBlock}${outputShapeBlock}`
   const goalLine = `Goal: ${goal}${context ? `\n\nAdditional context:\n${context}` : ''}`
 
   const state: LoopState = {

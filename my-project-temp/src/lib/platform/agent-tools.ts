@@ -988,6 +988,63 @@ const agentCollect: ToolDef = {
   },
 }
 
+// memory_save / memory_search — explicit long-term memory. Most memories are
+// auto-extracted post-turn; these let the agent deliberately remember or recall.
+const memorySave: ToolDef = {
+  name: 'memory_save',
+  description:
+    'Remember a durable fact, preference, correction, or entity about the user or their work for future sessions. Use when the user states a lasting preference or corrects you. Keep it to one concise sentence.',
+  inputSchema: {
+    kind: { type: 'string', description: 'entity | preference | correction | pattern | fact', required: true },
+    content: { type: 'string', description: 'One concise sentence to remember.', required: true },
+    subject: { type: 'string', description: 'Optional stable dedupe key, e.g. "client:smith-llp".' },
+  },
+  async run(input, ctx) {
+    const content = asString(input.content, 2000)
+    if (!content) return { ok: false, output: null, error: 'content is required' }
+    const { saveMemory } = await import('@/lib/platform/memory')
+    await saveMemory({
+      userId: ctx.userId,
+      agentId: ctx.agentId ?? null,
+      kind: asString(input.kind, 20) || 'fact',
+      content,
+      subject: asString(input.subject, 200) || null,
+      confidence: 0.8,
+      sourceKind: 'chat',
+    })
+    return { ok: true, output: { remembered: content }, display: { title: 'Remembered', summary: content.slice(0, 80), kind: 'info' } }
+  },
+}
+
+const memorySearch: ToolDef = {
+  name: 'memory_search',
+  description: 'Search your long-term memory about the user (facts, preferences, corrections, entities). Returns matching entries ranked by relevance + recency.',
+  inputSchema: {
+    query: { type: 'string', description: 'What to recall.', required: true },
+    kind: { type: 'string', description: 'Optional filter: entity | preference | correction | pattern | fact.' },
+  },
+  async run(input, ctx) {
+    const query = asString(input.query, 500)
+    if (!query) return { ok: false, output: null, error: 'query is required' }
+    const kind = asString(input.kind, 20)
+    const rows = await db.memoryEntry.findMany({
+      where: {
+        userId: ctx.userId,
+        status: 'active',
+        ...(kind ? { kind } : {}),
+        OR: [
+          { content: { contains: query, mode: 'insensitive' } },
+          { subject: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      orderBy: [{ confidence: 'desc' }, { updatedAt: 'desc' }],
+      take: 15,
+      select: { kind: true, subject: true, content: true, confidence: true },
+    })
+    return { ok: true, output: { matches: rows }, display: { title: `Memory: ${rows.length} match(es)`, summary: query, kind: 'info' } }
+  },
+}
+
 // skill_invoke / skill_save / skill_docs — reusable, parameterized
 // capabilities. skill_invoke runs a proven skill (records ONE trace step so a
 // later freeze emits the skill reference, not the expansion); skill_save
@@ -3353,6 +3410,8 @@ export const AGENT_TOOLS: ToolDef[] = [
   skillSave,
   skillDocs,
   workflowRun,
+  memorySave,
+  memorySearch,
   scriptRun,
   cliRun,
   fsList,

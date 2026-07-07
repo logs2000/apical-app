@@ -1271,3 +1271,31 @@ model SkillVersion {
 
   @@unique([skillId, number])
 }
+
+// ---------------- Long-term memory ----------------
+// Durable facts/preferences/corrections the agent learns about the user and
+// their work, injected into the system context and auto-extracted from turns.
+model MemoryEntry {
+  id              String    @id @default(cuid())
+  userId          String
+  workspaceId     String?
+  agentId         String? // null = global to the user
+  // "entity" | "preference" | "correction" | "pattern" | "fact"
+  kind            String
+  // Dedupe key, e.g. "client:smith-llp" — one entry per (user, kind, subject).
+  subject         String?
+  content         String
+  confidence      Float     @default(0.5)
+  timesReinforced Int       @default(1)
+  // "chat" | "run" | "manual"
+  sourceKind      String    @default("chat")
+  sourceId        String?
+  status          String    @default("active") // "active" | "archived"
+  lastUsedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, kind, subject])
+  @@index([userId, status, kind])
+  @@index([agentId, status])
+}
