@@ -74,5 +74,8 @@ console.log(`oversight: failing run ended ${finished?.status} (escalation fires 
 
 await db.workflow.deleteMany({ where: { userId: user.id } })
 await db.memoryEntry.deleteMany({ where: { userId: user.id } })
+// The oversight escalation enqueues an AgentRun — remove it so later suite
+// runs (02-durable-run's claim assertions) don't inherit stale queued rows.
+await db.agentRun.deleteMany({ where: { userId: user.id } })
 console.log('OK: 07-memory')
 process.exit(0)

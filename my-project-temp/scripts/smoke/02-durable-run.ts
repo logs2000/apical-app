@@ -20,8 +20,12 @@ const user = await db.user.upsert({
   update: {},
 })
 
-// Clean slate for repeat runs.
+// Clean slate for repeat runs. claimAgentRuns is cross-user by design, so
+// stale claimable rows left by OTHER smoke tests (e.g. 07-memory's oversight
+// escalation) would eat the claim budget and flake the "was claimed" assert —
+// clear every claimable row in this dev-only DB, not just ours.
 await db.agentRun.deleteMany({ where: { userId: user.id } })
+await db.agentRun.deleteMany({ where: { status: { in: ['queued', 'running', 'cancelling'] } } })
 
 // 1) queued → claimed → executed → terminal ('failed' here: no LLM provider).
 const run = await db.agentRun.create({
