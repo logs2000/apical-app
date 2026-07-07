@@ -394,7 +394,15 @@ io.on('connection', (socket: Socket) => {
       if (!job) return
       if (['completed', 'failed', 'cancelled', 'timeout'].includes(job.status)) return // already terminal
 
+      // Validate against the states a desktop may legitimately report — the
+      // raw string went straight into the row before, so a compromised desktop
+      // could write garbage or roll a job back to 'queued' for a re-run.
+      const DESKTOP_REPORTABLE = ['accepted', 'running', 'completed', 'failed', 'timeout', 'cancelled']
       const status = payload.status
+      if (status !== undefined && !DESKTOP_REPORTABLE.includes(status)) {
+        console.warn(`[desktop-bridge] job_update with invalid status "${String(status)}" ignored (job ${jobId})`)
+        return
+      }
       const terminal = status && ['completed', 'failed', 'timeout', 'cancelled'].includes(status)
       await db.job.update({
         where: { id: jobId },

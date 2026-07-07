@@ -12,7 +12,7 @@
 // directly — bun compiles the app's TS; `@/*` aliases resolve via this
 // service's tsconfig.json).
 
-import { randomBytes } from 'crypto'
+import { randomBytes, timingSafeEqual } from 'crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { agentRunWorkerTick } from '../../src/lib/platform/agent-run-worker'
 import { jobWorkerTick } from '../../src/lib/platform/jobs'
@@ -84,8 +84,12 @@ const server = createServer((req, res) => {
   }
 
   if (url.startsWith('/browser/')) {
-    // All browser endpoints require the shared secret (the Next app presents it).
-    if (!WORKER_SECRET || req.headers['x-worker-secret'] !== WORKER_SECRET) {
+    // All browser endpoints require the shared secret (the Next app presents
+    // it). Constant-time compare — `!==` leaks a byte-position timing oracle.
+    const presented = typeof req.headers['x-worker-secret'] === 'string' ? req.headers['x-worker-secret'] : ''
+    const a = Buffer.from(presented)
+    const b = Buffer.from(WORKER_SECRET)
+    if (!WORKER_SECRET || a.length !== b.length || !timingSafeEqual(a, b)) {
       sendJson(res, 401, { error: 'unauthorized' })
       return
     }

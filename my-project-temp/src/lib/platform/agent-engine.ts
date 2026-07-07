@@ -1240,11 +1240,17 @@ export async function runAgent(
     priorPlan,
     attachments,
     script,
-    maxIterations = 64,
+    maxIterations: rawMaxIterations = 64,
     allowCli = false,
     isDesktop = false,
     source = 'agent',
   } = opts
+
+  // Engine-side clamp (defense in depth behind the API clamp): opts can come
+  // from stored optsJson rows written before the clamp existed.
+  const maxIterations = Number.isFinite(rawMaxIterations)
+    ? Math.max(1, Math.min(128, Math.floor(rawMaxIterations)))
+    : 64
 
   const meterSource = source
 
@@ -1255,8 +1261,15 @@ export async function runAgent(
   const userContextBlockPromise = loadUserContextBlock(userId).catch(() => '')
   const skillsBlockPromise = loadSkillsBlock(userId).catch(() => '')
   const memoryBlockPromise = loadMemoryBlock(userId, opts.agentId).catch(() => '')
+  // Fail CLOSED: if the allowance read errors we refuse the turn rather than
+  // run unmetered (the old fallback allowed:true meant a billing-table outage
+  // made every run free). `failed` distinguishes the outage from a genuine
+  // over-allowance so the user gets an honest retry message.
   const allowancePromise = checkAllowance(userId).catch(
-    () => ({ allowed: true, overrunEnabled: false }) as Awaited<ReturnType<typeof checkAllowance>>,
+    () =>
+      ({ allowed: false, overrunEnabled: false, failed: true }) as Awaited<
+        ReturnType<typeof checkAllowance>
+      > & { failed?: boolean },
   )
   const ownedAgentRowPromise: Promise<{
     name: string
@@ -1298,13 +1311,17 @@ export async function runAgent(
   // Local allowance applies only when we call providers directly — cloud relay
   // bills the linked Apical account on api.apic.al.
   if (!useCloudRelay) {
-    const allowance = await allowancePromise
+    const allowance = (await allowancePromise) as Awaited<ReturnType<typeof checkAllowance>> & {
+      failed?: boolean
+    }
     if (!allowance.allowed) {
       onEvent({
         type: 'error',
-        message: allowance.overrunEnabled
-          ? 'You have exceeded your token allowance. Add credits or enable overrun billing to continue.'
-          : 'You have exceeded your token allowance for this period.',
+        message: allowance.failed
+          ? 'Could not verify your token allowance — please try again in a moment.'
+          : allowance.overrunEnabled
+            ? 'You have exceeded your token allowance. Add credits or enable overrun billing to continue.'
+            : 'You have exceeded your token allowance for this period.',
       })
       return { answer: '', iterations: 0, toolCalls: 0, tokensUsed: 0 }
     }

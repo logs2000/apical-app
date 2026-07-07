@@ -58,7 +58,12 @@ export const POST = withUser(async (req, { user }) => {
     script: body.script,
     priorPlan: Array.isArray(body.priorPlan) ? body.priorPlan : undefined,
     modelId: body.modelId,
-    maxIterations: body.maxIterations,
+    // Clamp: this is client-supplied — unclamped it set the engine's loop
+    // bound directly (1e9 iterations of LLM+tool calls on one request).
+    maxIterations:
+      typeof body.maxIterations === 'number' && Number.isFinite(body.maxIterations)
+        ? Math.max(1, Math.min(128, Math.floor(body.maxIterations)))
+        : undefined,
     allowCli: desktop.allowCli,
     isDesktop: desktop.isDesktop,
     source: 'agent',
