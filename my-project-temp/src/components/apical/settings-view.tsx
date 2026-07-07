@@ -69,15 +69,72 @@ interface ByokKey {
 export function SettingsView() {
   const setMode = useAppStore((s) => s.setMode);
   const { user, signOut } = useAuth();
-  const [name, setName] = React.useState(user?.name ?? "Jordan Doe");
-  const [email, setEmail] = React.useState(user?.email ?? "jordan@example.com");
-  const [company, setCompany] = React.useState("Apical Demo Co.");
-  const [industry, setIndustry] = React.useState("Professional services");
-  const [notes, setNotes] = React.useState("Sort client docs daily. Chase invoices weekly. Audit expenses monthly.");
-  const [nameStyle, setNameStyle] = React.useState<"evocative" | "descriptive">("evocative");
+  // Real values only — loaded from /api/profile; no demo pre-fill.
+  const [name, setName] = React.useState(user?.name ?? "");
+  const [email, setEmail] = React.useState(user?.email ?? "");
+  const [company, setCompany] = React.useState("");
+  const [industry, setIndustry] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+  const [nameStyle, setNameStyle] = React.useState<"evocative" | "descriptive">("descriptive");
   const [emailDaily, setEmailDaily] = React.useState(true);
   const [emailFlagged, setEmailFlagged] = React.useState(true);
-  const [emailErrors, setEmailErrors] = React.useState(false);
+  const [emailGate, setEmailGate] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [saveMsg, setSaveMsg] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p: { name?: string; email?: string; companyName?: string; industry?: string; notes?: string; agentNameStyle?: string } | null) => {
+        if (cancelled || !p) return;
+        if (p.name) setName(p.name);
+        if (p.email) setEmail(p.email);
+        setCompany(p.companyName ?? "");
+        setIndustry(p.industry ?? "");
+        setNotes(p.notes ?? "");
+        if (p.agentNameStyle === "evocative" || p.agentNameStyle === "descriptive") setNameStyle(p.agentNameStyle);
+      })
+      .catch(() => {});
+    void fetch("/api/notifications/preferences")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((prefs: { daily_brief?: boolean; flagged?: boolean; gate?: boolean } | null) => {
+        if (cancelled || !prefs) return;
+        setEmailDaily(prefs.daily_brief !== false);
+        setEmailFlagged(prefs.flagged !== false);
+        setEmailGate(prefs.gate !== false);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveProfile = async () => {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, companyName: company, industry, notes, agentNameStyle: nameStyle }),
+      });
+      if (!res.ok) throw new Error("Save failed.");
+      setSaveMsg("Saved.");
+    } catch {
+      setSaveMsg("Save failed — try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const savePref = (key: "daily_brief" | "flagged" | "gate", value: boolean) => {
+    void fetch("/api/notifications/preferences", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prefs: { [key]: value } }),
+    }).catch(() => {});
+  };
 
   return (
     <div className="h-full min-h-0 overflow-y-auto overscroll-contain">
@@ -96,7 +153,8 @@ export function SettingsView() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Email</Label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} className="h-9 text-sm" />
+              {/* Sign-in identity — changing it here wouldn't change auth. */}
+              <Input value={email} readOnly disabled className="h-9 text-sm" />
             </div>
           </div>
         </Section>
@@ -174,9 +232,33 @@ export function SettingsView() {
         {/* Notifications */}
         <Section icon={Bell} title="Notifications">
           <div className="space-y-2">
-            <Toggle label="Daily summary" desc="A short digest each morning of what your agents did." checked={emailDaily} onChange={setEmailDaily} />
-            <Toggle label="Flagged items" desc="When an agent flags something for your review." checked={emailFlagged} onChange={setEmailFlagged} />
-            <Toggle label="Errors only" desc="Only when an agent fails a run." checked={emailErrors} onChange={setEmailErrors} />
+            <Toggle
+              label="Daily summary"
+              desc="A short digest each morning of what your agents did."
+              checked={emailDaily}
+              onChange={(v) => {
+                setEmailDaily(v);
+                savePref("daily_brief", v);
+              }}
+            />
+            <Toggle
+              label="Flagged items"
+              desc="When an agent flags something for your review."
+              checked={emailFlagged}
+              onChange={(v) => {
+                setEmailFlagged(v);
+                savePref("flagged", v);
+              }}
+            />
+            <Toggle
+              label="Approval gates"
+              desc="When a run pauses and needs your approval to continue."
+              checked={emailGate}
+              onChange={(v) => {
+                setEmailGate(v);
+                savePref("gate", v);
+              }}
+            />
           </div>
         </Section>
 
@@ -209,7 +291,12 @@ export function SettingsView() {
           <Button variant="ghost" size="sm" onClick={() => setMode("agents")}>
             Cancel
           </Button>
-          <Button size="sm">Save changes</Button>
+          <div className="flex items-center gap-2">
+            {saveMsg && <span className="text-[11px] text-muted-foreground">{saveMsg}</span>}
+            <Button size="sm" disabled={saving} onClick={() => void saveProfile()}>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

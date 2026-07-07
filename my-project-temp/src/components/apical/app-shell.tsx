@@ -62,6 +62,29 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
 
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
+  // Real footer status: count of active durable runs, polled lazily. The old
+  // footer hardcoded "Agent running" + "Local runtime" for everyone.
+  const [activeRuns, setActiveRuns] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      if (document.hidden) return;
+      try {
+        const res = await fetch("/api/agent-runs?active=1&limit=50");
+        if (!res.ok) return;
+        const data = (await res.json()) as { runs?: unknown[] };
+        if (!cancelled) setActiveRuns(Array.isArray(data.runs) ? data.runs.length : 0);
+      } catch {
+        /* leave last known value */
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   // Precomputed so the `?.`/`??` downleveling (browserslist targets pre-`??`
   // engines) happens in statement position. Inlining these in JSX children
@@ -335,10 +358,22 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
       <footer className="shrink-0 border-t border-border bg-background/80 px-3 py-1 backdrop-blur-md md:px-4">
         <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-foreground" /> Agent running
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                activeRuns ? "animate-pulse bg-foreground" : "bg-muted-foreground/40",
+              )}
+            />
+            {activeRuns === null
+              ? " "
+              : activeRuns === 0
+                ? "Idle"
+                : activeRuns === 1
+                  ? "1 agent running"
+                  : `${activeRuns} agents running`}
           </span>
           <span className="hidden sm:inline">Apical — Consider it Done.</span>
-          <span>Local runtime</span>
+          <span>{IS_TAURI ? "Desktop app" : "Web app"}</span>
         </div>
       </footer>
 

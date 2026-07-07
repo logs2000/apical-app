@@ -456,7 +456,13 @@ function AgentNavigator({
             </div>
           )}
           {filtered.length === 0 && !isLoading && (
-            <p className="px-1.5 py-2 text-[10px] text-muted-foreground">No agents match your search.</p>
+            // A brand-new account has no agents at all — don't imply a failed
+            // search the user never made.
+            <p className="px-1.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
+              {search
+                ? "No agents match your search."
+                : "No agents yet. Describe a job in the chat and Apical builds the agent for you."}
+            </p>
           )}
         </div>
       </div>
@@ -2157,6 +2163,25 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
           </div>
         )}
       </div>
+
+      {/* User-initiated freeze: until now only the model could decide to call
+          workflow_freeze. This gives the user an explicit "keep this" control;
+          the save still funnels through the validated workflow_freeze path. */}
+      {!isNewChat && agent && !isThinking && messages.some((m) => m.role === "agent") && (
+        <div className="flex justify-end px-3 pb-1">
+          <button
+            onClick={() =>
+              sendDirect(
+                "Save what you did in this conversation as my repeatable workflow. Distill the steps you actually executed (use workflow_freeze), keep it faithful to what happened, and tell me exactly what you saved.",
+              )
+            }
+            className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            title="Distill this conversation into the agent's saved workflow"
+          >
+            <Save className="h-3 w-3" /> Save as workflow
+          </button>
+        </div>
+      )}
 
       <ChatComposer
         value={input}
