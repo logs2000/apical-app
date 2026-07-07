@@ -9,8 +9,7 @@
 // only consumer.
 
 import { io, type Socket } from 'socket.io-client'
-
-const RELAY_URL = 'http://localhost:3003'
+import { RELAY_URL } from '@/lib/service-urls'
 
 type RelayGlobal = {
   __apicalRelay?: Socket

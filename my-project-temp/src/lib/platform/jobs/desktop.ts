@@ -9,8 +9,9 @@
 
 import { db } from '@/lib/db'
 import { parseJobPayload, type JobBackend } from './types'
+import { BRIDGE_INVOKE_URL } from '@/lib/service-urls'
 
-const BRIDGE_URL = process.env.DESKTOP_BRIDGE_URL || 'http://localhost:3005/invoke'
+const BRIDGE_URL = BRIDGE_INVOKE_URL
 
 async function onlineSessionId(userId: string, preferred?: string | null): Promise<string | null> {
   if (preferred) {

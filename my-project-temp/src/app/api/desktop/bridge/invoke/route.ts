@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
 import { isKnownTool } from '@/lib/platform/desktop-tools'
 import { enforceGrantedRoots } from '@/lib/platform/granted-folders'
+import { BRIDGE_INVOKE_URL } from '@/lib/service-urls'
 
 // POST /api/desktop/bridge/invoke — proxy an MCP tool invocation to the
 // desktop-bridge mini-service on port 3005.
@@ -24,7 +25,7 @@ import { enforceGrantedRoots } from '@/lib/platform/granted-folders'
 // This route is what hosted agents actually call. They never talk to port 3005
 // directly — Caddy only exposes 3000.
 
-const BRIDGE_URL = 'http://localhost:3005/invoke'
+const BRIDGE_URL = BRIDGE_INVOKE_URL
 
 // Shared secret the bridge requires on /invoke (it refuses to start without
 // one). Read lazily so tests can set it after import.

@@ -27,6 +27,7 @@ import { searchWeb } from '@/lib/platform/web-search'
 import { saveAsset, assetDownloadUrl } from '@/lib/platform/assets'
 import { normalizeImage } from '@/lib/platform/images'
 import { assertPublicUrl, fetchPublicUrl } from '@/lib/platform/net-guard'
+import { BRIDGE_INVOKE_URL } from '@/lib/service-urls'
 import { normalizeSteps } from '@/lib/deploy'
 import { inferRuntimeFromSteps } from '@/lib/workflow-schema'
 import { buildStepsForFreeze } from '@/lib/platform/workflow-distill'
@@ -349,7 +350,7 @@ async function invokeDesktopTool(
         output: null,
         error: 'No online desktop session. Connect the desktop app + enable desktop access in Settings → Desktop.',
       }
-    const r = await fetch('http://localhost:3005/invoke', {
+    const r = await fetch(BRIDGE_INVOKE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
