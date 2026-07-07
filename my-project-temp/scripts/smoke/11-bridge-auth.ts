@@ -11,7 +11,7 @@
 
 import { spawn } from 'node:child_process'
 import { db } from '../../src/lib/db'
-import { generateApiKey, getWorkspaceForUser } from '../../src/lib/api-key-auth'
+import { mintSessionToken } from './_session-auth'
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) {
@@ -83,23 +83,20 @@ const user = await db.user.upsert({
   create: { email: 'smoke-bridge@apical.test', name: 'Smoke Bridge' },
   update: {},
 })
-const workspace = await getWorkspaceForUser(user)
-const key = generateApiKey('ap_pat_')
-await db.apiKey.deleteMany({ where: { workspaceId: workspace.id, label: 'smoke-bridge' } })
-await db.apiKey.create({
-  data: { workspaceId: workspace.id, createdById: user.id, label: 'smoke-bridge', keyHash: key.hash, keyPrefix: key.prefix },
-})
 await db.desktopSession.deleteMany({ where: { userId: user.id } })
 const session = await db.desktopSession.create({
-  data: { userId: user.id, sessionToken: `dsk_smoke_${Date.now()}`, label: 'Smoke Desktop' },
+  data: { userId: user.id, sessionToken: `dsksmoke${Date.now()}`, label: 'Smoke Desktop' },
 })
+// Caller auth for the Next proxy route (session surface — no API keys). A
+// separate desktop token so it matches the dsk_ auth format.
+const token = await mintSessionToken(user.id, 'smoke-bridge-auth')
 
 const { POST } = await import('../../src/app/api/desktop/bridge/invoke/route')
 const callProxy = () =>
   POST(
     new Request('http://smoke.local/api/desktop/bridge/invoke', {
       method: 'POST',
-      headers: { authorization: `Bearer ${key.raw}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       // desktop.notify: no granted-folder prerequisite, so the request exercises
       // the secret handling + forward instead of the fs sandbox gate.
       body: JSON.stringify({ sessionId: session.id, tool: 'desktop.notify', args: { title: 'smoke' } }),
@@ -126,7 +123,7 @@ console.log('proxy: fail-closed without secret, forwards with it (desktop_offlin
 
 // Cleanup.
 await db.desktopSession.deleteMany({ where: { userId: user.id } })
-await db.apiKey.deleteMany({ where: { workspaceId: workspace.id, label: 'smoke-bridge' } })
+await db.desktopSession.deleteMany({ where: { userId: user.id } })
 kill()
 
 console.log('OK: 11-bridge-auth')

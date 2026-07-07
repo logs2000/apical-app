@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { generateApiKey, withDevAuth } from '@/lib/dev-auth'
-import { API_KEY_SCOPES } from '@/lib/api-key-auth'
+import { normalizeScopesForCreate } from '@/lib/api-key-auth'
 
 // GET /api/dev/keys — list the workspace's API keys.
 // NEVER returns the raw key or the hash. Just enough to identify + manage them.
@@ -37,7 +37,6 @@ export const GET = withDevAuth(async (_req, { workspace }) => {
 // POST /api/dev/keys — create a new API key.
 // Body: { label: string, scopes?: string[], spendLimitCents?: number }.
 // Returns the raw key ONCE — after this it's gone forever.
-// Empty scopes = all scopes.
 export const POST = withDevAuth(async (req, { workspace }) => {
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -49,9 +48,9 @@ export const POST = withDevAuth(async (req, { workspace }) => {
       typeof body.label === 'string' && body.label.trim()
         ? body.label.trim().slice(0, 60)
         : 'Untitled'
-    const scopes = Array.isArray(body.scopes)
-      ? body.scopes.filter((s) => (API_KEY_SCOPES as readonly string[]).includes(s))
-      : []
+    // Explicit scopes always; no-scopes defaults to full access (not the
+    // fail-open empty sentinel).
+    const scopes = normalizeScopesForCreate(body.scopes)
     const spendLimitCents =
       typeof body.spendLimitCents === 'number' && body.spendLimitCents > 0
         ? Math.floor(body.spendLimitCents)

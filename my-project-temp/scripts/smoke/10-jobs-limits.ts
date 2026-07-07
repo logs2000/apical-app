@@ -1,10 +1,11 @@
 // Smoke: POST /api/jobs submission ceilings — per-user rate limit + active-job
 // quota (audit: the endpoint previously accepted unbounded compute). Exercises
-// the REAL route handler in-process, authenticated with a minted API key.
+// the REAL route handler in-process, authenticated with a desktop-session
+// token (the first-party path; API keys don't authenticate /api/* anymore).
 // Run: bun scripts/smoke/10-jobs-limits.ts
 
 import { db } from '../../src/lib/db'
-import { generateApiKey, getWorkspaceForUser } from '../../src/lib/api-key-auth'
+import { mintSessionToken, clearSessionTokens } from './_session-auth'
 import { POST } from '../../src/app/api/jobs/route'
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -20,24 +21,13 @@ const user = await db.user.upsert({
   update: {},
 })
 await db.job.deleteMany({ where: { userId: user.id } })
-
-const workspace = await getWorkspaceForUser(user)
-const key = generateApiKey('ap_pat_')
-await db.apiKey.deleteMany({ where: { workspaceId: workspace.id, label: 'smoke-jobs-limits' } })
-await db.apiKey.create({
-  data: {
-    workspaceId: workspace.id,
-    createdById: user.id,
-    label: 'smoke-jobs-limits',
-    keyHash: key.hash,
-    keyPrefix: key.prefix,
-  },
-})
+await clearSessionTokens(user.id)
+const token = await mintSessionToken(user.id, 'smoke-jobs-limits')
 
 function submit(body: Record<string, unknown>): Promise<Response> {
   const req = new Request('http://smoke.local/api/jobs', {
     method: 'POST',
-    headers: { authorization: `Bearer ${key.raw}`, 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
   return POST(req, { params: Promise.resolve({}) })
@@ -87,7 +77,7 @@ console.log('rate limit: burst refused with rate_limited + Retry-After')
 
 // Cleanup.
 await db.job.deleteMany({ where: { userId: user.id } })
-await db.apiKey.deleteMany({ where: { workspaceId: workspace.id, label: 'smoke-jobs-limits' } })
+await clearSessionTokens(user.id)
 
 console.log('OK: 10-jobs-limits')
 process.exit(0)

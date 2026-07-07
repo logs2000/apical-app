@@ -7,8 +7,16 @@
 //
 // Legacy tokens keep working: both `ap_pat_...` (old PersonalAccessToken) and
 // `ap_sk_...` (old DeveloperAccount key) hashes were migrated into this table
-// by prisma/backfill-workspaces.ts. Their scopesJson is "[]" which means ALL
-// scopes (legacy behavior).
+// by prisma/backfill-workspaces.ts.
+//
+// SCOPE SEMANTICS: an empty scope list now means NO access, not all access
+// (fail closed) — the old `[]` = all-scopes sentinel was fail-open, so a
+// leaked scopeless key could do anything. Every key is created with an
+// explicit scope list (see normalizeScopesForCreate), and legacy `[]` rows
+// were widened to explicit full scopes by prisma/backfill-key-scopes.ts, so
+// this flip changes no existing key's effective access. Browser sessions are
+// granted ALL_SCOPES explicitly in resolveAuth (they are first-party and
+// fully trusted), so they are unaffected.
 
 import { createHash, randomBytes } from 'crypto'
 import { cookies } from 'next/headers'
@@ -30,6 +38,23 @@ export const API_KEY_SCOPES = [
 ] as const
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number]
+
+/** Every scope — the grant given to browser sessions and to keys created
+ *  without an explicit scope list. */
+export const ALL_SCOPES: ApiKeyScope[] = [...API_KEY_SCOPES]
+
+/**
+ * Normalize a caller-supplied scope list for key creation: keep only valid
+ * scopes; when none are valid/provided, default to ALL_SCOPES (preserving the
+ * "a plain personal token can do everything" product behavior) so the stored
+ * value is always explicit — never the fail-open empty sentinel.
+ */
+export function normalizeScopesForCreate(requested?: unknown): ApiKeyScope[] {
+  const valid = Array.isArray(requested)
+    ? requested.filter((s): s is ApiKeyScope => (API_KEY_SCOPES as readonly string[]).includes(s as string))
+    : []
+  return valid.length > 0 ? valid : [...ALL_SCOPES]
+}
 
 // ---------------- Key generation + hashing ----------------
 
@@ -186,9 +211,10 @@ export async function authenticateApiKey(
   }
 }
 
-/** True when the key grants the scope. Empty scopes = all (legacy keys). */
+/** True when the grant includes the scope. Fail closed: an empty scope list
+ *  grants nothing (see the SCOPE SEMANTICS note at the top of this file). */
 export function keyHasScope(result: Pick<ApiKeyAuthResult, 'scopes'>, scope: ApiKeyScope): boolean {
-  return result.scopes.length === 0 || result.scopes.includes(scope)
+  return result.scopes.includes(scope)
 }
 
 // ---------------- Audit log ----------------

@@ -10,7 +10,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { db } from '../../src/lib/db'
-import { generateApiKey, getWorkspaceForUser } from '../../src/lib/api-key-auth'
+import { mintSessionToken, clearSessionTokens } from './_session-auth'
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) {
@@ -48,19 +48,15 @@ const user = await db.user.upsert({
   create: { email: 'smoke-mtier@apical.test', name: 'Smoke Mtier' },
   update: {},
 })
-const workspace = await getWorkspaceForUser(user)
-const key = generateApiKey('ap_pat_')
-await db.apiKey.deleteMany({ where: { workspaceId: workspace.id, label: 'smoke-mtier' } })
-await db.apiKey.create({
-  data: { workspaceId: workspace.id, createdById: user.id, label: 'smoke-mtier', keyHash: key.hash, keyPrefix: key.prefix },
-})
+await clearSessionTokens(user.id)
+const token = await mintSessionToken(user.id, 'smoke-mtier')
 
 // ---- 1. maxIterations clamp on POST /api/agent-runs ----
 const { POST: createAgentRun } = await import('../../src/app/api/agent-runs/route')
 const res = await createAgentRun(
   new Request('http://smoke.local/api/agent-runs', {
     method: 'POST',
-    headers: { authorization: `Bearer ${key.raw}`, 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ goal: 'smoke clamp probe', maxIterations: 1_000_000_000 }),
   }),
   { params: Promise.resolve({}) },
@@ -168,7 +164,7 @@ console.log('agent-worker: browser surface auth intact (401 without/wrong secret
 // Cleanup.
 await db.job.deleteMany({ where: { userId: user.id } })
 await db.desktopSession.deleteMany({ where: { userId: user.id } })
-await db.apiKey.deleteMany({ where: { workspaceId: workspace.id, label: 'smoke-mtier' } })
+await clearSessionTokens(user.id)
 
 console.log('OK: 13-mtier')
 process.exit(0)

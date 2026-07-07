@@ -21,6 +21,7 @@ import {
   authenticateApiKey,
   getWorkspaceForUser,
   keyHasScope,
+  ALL_SCOPES,
   type ApiKeyScope,
 } from './api-key-auth'
 import type { ApiKey, User, Workspace } from '@prisma/client'
@@ -31,7 +32,8 @@ export interface AuthContext {
   user: User | null
   /** Set when the request authenticated via API key. */
   apiKey: ApiKey | null
-  /** Granted scopes. Empty array = all scopes (sessions and legacy keys). */
+  /** Granted scopes (fail closed — empty grants nothing). Browser sessions
+   *  are granted every scope; keys carry their own explicit list. */
   scopes: string[]
 }
 
@@ -53,10 +55,13 @@ export async function resolveAuth(req: Request): Promise<AuthContext | null> {
   const user = await getCurrentUser(req)
   if (!user) return null
   const workspace = await getWorkspaceForUser(user)
-  return { workspace, user, apiKey: null, scopes: [] }
+  // Browser/desktop sessions are first-party and fully trusted — grant every
+  // scope explicitly so the fail-closed scope check (empty = none) never
+  // denies a legitimate session.
+  return { workspace, user, apiKey: null, scopes: [...ALL_SCOPES] }
 }
 
-/** True when the context grants the scope (empty scopes = all). */
+/** True when the context grants the scope. Fail closed (empty grants none). */
 export function authHasScope(ctx: AuthContext, scope: ApiKeyScope): boolean {
   return keyHasScope({ scopes: ctx.scopes }, scope)
 }
