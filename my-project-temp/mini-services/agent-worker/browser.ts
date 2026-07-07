@@ -7,6 +7,7 @@
 
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
 import { randomBytes } from 'crypto'
+import { assertPublicUrl } from '../../src/lib/platform/net-guard'
 
 const VIEWPORT = { width: 1280, height: 800 }
 const IDLE_MS = 5 * 60 * 1000
@@ -59,6 +60,21 @@ export async function createSession(userId: string): Promise<{ sessionId: string
 
   const browser = await getBrowser()
   const context = await browser.newContext({ viewport: VIEWPORT, userAgent: undefined })
+  // SSRF guard on EVERY request the page makes — not just top navigations.
+  // Redirects, subresources, XHR from the loaded page: all could otherwise
+  // reach localhost/VPC/cloud-metadata from this always-on host. data: and
+  // about: navigations never hit the network, so they aren't routed here.
+  await context.route('**/*', async (route) => {
+    try {
+      const target = new URL(route.request().url())
+      if (target.protocol === 'http:' || target.protocol === 'https:') {
+        await assertPublicUrl(target)
+      }
+      return route.continue()
+    } catch {
+      return route.abort('blockedbyclient')
+    }
+  })
   const page = await context.newPage()
   page.setDefaultTimeout(NAV_TIMEOUT)
   const id = `br_${randomBytes(8).toString('hex')}`
@@ -123,6 +139,10 @@ export async function act(sessionId: string, params: ActParams): Promise<ActionR
   switch (params.action) {
     case 'navigate':
       if (!params.url) throw new Error('navigate requires url')
+      // Pre-check http(s) targets so a blocked host errors with a clear
+      // message instead of a generic aborted navigation. The context-level
+      // route above still guards redirects and subresources.
+      if (/^https?:\/\//i.test(params.url)) await assertPublicUrl(params.url)
       await page.goto(params.url, { waitUntil: 'domcontentloaded', timeout })
       break
     case 'click':

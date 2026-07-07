@@ -6,6 +6,7 @@ import sharp from 'sharp'
 import type { ImagePart } from './llm-gateway'
 import { readAssetBytes } from './assets'
 import { getObject } from './storage'
+import { fetchPublicUrl } from './net-guard'
 
 /** Anthropic's optimal ceiling; other providers accept it fine. */
 const MAX_LONG_SIDE = 1568
@@ -46,7 +47,9 @@ async function fetchUrlBytes(url: string): Promise<Buffer> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
   try {
-    const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow' })
+    // SSRF guard: image_read reaches this with agent-supplied URLs. Public
+    // hosts only, re-validated on every redirect hop.
+    const res = await fetchPublicUrl(url, { signal: ctrl.signal })
     if (!res.ok) throw new Error(`image fetch failed: HTTP ${res.status}`)
     const buf = Buffer.from(await res.arrayBuffer())
     if (buf.length > MAX_FETCH_BYTES) throw new Error(`image too large (${buf.length} bytes)`)

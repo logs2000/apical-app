@@ -26,6 +26,7 @@ import { ingestOpenApiSpec } from '@/lib/openapi-parser'
 import { searchWeb } from '@/lib/platform/web-search'
 import { saveAsset, assetDownloadUrl } from '@/lib/platform/assets'
 import { normalizeImage } from '@/lib/platform/images'
+import { assertPublicUrl, fetchPublicUrl } from '@/lib/platform/net-guard'
 import { normalizeSteps } from '@/lib/deploy'
 import { inferRuntimeFromSteps } from '@/lib/workflow-schema'
 import { buildStepsForFreeze } from '@/lib/platform/workflow-distill'
@@ -454,7 +455,8 @@ const webRead: ToolDef = {
     const usedMethod = 'fetch'
 
     try {
-      const r = await fetch(url, {
+      // SSRF guard: public hosts only, re-checked on every redirect hop.
+      const r = await fetchPublicUrl(url, {
         signal: toolAbortSignal(ctx, 12_000),
         headers,
       })
@@ -523,6 +525,13 @@ const httpRequest: ToolDef = {
     const url = asString(input.url, 2000)
     if (!url || !/^https?:\/\//.test(url))
       return { ok: false, output: null, error: 'valid http(s) url is required' }
+    // SSRF guard: applies to the direct path AND the Pipedream proxy path —
+    // no reason to let an agent aim either one at internal addresses.
+    try {
+      await assertPublicUrl(url)
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
     const method = (asString(input.method, 10) || 'GET').toUpperCase()
     const body = asString(input.body, 100_000)
     const credentialId = asString(input.credentialId, 100)
@@ -586,7 +595,8 @@ const httpRequest: ToolDef = {
     }
 
     try {
-      const r = await fetch(url, {
+      // SSRF guard again at fetch time: re-validates every redirect hop.
+      const r = await fetchPublicUrl(url, {
         method,
         headers,
         body: ['GET', 'HEAD'].includes(method) ? undefined : body,
