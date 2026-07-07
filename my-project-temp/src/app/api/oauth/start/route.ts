@@ -102,7 +102,7 @@ export async function POST(req: Request) {
 
     // Mint a random state token (16 bytes → 32 hex chars).
     const state = randomBytes(16).toString('hex')
-    setOAuthState(state, {
+    await setOAuthState(state, {
       userId: user.id,
       provider: provider.key,
       providerName: provider.name,

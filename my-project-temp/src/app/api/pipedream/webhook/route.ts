@@ -1,8 +1,16 @@
+import { timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { workspaceIdForUser } from '@/lib/integration-scope'
 import { materializePipedreamConnection } from '@/lib/pipedream/sync'
 import { getPipedreamConfig } from '@/lib/pipedream/config'
+
+/** Constant-time string compare (avoids a byte-position timing oracle). */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a)
+  const bb = Buffer.from(b)
+  return ab.length === bb.length && timingSafeEqual(ab, bb)
+}
 
 // POST /api/pipedream/webhook?token=<PIPEDREAM_WEBHOOK_SECRET>
 //
@@ -31,8 +39,13 @@ export async function POST(req: Request) {
   if (!cfg.webhookSecret) {
     return NextResponse.json({ error: 'Webhook is not enabled' }, { status: 403 })
   }
+  // Prefer the token in a header (keeps the secret out of URLs/access logs);
+  // fall back to the query param for back-compat with existing Pipedream
+  // webhook destinations. Compared in constant time.
   const url = new URL(req.url)
-  if (url.searchParams.get('token') !== cfg.webhookSecret) {
+  const presented =
+    req.headers.get('x-apical-webhook-token')?.trim() || url.searchParams.get('token') || ''
+  if (!safeEqual(presented, cfg.webhookSecret)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

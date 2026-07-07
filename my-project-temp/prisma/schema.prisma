@@ -1299,3 +1299,23 @@ model MemoryEntry {
   @@index([userId, status, kind])
   @@index([agentId, status])
 }
+
+// Ephemeral OAuth CSRF-state store. The `state` param ties an OAuth callback
+// back to the user/provider that started the flow. This was an in-memory Map,
+// which silently failed on multi-instance / serverless deploys (the start and
+// callback requests can hit different instances, so the callback couldn't find
+// the state and the CSRF check broke). Rows are one-shot (deleted on consume)
+// and TTL'd via expiresAt.
+model OAuthState {
+  state              String   @id
+  userId             String
+  provider           String
+  providerName       String
+  customClientId     String?
+  // Vault-encrypted (AES-256-GCM) at rest when a BYO client secret is supplied.
+  customClientSecret String?
+  expiresAt          DateTime
+  createdAt          DateTime @default(now())
+
+  @@index([expiresAt])
+}

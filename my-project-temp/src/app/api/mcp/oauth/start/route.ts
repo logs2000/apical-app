@@ -80,7 +80,7 @@ export async function POST(req: Request) {
 
     // Stash the PKCE verifier + token URL + resource in the state store
     // so the callback can complete the exchange.
-    setOAuthState(result.result.state, {
+    await setOAuthState(result.result.state, {
       userId: user.id,
       provider: `mcp:${serverUrl}`,
       providerName: `MCP — ${serverUrl}`,

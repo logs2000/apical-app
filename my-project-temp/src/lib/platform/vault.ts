@@ -84,9 +84,26 @@ export const SECRET_META_FIELDS = new Set([
   'private_key',
 ])
 
-/** True when a string already looks like a vault blob (`iv:tag:ct`, base64). */
+/**
+ * True when a string is a vault blob (`iv:tag:ct`, all base64, with the exact
+ * AES-256-GCM byte lengths: iv=12, tag=16). The old check — "3 parts split on
+ * ':'" — misclassified any secret containing two colons (a connection string,
+ * a `user:pass:host` token) as already-encrypted, so encryptSecretMetaFields
+ * skipped it and stored the plaintext. Validating base64 + the GCM sizes makes
+ * a false positive on real secret input effectively impossible, while every
+ * genuine blob (produced by encrypt()) still matches.
+ */
 export function looksEncrypted(value: string): boolean {
-  return value.split(':').length === 3
+  const parts = value.split(':')
+  if (parts.length !== 3) return false
+  const [ivB64, tagB64, ctB64] = parts
+  const isBase64 = (s: string) => s.length > 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(s)
+  if (!isBase64(ivB64) || !isBase64(tagB64) || !isBase64(ctB64)) return false
+  try {
+    return Buffer.from(ivB64, 'base64').length === 12 && Buffer.from(tagB64, 'base64').length === 16
+  } catch {
+    return false
+  }
 }
 
 /**

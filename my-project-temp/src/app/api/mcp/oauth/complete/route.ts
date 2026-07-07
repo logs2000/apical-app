@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     }
 
     // Verify + consume the state.
-    const entry = consumeOAuthState(state)
+    const entry = await consumeOAuthState(state)
     if (!entry) {
       return NextResponse.json(
         { error: 'Invalid or expired state token' },
