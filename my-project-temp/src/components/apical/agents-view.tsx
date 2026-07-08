@@ -2587,12 +2587,24 @@ function AgentConfig({ agent }: { agent: Workflow }) {
   React.useEffect(() => {
     void fetch("/api/llm/models")
       .then((r) => r.json())
-      .then((data: { models?: Array<{ id: string; name: string; provider: string; tier: string; configured?: boolean }> }) => {
-        const hosted = (data.models ?? []).filter((m) => m.tier === "hosted" && m.configured !== false);
-        setAvailableModels(hosted.map((m) => ({ id: m.id, name: m.name, provider: m.provider })));
+      .then((data: { models?: Array<{ id: string; name: string; provider: string; tier: string; configured?: boolean; enabled?: boolean }> }) => {
+        // Only hosted models that are configured AND not toggled off in
+        // Settings → Models. If this agent's saved preference points at a
+        // now-disabled model, keep it listed (marked) so the select isn't empty.
+        const all = data.models ?? [];
+        const hosted = all.filter(
+          (m) => m.tier === "hosted" && m.configured !== false && m.enabled !== false,
+        );
+        const picks = hosted.map((m) => ({ id: m.id, name: m.name, provider: m.provider }));
+        const pref = agent.modelPreference;
+        if (pref && !["fast", "thinking", ""].includes(pref) && !picks.some((m) => m.id === pref)) {
+          const saved = all.find((m) => m.id === pref);
+          if (saved) picks.push({ id: saved.id, name: `${saved.name} (disabled)`, provider: saved.provider });
+        }
+        setAvailableModels(picks);
       })
       .catch(() => setAvailableModels([]));
-  }, []);
+  }, [agent.modelPreference]);
 
   async function save() {
     setSaving(true);

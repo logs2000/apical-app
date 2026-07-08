@@ -20,6 +20,7 @@ export const WORKFLOW_META_TOOLS = new Set([
   'update_plan',
   'ask_clarification',
   'request_review',
+  'save_memory',
 ])
 
 export const MIN_SUBSTANTIVE_FREEZE_STEPS = 2
@@ -45,6 +46,7 @@ export const EXPLORATION_ONLY_TOOLS = new Set([
   'update_plan',
   'ask_clarification',
   'request_review',
+  'save_memory',
 ])
 
 export interface EngineTraceStep {

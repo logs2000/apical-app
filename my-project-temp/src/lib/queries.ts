@@ -274,6 +274,180 @@ export function useDeleteWorkflow() {
   })
 }
 
+// ---------------- Data tables ----------------
+
+export interface DataTableColumnDto {
+  name: string
+  type: 'string' | 'number' | 'boolean' | 'date' | 'json'
+  required?: boolean
+}
+
+export interface DataTableDto {
+  id: string
+  name: string
+  description: string
+  columns: DataTableColumnDto[]
+  sourceWorkflowId: string | null
+  rowCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DataTableRowDto {
+  id: string
+  tableId: string
+  data: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export function useDataTables() {
+  return useQuery<DataTableDto[]>({
+    queryKey: ['data-tables'],
+    queryFn: () => j(fetch('/api/tables').then((r) => r)),
+  })
+}
+
+export function useDataTable(id: string | null) {
+  return useQuery<{ table: DataTableDto; rows: DataTableRowDto[]; total: number }>({
+    queryKey: ['data-table', id],
+    queryFn: () => j(fetch(`/api/tables/${id}?limit=500`).then((r) => r)),
+    enabled: !!id,
+  })
+}
+
+// ---------------- Billing ----------------
+
+export interface BillingPlanDto {
+  id: 'free' | 'personal' | 'team' | 'enterprise'
+  name: string
+  tagline: string
+  priceMonthly: number
+  priceYearly: number
+  tokenAllowanceMonthly: number
+  maxAgents: number
+  overrunAvailable: boolean
+  byokAllowed: boolean
+  seats: number
+  featured: boolean
+  features: string[]
+}
+
+export interface BillingStatusDto {
+  subscription: {
+    plan: string
+    status: string
+    currentPeriodEnd: string | null
+    stripeCustomerId: string | null
+  }
+  plan: BillingPlanDto
+  usage: {
+    used: number
+    allowance: number
+    overage: number
+    overrunEnabled: boolean
+    periodEnd: string | null
+  }
+  overrunAvailable: boolean
+  demoMode: boolean
+}
+
+export interface UsageDto {
+  current: {
+    used: number
+    allowance: number
+    overage: number
+    overrunEnabled: boolean
+    periodEnd: string | null
+    plan: string
+  }
+  byModel: Array<{
+    modelId: string
+    provider: string
+    totalTokens: number
+    costCents: number
+    calls: number
+  }>
+  byDay: Array<{ date: string; tokens: number; costCents: number }>
+}
+
+export function useBillingPlans() {
+  return useQuery<{
+    plans: BillingPlanDto[]
+    current: { plan: string; status: string; periodEnd: string | null }
+    demoMode: boolean
+  }>({
+    queryKey: ['billing', 'plans'],
+    queryFn: () => j(fetch('/api/billing/plans').then((r) => r)),
+  })
+}
+
+export function useBillingStatus() {
+  return useQuery<BillingStatusDto>({
+    queryKey: ['billing', 'status'],
+    queryFn: () => j(fetch('/api/billing/subscription').then((r) => r)),
+  })
+}
+
+export function useUsage() {
+  return useQuery<UsageDto>({
+    queryKey: ['usage'],
+    queryFn: () => j(fetch('/api/usage').then((r) => r)),
+  })
+}
+
+// ---------------- Agent memories ----------------
+
+export interface AgentMemoryEntry {
+  id: string
+  agentId: string
+  kind: 'entity' | 'preference' | 'correction' | 'pattern' | string
+  text: string
+  source: string
+  createdAt: string
+}
+
+export function useMemories() {
+  return useQuery<AgentMemoryEntry[]>({
+    queryKey: ['memories'],
+    queryFn: async () => {
+      const res = await j<{ memories: AgentMemoryEntry[] }>(
+        fetch('/api/memories').then((r) => r),
+      )
+      return res.memories
+    },
+  })
+}
+
+export function useDeleteMemory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      j<{ ok: true }>(
+        fetch(`/api/memories/${id}`, { method: 'DELETE' }).then((r) => r),
+      ),
+    // Optimistic removal so the row animates out instantly; roll back on error.
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ['memories'] })
+      const previous = qc.getQueryData<AgentMemoryEntry[]>(['memories'])
+      if (previous) {
+        qc.setQueryData<AgentMemoryEntry[]>(
+          ['memories'],
+          previous.filter((m) => m.id !== id),
+        )
+      }
+      return { previous }
+    },
+    onError: (_err, _id, ctx) => {
+      const previous = (ctx as { previous?: AgentMemoryEntry[] } | undefined)?.previous
+      if (previous) qc.setQueryData(['memories'], previous)
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['memories'] })
+    },
+  })
+}
+
 export function useHardenStep() {
   const qc = useQueryClient()
   return useMutation({

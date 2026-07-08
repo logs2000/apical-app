@@ -69,36 +69,30 @@ interface ByokKey {
 export function SettingsView() {
   const setMode = useAppStore((s) => s.setMode);
   const { user, signOut } = useAuth();
-  const [name, setName] = React.useState(user?.name ?? "Jordan Doe");
-  const [email, setEmail] = React.useState(user?.email ?? "jordan@example.com");
-  const [company, setCompany] = React.useState("Apical Demo Co.");
-  const [industry, setIndustry] = React.useState("Professional services");
-  const [notes, setNotes] = React.useState("Sort client docs daily. Chase invoices weekly. Audit expenses monthly.");
-  const [nameStyle, setNameStyle] = React.useState<"evocative" | "descriptive">("evocative");
-  const [emailDaily, setEmailDaily] = React.useState(true);
-  const [emailFlagged, setEmailFlagged] = React.useState(true);
-  const [emailErrors, setEmailErrors] = React.useState(false);
 
   return (
     <div className="h-full min-h-0 overflow-y-auto overscroll-contain">
       <div className="mx-auto max-w-2xl px-4 py-5 md:px-6">
         <div className="mb-5">
           <h2 className="text-base font-semibold tracking-tight">Settings</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">Profile, company, models, notifications, and appearance.</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Profile, company, models, notifications, and security.</p>
         </div>
 
-        {/* Profile */}
+        {/* Profile — from the signed-in account */}
         <Section icon={User} title="Profile">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label className="text-xs">Name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 text-sm" />
+              <Input value={user?.name ?? ""} readOnly disabled className="h-9 text-sm" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Email</Label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} className="h-9 text-sm" />
+              <Input value={user?.email ?? ""} readOnly disabled className="h-9 text-sm" />
             </div>
           </div>
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            Name and email come from your login account.
+          </p>
         </Section>
 
         {/* Models (NEW — moved here from the Vault tab) */}
@@ -117,101 +111,445 @@ export function SettingsView() {
           <RunLog limit={50} />
         </Section>
 
-        {/* Company */}
-        <Section icon={Building2} title="Company">
-          <p className="mb-3 text-[11px] text-muted-foreground">
-            Apical uses this to tailor agent suggestions to your business.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Company name</Label>
-              <Input value={company} onChange={(e) => setCompany(e.target.value)} className="h-9 text-sm" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Industry</Label>
-              <Input value={industry} onChange={(e) => setIndustry(e.target.value)} className="h-9 text-sm" />
-            </div>
-          </div>
-          <div className="mt-3 space-y-1.5">
-            <Label className="text-xs">Notes for the agent</Label>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              className="text-sm"
-              placeholder="Tell Apical what you do, what tools you use, what recurring jobs you have…"
-            />
-          </div>
-        </Section>
+        <CompanySection />
 
-        {/* Agent naming */}
-        <Section icon={Palette} title="Agent naming">
-          <p className="mb-3 text-[11px] text-muted-foreground">
-            How Apical names new agents when it creates them.
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {(["evocative", "descriptive"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setNameStyle(s)}
-                className={cn(
-                  "rounded-lg border p-3 text-left transition",
-                  nameStyle === s ? "border-foreground/20 bg-muted" : "border-border hover:border-border/80",
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold capitalize">{s}</span>
-                  {nameStyle === s && <Badge variant="outline" className="border-border text-foreground">Selected</Badge>}
-                </div>
-                <div className="mt-1 text-[10px] text-muted-foreground">
-                  {s === "evocative" ? "Short, friendly names like Compass, Atlas, Sentinel" : "Job-derived names like SortAgent, InvoiceAgent"}
-                </div>
-              </button>
-            ))}
-          </div>
-        </Section>
+        <AgentNamingSection />
 
-        {/* Notifications */}
-        <Section icon={Bell} title="Notifications">
-          <div className="space-y-2">
-            <Toggle label="Daily summary" desc="A short digest each morning of what your agents did." checked={emailDaily} onChange={setEmailDaily} />
-            <Toggle label="Flagged items" desc="When an agent flags something for your review." checked={emailFlagged} onChange={setEmailFlagged} />
-            <Toggle label="Errors only" desc="Only when an agent fails a run." checked={emailErrors} onChange={setEmailErrors} />
-          </div>
-        </Section>
+        <NotificationsSection />
 
         <AdminTokenLimitsSection />
 
-        {/* Security */}
-        <Section icon={ShieldCheck} title="Security">
-          <div className="space-y-2">
-            <Row label="Password" value="••••••••" action={<Button size="sm" variant="outline" className="h-7 text-[11px]">Change</Button>} />
-            <Row label="Two-factor auth" value="Not enabled" action={<Button size="sm" variant="outline" className="h-7 text-[11px]">Enable</Button>} />
-            <Row label="Active sessions" value="1 (this browser)" action={<Button size="sm" variant="ghost" className="h-7 text-[11px] text-muted-foreground">View</Button>} />
-          </div>
-        </Section>
+        <SecuritySection userEmail={user?.email ?? null} />
 
-        {/* Danger zone */}
-        <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <h3 className="text-sm font-semibold text-destructive">Account</h3>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={signOut}>
-              <LogOut className="h-3 w-3" /> Sign out
-            </Button>
-            <Button size="sm" variant="ghost" className="text-destructive">
-              Delete account
-            </Button>
-          </div>
-        </div>
+        <DangerZone signOut={signOut} />
 
-        {/* Save bar */}
-        <div className="mt-6 flex items-center justify-between border-t border-border pt-4">
+        <div className="mt-6 flex items-center justify-start border-t border-border pt-4">
           <Button variant="ghost" size="sm" onClick={() => setMode("agents")}>
-            Cancel
+            Back to app
           </Button>
-          <Button size="sm">Save changes</Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Company (persisted via /api/profile) ────────────────────────────────────
+
+function CompanySection() {
+  const [company, setCompany] = React.useState("");
+  const [industry, setIndustry] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+  const [loaded, setLoaded] = React.useState(false);
+  const [dirty, setDirty] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [savedAt, setSavedAt] = React.useState<number | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { companyName?: string; industry?: string; notes?: string } | null) => {
+        if (cancelled || !data) return;
+        setCompany(data.companyName ?? "");
+        setIndustry(data.industry ?? "");
+        setNotes(data.notes ?? "");
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyName: company, industry, notes }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error || `Save failed (${res.status})`);
+      }
+      setDirty(false);
+      setSavedAt(Date.now());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section icon={Building2} title="Company">
+      <p className="mb-3 text-[11px] text-muted-foreground">
+        Apical uses this to tailor agent suggestions to your business.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label className="text-xs">Company name</Label>
+          <Input
+            value={company}
+            disabled={!loaded}
+            onChange={(e) => { setCompany(e.target.value); setDirty(true); }}
+            className="h-9 text-sm"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Industry</Label>
+          <Input
+            value={industry}
+            disabled={!loaded}
+            onChange={(e) => { setIndustry(e.target.value); setDirty(true); }}
+            className="h-9 text-sm"
+          />
+        </div>
+      </div>
+      <div className="mt-3 space-y-1.5">
+        <Label className="text-xs">Notes for the agent</Label>
+        <Textarea
+          value={notes}
+          disabled={!loaded}
+          onChange={(e) => { setNotes(e.target.value); setDirty(true); }}
+          rows={3}
+          className="text-sm"
+          placeholder="Tell Apical what you do, what tools you use, what recurring jobs you have…"
+        />
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <Button size="sm" onClick={() => void save()} disabled={!dirty || saving}>
+          {saving ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
+          Save
+        </Button>
+        {savedAt && !dirty && (
+          <span className="text-[10px] text-muted-foreground">Saved</span>
+        )}
+        {error && <span className="text-[10px] text-destructive">{error}</span>}
+      </div>
+    </Section>
+  );
+}
+
+// ─── Agent naming (persisted via /api/profile.agentNameStyle) ────────────────
+
+function AgentNamingSection() {
+  const [nameStyle, setNameStyle] = React.useState<"evocative" | "descriptive" | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { agentNameStyle?: string } | null) => {
+        if (cancelled) return;
+        setNameStyle(data?.agentNameStyle === "evocative" ? "evocative" : "descriptive");
+      })
+      .catch(() => setNameStyle("descriptive"));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function select(style: "evocative" | "descriptive") {
+    const prev = nameStyle;
+    setNameStyle(style);
+    setError(null);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentNameStyle: style }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+    } catch (err) {
+      setNameStyle(prev);
+      setError(err instanceof Error ? err.message : "Save failed");
+    }
+  }
+
+  return (
+    <Section icon={Palette} title="Agent naming">
+      <p className="mb-3 text-[11px] text-muted-foreground">
+        How Apical names new agents when it creates them.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {(["evocative", "descriptive"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => void select(s)}
+            disabled={nameStyle === null}
+            className={cn(
+              "rounded-lg border p-3 text-left transition",
+              nameStyle === s ? "border-foreground/20 bg-muted" : "border-border hover:border-border/80",
+            )}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold capitalize">{s}</span>
+              {nameStyle === s && <Badge variant="outline" className="border-border text-foreground">Selected</Badge>}
+            </div>
+            <div className="mt-1 text-[10px] text-muted-foreground">
+              {s === "evocative" ? "Short, friendly names like Compass, Atlas, Sentinel" : "Job-derived names like SortAgent, InvoiceAgent"}
+            </div>
+          </button>
+        ))}
+      </div>
+      {error && <p className="mt-2 text-[10px] text-destructive">{error}</p>}
+    </Section>
+  );
+}
+
+// ─── Notifications (persisted via /api/notifications/preferences) ────────────
+
+const NOTIFICATION_TOGGLES: Array<{ key: string; label: string; desc: string }> = [
+  { key: "daily_brief", label: "Daily brief", desc: "A short digest each morning of what your agents did." },
+  { key: "weekly_brief", label: "Weekly brief", desc: "A weekly roll-up of runs, savings, and flagged items." },
+  { key: "flagged", label: "Flagged items", desc: "When an agent flags something for your review." },
+  { key: "gate", label: "Approvals", desc: "When an agent is waiting on you to approve a gated step." },
+  { key: "schedule", label: "Scheduled runs", desc: "Outcomes of scheduled agent runs (including failures)." },
+  { key: "billing", label: "Billing", desc: "Receipts, plan changes, and usage warnings." },
+];
+
+function NotificationsSection() {
+  const [prefs, setPrefs] = React.useState<Record<string, boolean> | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/notifications/preferences")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: Record<string, boolean> | null) => {
+        if (!cancelled) setPrefs(data ?? {});
+      })
+      .catch(() => setPrefs({}));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function toggle(key: string, value: boolean) {
+    const prev = prefs;
+    setPrefs((p) => ({ ...(p ?? {}), [key]: value }));
+    setError(null);
+    try {
+      const res = await fetch("/api/notifications/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prefs: { [key]: value } }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+    } catch (err) {
+      setPrefs(prev);
+      setError(err instanceof Error ? err.message : "Save failed");
+    }
+  }
+
+  return (
+    <Section icon={Bell} title="Email notifications">
+      {prefs === null ? (
+        <div className="flex items-center gap-2 py-3 text-[11px] text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {NOTIFICATION_TOGGLES.map((t) => (
+            <Toggle
+              key={t.key}
+              label={t.label}
+              desc={t.desc}
+              checked={prefs[t.key] !== false}
+              onChange={(v) => void toggle(t.key, v)}
+            />
+          ))}
+        </div>
+      )}
+      {error && <p className="mt-2 text-[10px] text-destructive">{error}</p>}
+    </Section>
+  );
+}
+
+// ─── Security (real password reset + global sign-out) ────────────────────────
+
+function SecuritySection({ userEmail }: { userEmail: string | null }) {
+  const [resetState, setResetState] = React.useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [signOutAllState, setSignOutAllState] = React.useState<"idle" | "working" | "done" | "error">("idle");
+
+  async function sendReset() {
+    if (!userEmail) return;
+    setResetState("sending");
+    try {
+      const res = await fetch("/api/auth/reset-password/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: userEmail }),
+      });
+      setResetState(res.ok ? "sent" : "error");
+    } catch {
+      setResetState("error");
+    }
+  }
+
+  async function signOutEverywhere() {
+    setSignOutAllState("working");
+    try {
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      if (!supabase) throw new Error("Auth not configured");
+      const { error } = await supabase.auth.signOut({ scope: "global" });
+      if (error) throw error;
+      setSignOutAllState("done");
+      window.location.assign("/login");
+    } catch {
+      setSignOutAllState("error");
+    }
+  }
+
+  return (
+    <Section icon={ShieldCheck} title="Security">
+      <div className="space-y-2">
+        <Row
+          label="Password"
+          value={
+            resetState === "sent"
+              ? "Reset link sent — check your email"
+              : resetState === "error"
+                ? "Could not send the reset email"
+                : "Change it via an emailed reset link"
+          }
+          action={
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px]"
+              onClick={() => void sendReset()}
+              disabled={!userEmail || resetState === "sending" || resetState === "sent"}
+            >
+              {resetState === "sending" ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : resetState === "sent" ? (
+                "Sent"
+              ) : (
+                "Send reset link"
+              )}
+            </Button>
+          }
+        />
+        <Row
+          label="Sessions"
+          value={
+            signOutAllState === "error"
+              ? "Could not sign out other sessions"
+              : "Sign out of Apical on every device"
+          }
+          action={
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px]"
+              onClick={() => void signOutEverywhere()}
+              disabled={signOutAllState === "working"}
+            >
+              {signOutAllState === "working" ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                "Sign out everywhere"
+              )}
+            </Button>
+          }
+        />
+      </div>
+    </Section>
+  );
+}
+
+// ─── Danger zone (sign out + real account deletion) ──────────────────────────
+
+function DangerZone({ signOut }: { signOut: () => void }) {
+  const [confirming, setConfirming] = React.useState(false);
+  const [confirmText, setConfirmText] = React.useState("");
+  const [deleting, setDeleting] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function deleteAccount() {
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/account", { method: "DELETE" });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error || `Delete failed (${res.status})`);
+      }
+      // Account data is gone — end the session and leave the app.
+      try {
+        const { createClient } = await import("@/lib/supabase/client");
+        const supabase = createClient();
+        if (supabase) await supabase.auth.signOut();
+      } catch {
+        // non-fatal — the server-side account is already deleted
+      }
+      window.location.assign("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+      <h3 className="text-sm font-semibold text-destructive">Account</h3>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={signOut}>
+          <LogOut className="h-3 w-3" /> Sign out
+        </Button>
+        {!confirming && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-destructive"
+            onClick={() => setConfirming(true)}
+          >
+            Delete account
+          </Button>
+        )}
+      </div>
+      {confirming && (
+        <div className="mt-3 rounded-md border border-destructive/40 bg-background p-3">
+          <p className="text-[11px] text-muted-foreground">
+            This permanently deletes your account, agents, runs, memories, keys,
+            and billing data. It cannot be undone. Type{" "}
+            <span className="font-semibold text-destructive">DELETE</span> to confirm.
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <Input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="h-8 w-32 text-sm"
+            />
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={confirmText !== "DELETE" || deleting}
+              onClick={() => void deleteAccount()}
+            >
+              {deleting ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Trash2 className="mr-1.5 h-3 w-3" />}
+              Delete forever
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => { setConfirming(false); setConfirmText(""); setError(null); }}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+          </div>
+          {error && <p className="mt-2 text-[10px] text-destructive">{error}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -1029,35 +1367,40 @@ function ModelsManager() {
   }, [load]);
 
   async function toggleModel(model: ModelEntry) {
-    // For custom models, PATCH enabled. For registry models, we can't toggle
-    // server-side (they're always "available") — this is a UI-only toggle.
-    if (model.custom && model.id) {
-      try {
-        await fetch(`/api/llm/models/${model.id}`, {
+    // Persisted server-side for both custom rows (CustomModel.enabled) and
+    // built-in registry models (UserModelPref). Optimistic flip, then reload.
+    const next = model.enabled === false;
+    setModels((prev) =>
+      prev.map((m) => (m.id === model.id ? { ...m, enabled: next } : m)),
+    );
+    try {
+      const res = await fetch(
+        `/api/llm/models/${encodeURIComponent(model.id)}`,
+        {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: !model.enabled }),
-        });
-        void load();
-      } catch (err) {
-        console.error("[settings] toggle failed:", err);
-      }
-    } else {
-      // Local UI toggle for registry models.
-      setModels((prev) =>
-        prev.map((m) => (m.id === model.id ? { ...m, enabled: !m.enabled } : m)),
+          body: JSON.stringify({ enabled: next }),
+        },
       );
+      if (!res.ok) throw new Error(`PATCH failed (${res.status})`);
+      void load();
+    } catch (err) {
+      console.error("[settings] toggle failed:", err);
+      void load(); // roll back the optimistic flip
     }
   }
 
   async function setDefault(model: ModelEntry) {
-    if (!model.custom || !model.id) return;
     try {
-      await fetch(`/api/llm/models/${model.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isDefault: true }),
-      });
+      const res = await fetch(
+        `/api/llm/models/${encodeURIComponent(model.id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ isDefault: true }),
+        },
+      );
+      if (!res.ok) throw new Error(`PATCH failed (${res.status})`);
       void load();
     } catch (err) {
       console.error("[settings] setDefault failed:", err);
@@ -1175,7 +1518,7 @@ function ModelRow({
         </div>
       </div>
       <Badge variant="outline" className={cn("text-[9px] uppercase", tierColor)}>{tierBadge}</Badge>
-      {model.custom && !model.isDefault && (
+      {!model.isDefault && enabled && (
         <Button
           size="sm"
           variant="ghost"

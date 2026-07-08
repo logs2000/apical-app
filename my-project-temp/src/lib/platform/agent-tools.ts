@@ -2478,6 +2478,95 @@ function parseLegacyToolInput(input: unknown, tool: string): Record<string, unkn
   return {}
 }
 
+// save_memory — persist a durable memory for the CURRENT agent. Injected into
+// the agent's system prompt on every future run (see agent-engine's
+// AGENT MEMORY block) and surfaced to the user in the Memory view.
+const MEMORY_KINDS = new Set(['entity', 'preference', 'correction', 'pattern'])
+const MAX_MEMORIES_PER_AGENT = 200
+
+const saveMemory: ToolDef = {
+  name: 'save_memory',
+  description:
+    'Save a durable memory for THIS agent: a fact/entity, a user preference, a correction, or a recurring pattern you should remember across runs. It is shown to you at the start of every future run. Do NOT re-save facts already listed in your AGENT MEMORY block. Only works when you are acting as a saved agent.',
+  inputSchema: {
+    kind: { type: 'string', description: 'One of: entity | preference | correction | pattern.', required: true },
+    text: { type: 'string', description: 'The memory, one concise sentence (max 500 chars).', required: true },
+    source: { type: 'string', description: 'Optional short provenance label, e.g. "Corrected by user".' },
+  },
+  async run(input, ctx) {
+    if (!ctx.agentId) {
+      return {
+        ok: false,
+        output: null,
+        error: 'Memories can only be saved when acting as a saved agent.',
+      }
+    }
+    const rawKind = asString(input.kind, 40).toLowerCase().trim()
+    const kind = MEMORY_KINDS.has(rawKind) ? rawKind : 'entity'
+    const text = asString(input.text, 500).trim()
+    if (!text) {
+      return { ok: false, output: null, error: 'text is required' }
+    }
+    const source =
+      asString(input.source, 120).trim() ||
+      `Learned in chat · ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+
+    try {
+      // Verify the agent exists and is accessible to this user before writing.
+      const agent = await db.workflow.findFirst({
+        where: { id: ctx.agentId, OR: [{ userId: ctx.userId }, { userId: null }] },
+        select: { id: true },
+      })
+      if (!agent) {
+        return { ok: false, output: null, error: 'Agent not found' }
+      }
+
+      // Dedupe: identical text for this agent just refreshes the timestamp.
+      const existing = await db.agentMemory.findFirst({
+        where: { agentId: ctx.agentId, text },
+        select: { id: true },
+      })
+      if (existing) {
+        await db.agentMemory.update({
+          where: { id: existing.id },
+          data: { kind, source },
+        })
+        return {
+          ok: true,
+          output: { id: existing.id, kind, text, deduped: true },
+          display: { title: 'Memory refreshed', summary: text.slice(0, 80), kind: 'info' },
+        }
+      }
+
+      const row = await db.agentMemory.create({
+        data: { userId: ctx.userId, agentId: ctx.agentId, kind, text, source },
+      })
+
+      // Soft cap per agent — drop the oldest beyond the limit.
+      const count = await db.agentMemory.count({ where: { agentId: ctx.agentId } })
+      if (count > MAX_MEMORIES_PER_AGENT) {
+        const oldest = await db.agentMemory.findMany({
+          where: { agentId: ctx.agentId },
+          orderBy: { createdAt: 'asc' },
+          take: count - MAX_MEMORIES_PER_AGENT,
+          select: { id: true },
+        })
+        await db.agentMemory.deleteMany({
+          where: { id: { in: oldest.map((m) => m.id) } },
+        })
+      }
+
+      return {
+        ok: true,
+        output: { id: row.id, kind, text },
+        display: { title: 'Memory saved', summary: text.slice(0, 80), kind: 'info' },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
 // NOTE: the old persistAgentWorkflowFromChatTrace "safety net" (auto-saving a
 // workflow from a CLIENT-supplied chat trace in /api/agent/analyze-run) was
 // deleted: it trusted unverifiable client data and silently overwrote the
@@ -2520,6 +2609,7 @@ export const AGENT_TOOLS: ToolDef[] = [
   askClarificationTool,
   requestReviewTool,
   credentialRequestTool,
+  saveMemory,
 ]
 
 // Tools that require desktop access (an online DesktopSession + the user's

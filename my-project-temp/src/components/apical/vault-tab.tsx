@@ -228,7 +228,8 @@ function ConnectionsSection() {
           })}
           {providers.length === 0 && !error && (
             <div className="col-span-2 rounded-lg border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-              No OAuth providers configured. Run <code className="rounded bg-muted px-1 py-0.5">bunx tsx prisma/seed-oauth.ts</code> to seed.
+              No connection providers are available yet. Check back soon, or add
+              services under MCP &amp; APIs below.
             </div>
           )}
         </div>
@@ -732,10 +733,19 @@ function DesktopSection() {
           Install the Apical desktop app (Tauri) to let agents access your filesystem, run shell commands, and use local MCP servers.
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          <Button size="sm" className="gap-1.5">
+          <Button
+            size="sm"
+            className="gap-1.5"
+            onClick={() => window.open("/", "_blank")}
+          >
             <Monitor className="h-3 w-3" /> Download desktop app
           </Button>
-          <Button size="sm" variant="outline" className="gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => window.open("/docs", "_blank")}
+          >
             <ExternalLink className="h-3 w-3" /> Docs
           </Button>
         </div>

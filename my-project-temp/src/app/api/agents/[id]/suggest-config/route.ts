@@ -108,7 +108,7 @@ Available model ids: ${modelIdList}
 
 Rules:
 - Schedule: if the agent watches something (scanner, inbox, folder) → daily or hourly. If it generates reports → weekly or monthly. If it's event-driven or one-off → null (manual).
-- Model: pick a concrete model id from the list. Use a fast/cheap model (gpt-4o-mini, claude-3-5-haiku, grok-3-mini, gemini-2.0-flash) if there are 0-1 reason steps. Use a powerful model (gpt-4o, claude-3-5-sonnet, grok-4, gemini-1.5-pro) if there are 3+ reason steps. null = inherit (first available).
+- Model: pick a concrete model id from the list. Use a fast/cheap model (badge "fast", e.g. gpt-4o-mini, claude-haiku, gemini-flash) if there are 0-1 reason steps. Use a powerful model (badge "powerful", e.g. gpt-5.5, claude-sonnet, grok, gemini-pro) if there are 3+ reason steps. null = inherit (first available).
 - Confidence threshold: if flagRate > 20% → raise to 0.85+. If flagRate < 5% → lower to 0.7. Otherwise keep around 0.8. null = inherit.
 - Auto-harden: if there are 2+ unhardened patterns AND 5+ runs → suggest 5. If patterns exist but few runs → suggest 10. Otherwise 0 (off).
 - Reasoning: explain the schedule, model, and threshold picks in 2-4 sentences.`,

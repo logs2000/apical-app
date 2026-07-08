@@ -1,15 +1,18 @@
-// PATCH /api/llm/models/[id]  — update one of the user's CustomModel rows.
+// PATCH /api/llm/models/[id]  — update a model's per-user settings.
 // DELETE /api/llm/models/[id] — remove one of the user's CustomModel rows.
 //
 // PATCH body (any subset): { enabled?, isDefault? }
-//   - isDefault=true un-defaults the user's other custom models first.
-// 404 if the row doesn't exist OR isn't owned by the caller.
-// Registry models (not custom rows) are NOT addressable here — toggling those
-// is local-state-only on the client for now.
+//   - isDefault=true un-defaults every other model (custom AND registry) first,
+//     so the user has exactly one default across both stores.
+// The id is either a CustomModel row id, or a MODEL_REGISTRY id (e.g.
+// "openai:gpt-4o" — clients must encodeURIComponent it). Registry settings are
+// persisted per-user in UserModelPref.
+// 404 if a custom row doesn't exist OR isn't owned by the caller.
 
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
+import { getModel } from '@/lib/platform/models'
 
 interface PatchBody {
   enabled?: boolean
@@ -22,14 +25,6 @@ export const PATCH = withUser(async (req, { user, params }) => {
     return NextResponse.json({ error: 'id is required' }, { status: 400 })
   }
 
-  const existing = await db.customModel.findFirst({
-    where: { id, userId: user.id },
-    select: { id: true },
-  })
-  if (!existing) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-
   let body: PatchBody
   try {
     body = (await req.json()) as PatchBody
@@ -39,22 +34,62 @@ export const PATCH = withUser(async (req, { user, params }) => {
 
   const data: { enabled?: boolean; isDefault?: boolean } = {}
   if (typeof body.enabled === 'boolean') data.enabled = body.enabled
-  if (typeof body.isDefault === 'boolean') {
-    data.isDefault = body.isDefault
-    if (body.isDefault) {
-      // Un-default the user's other custom models first.
-      await db.customModel.updateMany({
-        where: { userId: user.id, isDefault: true, id: { not: existing.id } },
-        data: { isDefault: false },
-      })
-    }
-  }
+  if (typeof body.isDefault === 'boolean') data.isDefault = body.isDefault
 
   if (Object.keys(data).length === 0) {
     return NextResponse.json(
       { error: 'Nothing to update — supply enabled and/or isDefault.' },
       { status: 400 },
     )
+  }
+
+  // Registry (built-in) model → persist per-user prefs in UserModelPref.
+  if (getModel(id)) {
+    if (data.isDefault) {
+      await Promise.all([
+        db.userModelPref.updateMany({
+          where: { userId: user.id, isDefault: true, modelId: { not: id } },
+          data: { isDefault: false },
+        }),
+        db.customModel.updateMany({
+          where: { userId: user.id, isDefault: true },
+          data: { isDefault: false },
+        }),
+      ])
+    }
+    const pref = await db.userModelPref.upsert({
+      where: { userId_modelId: { userId: user.id, modelId: id } },
+      create: { userId: user.id, modelId: id, ...data },
+      update: data,
+    })
+    return NextResponse.json({
+      id,
+      registry: true,
+      enabled: pref.enabled,
+      isDefault: pref.isDefault,
+    })
+  }
+
+  const existing = await db.customModel.findFirst({
+    where: { id, userId: user.id },
+    select: { id: true },
+  })
+  if (!existing) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  if (data.isDefault) {
+    // Un-default everything else — other customs and any registry pref.
+    await Promise.all([
+      db.customModel.updateMany({
+        where: { userId: user.id, isDefault: true, id: { not: existing.id } },
+        data: { isDefault: false },
+      }),
+      db.userModelPref.updateMany({
+        where: { userId: user.id, isDefault: true },
+        data: { isDefault: false },
+      }),
+    ])
   }
 
   const row = await db.customModel.update({

@@ -310,6 +310,15 @@ export async function resolveModel(
   const model = getModel(modelId)
   if (!model) return null
 
+  // Respect the user's per-model toggle: a registry model the user has
+  // disabled in Settings resolves to null (callers treat that as
+  // "model not available").
+  const pref = await db.userModelPref.findUnique({
+    where: { userId_modelId: { userId, modelId } },
+    select: { enabled: true },
+  })
+  if (pref && !pref.enabled) return null
+
   if (model.tier === 'hosted') {
     const env = pickHostedEnv(model.provider)
     if (env) {
@@ -1682,7 +1691,14 @@ export async function* chatStream(
 // ---------------- Public: list available models ----------------
 
 export async function listAvailableModels(userId: string): Promise<{
-  models: Array<ModelDefinition & { configured: boolean; custom?: boolean }>
+  models: Array<
+    ModelDefinition & {
+      configured: boolean
+      custom?: boolean
+      enabled?: boolean
+      isDefault?: boolean
+    }
+  >
 }> {
   const sub = await getOrCreateSubscription(userId)
   const plan = getPlan(sub.plan)
@@ -1693,6 +1709,10 @@ export async function listAvailableModels(userId: string): Promise<{
     select: { id: true, provider: true },
   })
 
+  // Per-user registry-model prefs (on/off + default).
+  const prefRows = await db.userModelPref.findMany({ where: { userId } })
+  const prefMap = new Map(prefRows.map((p) => [p.modelId, p]))
+
   // Hosted providers we hold an env key for, or all hosted via cloud relay.
   const hostedProviders = await hostedProvidersForUser(userId)
 
@@ -1700,8 +1720,14 @@ export async function listAvailableModels(userId: string): Promise<{
   // plan allows.
   const registry = registryAvailableModels(hostedProviders, plan.localModelsAllowed)
 
-  const models: Array<ModelDefinition & { configured: boolean; custom?: boolean }> =
-    registry.map((m) => ({ ...m, configured: true }))
+  const models: Array<
+    ModelDefinition & {
+      configured: boolean
+      custom?: boolean
+      enabled?: boolean
+      isDefault?: boolean
+    }
+  > = registry.map((m) => ({ ...m, configured: true }))
 
   // When relaying through cloud, merge the cloud catalog (may include models
   // not in our local registry snapshot).
@@ -1716,9 +1742,19 @@ export async function listAvailableModels(userId: string): Promise<{
     }
   }
 
-  // Append user's CustomModels.
+  // Stamp per-user prefs on registry entries (after the cloud-catalog merge so
+  // relayed registry models get local prefs too). Missing pref = enabled.
+  for (const m of models) {
+    const p = prefMap.get(m.id)
+    m.enabled = p ? p.enabled : true
+    m.isDefault = p ? p.isDefault : false
+  }
+
+  // Append the user's CustomModels — including disabled ones, so Settings can
+  // render them with the toggle off. Consumers that pick runnable models
+  // filter on `enabled !== false`.
   const customs = await db.customModel.findMany({
-    where: { userId, enabled: true },
+    where: { userId },
   })
   for (const c of customs) {
     const tier: ModelDefinition['tier'] =
@@ -1745,6 +1781,8 @@ export async function listAvailableModels(userId: string): Promise<{
       badge: tier === 'local' ? 'local' : 'byok',
       configured,
       custom: true,
+      enabled: c.enabled,
+      isDefault: c.isDefault,
     })
   }
 
@@ -1825,9 +1863,9 @@ function defaultTestModel(provider: ProviderId): string {
     case 'anthropic':
       return 'claude-sonnet-4-6'
     case 'google':
-      return 'gemini-2.0-flash'
+      return 'gemini-3.5-flash'
     case 'xai':
-      return 'grok-3-mini'
+      return 'grok-4.3'
     case 'openrouter':
       return 'openai/gpt-4o-mini'
     case 'mistral':
@@ -1881,17 +1919,47 @@ export function resolveModelPreference(pref?: string | null): string | null {
   return available[0]?.id ?? null
 }
 
-/** Like resolveModelPreference but includes cloud-relay when linked. */
+/**
+ * Like resolveModelPreference but includes cloud-relay when linked, honors the
+ * user's per-model on/off toggles, and prefers the user's chosen default model
+ * (custom or registry) when no explicit preference is given.
+ */
 export async function resolveModelPreferenceForUser(
   userId: string,
   pref?: string | null,
 ): Promise<string | null> {
-  const configured = await hostedProvidersForUser(userId)
+  const [configured, prefRows] = await Promise.all([
+    hostedProvidersForUser(userId),
+    db.userModelPref.findMany({ where: { userId } }),
+  ])
+  const disabled = new Set(
+    prefRows.filter((p) => !p.enabled).map((p) => p.modelId),
+  )
   const available = MODEL_REGISTRY.filter(
-    (m) => m.tier === 'hosted' && configured.includes(m.provider),
+    (m) =>
+      m.tier === 'hosted' &&
+      configured.includes(m.provider) &&
+      !disabled.has(m.id),
   )
 
   if (!pref || pref === 'default') {
+    // 1. The user's default custom model, if enabled.
+    const customDefault = await db.customModel.findFirst({
+      where: { userId, isDefault: true, enabled: true },
+      select: { id: true },
+    })
+    if (customDefault) return customDefault.id
+
+    // 2. The user's default registry model, if enabled + configured.
+    const registryDefault = prefRows.find((p) => p.isDefault && p.enabled)
+    if (registryDefault) {
+      const m = getModel(registryDefault.modelId)
+      if (m && m.tier === 'hosted' && configured.includes(m.provider)) {
+        return m.id
+      }
+    }
+
+    // 3. Env/provider-priority fallback over the enabled set.
     const preferredProvider =
       (process.env.LLM_DEFAULT_PROVIDER as ProviderId | undefined)
       ?? (configured.includes('anthropic') ? 'anthropic' : configured[0])
@@ -1900,7 +1968,12 @@ export async function resolveModelPreferenceForUser(
   }
 
   const direct = getModel(pref)
-  if (direct && direct.tier === 'hosted' && configured.includes(direct.provider)) {
+  if (
+    direct &&
+    direct.tier === 'hosted' &&
+    configured.includes(direct.provider) &&
+    !disabled.has(direct.id)
+  ) {
     return direct.id
   }
 
@@ -1911,8 +1984,23 @@ export async function resolveModelPreferenceForUser(
     return available.find((m) => m.badge === 'powerful')?.id ?? available[0]?.id ?? null
   }
 
+  // A CustomModel id — honor it when the row exists and is enabled
+  // (resolveModel handles custom ids directly).
+  if (!direct) {
+    const custom = await db.customModel.findFirst({
+      where: { id: pref, userId, enabled: true },
+      select: { id: true },
+    })
+    if (custom) return custom.id
+  }
+
   // Concrete registry id when cloud relay makes all hosted providers available.
-  if (direct && direct.tier === 'hosted' && configured.length > 0) {
+  if (
+    direct &&
+    direct.tier === 'hosted' &&
+    configured.length > 0 &&
+    !disabled.has(direct.id)
+  ) {
     return direct.id
   }
 

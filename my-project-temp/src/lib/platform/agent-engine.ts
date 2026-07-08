@@ -1214,6 +1214,19 @@ export async function runAgent(
         [] as { id: string; status: string; startedAt: Date; itemsProcessed: number; flaggedCount: number }[],
       )
 
+  // Durable per-agent memories (written via the save_memory tool) — injected
+  // into the system prompt so the agent actually uses what it learned.
+  const memoriesPromise = effectiveAgentId
+    ? db.agentMemory
+        .findMany({
+          where: { agentId: effectiveAgentId },
+          orderBy: { createdAt: 'desc' },
+          take: 30,
+          select: { kind: true, text: true, source: true, createdAt: true },
+        })
+        .catch(() => [] as { kind: string; text: string; source: string; createdAt: Date }[])
+    : Promise.resolve([] as { kind: string; text: string; source: string; createdAt: Date }[])
+
   const ctx: ToolContext = {
     userId,
     agentId: effectiveAgentId,
@@ -1342,7 +1355,27 @@ export async function runAgent(
 
   const userContextBlock = await userContextBlockPromise
 
-  const contextPrefix = `${userContextBlock}${ownWorkflowBlock}${planBlock}${attachmentBlock}${scriptBlock}`
+  // AGENT MEMORY block — durable facts/preferences/corrections/patterns this
+  // agent saved in past runs via save_memory.
+  let memoryBlock = ''
+  if (effectiveAgentId) {
+    const memories = await memoriesPromise
+    if (memories.length > 0) {
+      memoryBlock =
+        `AGENT MEMORY — durable things you learned in past runs (newest first):\n` +
+        memories
+          .map(
+            (m) =>
+              `- [${m.kind}] ${m.text.slice(0, 300)} (${m.source} · ${m.createdAt.toISOString().slice(0, 10)})`,
+          )
+          .join('\n') +
+        `\nUse these memories. When you learn a NEW durable fact, preference, correction, or recurring pattern, persist it with save_memory. Never re-save one already listed; if the user contradicts a memory, save a correction.\n\n`
+    } else {
+      memoryBlock = `AGENT MEMORY: empty. When you learn a durable fact, user preference, correction, or recurring pattern worth remembering across runs, persist it with save_memory.\n\n`
+    }
+  }
+
+  const contextPrefix = `${userContextBlock}${ownWorkflowBlock}${memoryBlock}${planBlock}${attachmentBlock}${scriptBlock}`
   const goalLine = `Goal: ${goal}${context ? `\n\nAdditional context:\n${context}` : ''}`
 
   const state: LoopState = {

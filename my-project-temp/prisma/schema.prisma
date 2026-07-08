@@ -53,6 +53,8 @@ model User {
   desktopSessions      DesktopSession[]
   integrationSessions  IntegrationSession[]
   assets               UserAsset[]
+  memories             AgentMemory[]
+  modelPrefs           UserModelPref[]
 }
 
 /// NextAuth OAuth account linking. Lets a user sign in with Google (and later
@@ -178,6 +180,7 @@ model Workflow {
   agentData     AgentData[]
   assets        UserAsset[]
   revisions     WorkflowRevision[]
+  memories      AgentMemory[]
 }
 
 // Immutable snapshots of a workflow's steps. Every save (freeze, update,
@@ -435,6 +438,28 @@ model ExecutionPattern {
   ruleJson    String?  // when hardened, the deterministic rule applied
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// Durable per-agent memory. Written by the agent itself via the save_memory
+// tool during runs (or manually via the API) and injected into the agent's
+// system prompt on every subsequent run. Surfaced in the Memory view.
+model AgentMemory {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // The agent (workflow) this memory belongs to.
+  agentId   String
+  agent     Workflow @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  // "entity" | "preference" | "correction" | "pattern"
+  kind      String   @default("entity")
+  text      String
+  // Human provenance label, e.g. "Learned in chat · Jul 8".
+  source    String   @default("Learned in chat")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([agentId, createdAt])
+  @@index([userId])
 }
 
 // AI-auth vault preview: credentials an agent can provision / retrieve / pay with.
@@ -783,6 +808,24 @@ model CustomModel {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([userId])
+}
+
+// Per-user preferences for built-in (registry) models: on/off in the picker
+// and the user's default. Absence of a row means enabled + not default.
+// (Custom models carry their own enabled/isDefault columns on CustomModel.)
+model UserModelPref {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // MODEL_REGISTRY id, e.g. "openai:gpt-4o" or "anthropic:claude-sonnet-4-6".
+  modelId   String
+  enabled   Boolean  @default(true)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, modelId])
   @@index([userId])
 }
 

@@ -7,7 +7,6 @@ import { VaultTab } from "./vault-tab";
 import { DataTab } from "./data-tab";
 import { BillingTab } from "./billing-tab";
 import { SettingsView } from "./settings-view";
-import { TemplatesView } from "./templates-view";
 import { ActivityView } from "./activity-view";
 import { MemoryView } from "./memory-view";
 import {
@@ -324,7 +323,6 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
         {mode === "data" && <DataTab />}
         {mode === "billing" && <BillingTab />}
         {mode === "settings" && <SettingsView />}
-        {mode === "templates" && <TemplatesView />}
         {mode === "activity" && <ActivityView />}
         {mode === "memory" && <MemoryView />}
       </main>

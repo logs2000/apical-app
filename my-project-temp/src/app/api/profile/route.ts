@@ -53,6 +53,7 @@ export async function GET(req: Request) {
       companyName: row.companyName,
       industry: row.industry,
       notes: row.notes,
+      agentNameStyle: row.agentNameStyle,
       dataSources,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
@@ -70,11 +71,13 @@ interface PatchBody {
   companyName?: string
   industry?: string
   notes?: string
+  agentNameStyle?: string
   dataSources?: DataSource[]
 }
 
 // PATCH /api/profile — upsert the caller's profile. `dataSources` is an
-// array of { label, kind, detail }.
+// array of { label, kind, detail }. `agentNameStyle` is "evocative" |
+// "descriptive" (drives how new agents are named — see /api/agent/title).
 export async function PATCH(req: Request) {
   try {
     const user = await getCurrentUser(req)
@@ -93,6 +96,12 @@ export async function PATCH(req: Request) {
     if (typeof body.notes === 'string') {
       data.notes = body.notes
     }
+    if (
+      typeof body.agentNameStyle === 'string' &&
+      ['evocative', 'descriptive'].includes(body.agentNameStyle)
+    ) {
+      data.agentNameStyle = body.agentNameStyle
+    }
     if (Array.isArray(body.dataSources)) {
       const clean = body.dataSources
         .filter(
@@ -109,7 +118,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json(
         {
           error:
-            'No changes provided. Send companyName, industry, notes, or dataSources.',
+            'No changes provided. Send companyName, industry, notes, agentNameStyle, or dataSources.',
         },
         { status: 400 },
       )
@@ -124,6 +133,9 @@ export async function PATCH(req: Request) {
         companyName: typeof body.companyName === 'string' ? body.companyName : '',
         industry: typeof body.industry === 'string' ? body.industry : '',
         notes: typeof body.notes === 'string' ? body.notes : '',
+        ...(typeof data.agentNameStyle === 'string'
+          ? { agentNameStyle: data.agentNameStyle as string }
+          : {}),
         dataSourcesJson:
           typeof data.dataSourcesJson === 'string'
             ? (data.dataSourcesJson as string)
@@ -142,6 +154,7 @@ export async function PATCH(req: Request) {
       companyName: updated.companyName,
       industry: updated.industry,
       notes: updated.notes,
+      agentNameStyle: updated.agentNameStyle,
       dataSources,
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString(),
