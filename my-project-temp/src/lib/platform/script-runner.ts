@@ -9,6 +9,7 @@
 import { spawn, type ChildProcess } from 'child_process'
 import { createHash } from 'crypto'
 import { mkdir, writeFile, readFile, rm, stat, readdir } from 'fs/promises'
+import { existsSync } from 'fs'
 import { tmpdir } from 'os'
 import path from 'path'
 
@@ -72,22 +73,95 @@ function truncate(s: string): string {
   return s.length > MAX_OUTPUT ? s.slice(0, MAX_OUTPUT) + `\n…(truncated)` : s
 }
 
+const POSIX = process.platform !== 'win32'
+
+// prlimit (util-linux) lets us cap resources on untrusted code without a full
+// container: CPU seconds, address space, process count (fork-bomb), file size,
+// open files. Best-effort — if it isn't installed the code still runs, just
+// without the caps. Detected once.
+let prlimitPath: string | null | undefined
+function findPrlimit(): string | null {
+  if (prlimitPath !== undefined) return prlimitPath
+  prlimitPath = POSIX
+    ? (['/usr/bin/prlimit', '/bin/prlimit', '/sbin/prlimit'].find((p) => {
+        try {
+          return existsSync(p)
+        } catch {
+          return false
+        }
+      }) ?? null)
+    : null
+  return prlimitPath
+}
+
+/** Resource caps for untrusted user code (override via env). */
+const HARD_CPU_SECONDS = Number(process.env.APICAL_SANDBOX_CPU_SECONDS) || 60
+const HARD_AS_BYTES = Number(process.env.APICAL_SANDBOX_MEM_BYTES) || 2 * 1024 * 1024 * 1024
+const HARD_NPROC = Number(process.env.APICAL_SANDBOX_NPROC) || 256
+const HARD_FSIZE_BYTES = Number(process.env.APICAL_SANDBOX_FSIZE_BYTES) || 512 * 1024 * 1024
+const HARD_NOFILE = 1024
+
+// When `hardened`, prepend prlimit so a runaway can't fork-bomb, exhaust memory,
+// or fill the disk. Returns the (possibly wrapped) command + args.
+function applyLimits(cmd: string, args: string[], hardened: boolean): { cmd: string; args: string[] } {
+  if (!hardened) return { cmd, args }
+  const prlimit = findPrlimit()
+  if (!prlimit) return { cmd, args }
+  return {
+    cmd: prlimit,
+    args: [
+      `--cpu=${HARD_CPU_SECONDS}`,
+      `--as=${HARD_AS_BYTES}`,
+      `--nproc=${HARD_NPROC}`,
+      `--fsize=${HARD_FSIZE_BYTES}`,
+      `--nofile=${HARD_NOFILE}`,
+      '--',
+      cmd,
+      ...args,
+    ],
+  }
+}
+
 function run(
   cmd: string,
   args: string[],
-  opts: { cwd?: string; env?: Record<string, string>; timeoutMs: number; input?: string },
+  opts: {
+    cwd?: string
+    env?: Record<string, string>
+    timeoutMs: number
+    input?: string
+    /** Untrusted user code: run under resource limits (installs stay off). */
+    hardened?: boolean
+  },
 ): Promise<ScriptRunResult> {
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>
+    const launch = applyLimits(cmd, args, !!opts.hardened)
     try {
-      child = spawn(cmd, args, {
+      child = spawn(launch.cmd, launch.args, {
         cwd: opts.cwd,
         env: scrubbedEnv(opts.env),
         stdio: ['pipe', 'pipe', 'pipe'],
+        // Own process group so a timeout kills the whole tree, not just the
+        // direct child — a script that spawns subprocesses can't orphan them.
+        detached: POSIX,
       })
     } catch (e) {
       resolve({ ok: false, stdout: '', stderr: '', exitCode: null, error: (e as Error).message })
       return
+    }
+    // Kill the process GROUP (negative pid) when we can, so grandchildren die too.
+    const killTree = () => {
+      try {
+        if (POSIX && typeof child.pid === 'number') process.kill(-child.pid, 'SIGKILL')
+        else child.kill('SIGKILL')
+      } catch {
+        try {
+          child.kill('SIGKILL')
+        } catch {
+          /* already gone */
+        }
+      }
     }
     let stdout = ''
     let stderr = ''
@@ -95,7 +169,7 @@ function run(
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      child.kill('SIGKILL')
+      killTree()
       resolve({
         ok: false,
         stdout: truncate(stdout),
@@ -180,6 +254,7 @@ export async function runNodeScript(
       cwd: dir,
       ...(opts.data ? { env: { APICAL_DATA: opts.data } } : {}),
       timeoutMs: opts.timeoutMs ?? 60_000,
+      hardened: true,
     })
   } finally {
     void rm(scriptPath, { force: true }).catch(() => {})
@@ -226,6 +301,7 @@ export async function runPythonScript(
   return run(python, ['-c', code], {
     ...(opts.data ? { env: { APICAL_DATA: opts.data } } : {}),
     timeoutMs: opts.timeoutMs ?? 60_000,
+    hardened: true,
   })
 }
 
@@ -266,6 +342,7 @@ export async function runCodeEval(code: string, data?: unknown): Promise<CodeEva
       cwd: dir,
       timeoutMs: CODE_EVAL_TIMEOUT_MS,
       ...(data !== undefined ? { env: { APICAL_DATA: JSON.stringify(data) } } : {}),
+      hardened: true,
     })
     if (!res.ok && res.error && !res.stdout.includes('__APICAL_EVAL__')) {
       return { ok: false, error: res.error }
