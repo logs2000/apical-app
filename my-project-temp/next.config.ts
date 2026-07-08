@@ -60,6 +60,8 @@ const nextConfig: NextConfig = {
         "os",
         "crypto",
         "net",
+        "dns",
+        "dns/promises",
         "tls",
         "child_process",
         "stream",

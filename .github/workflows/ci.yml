@@ -104,3 +104,11 @@ jobs:
       - name: Smoke suite
         working-directory: my-project-temp
         run: bash scripts/smoke/run-all.sh
+
+      # Build the production web app — catches webpack/Edge-runtime resolution
+      # errors that tsc alone misses (e.g. a node: builtin not stubbed for Edge).
+      - name: Build (next build)
+        working-directory: my-project-temp
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: bun run build
