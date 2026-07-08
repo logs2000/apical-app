@@ -39,6 +39,14 @@
   "exclude": [
     "node_modules",
     "examples",
-    "mini-services"
+    // The dev/CI harness (smoke scripts, unit tests) and the bun mini-services
+    // are NOT part of the web app build. Excluding a dir doesn't stop tsc from
+    // following imports into it — the smoke scripts import mini-services code,
+    // whose deps (playwright) only exist in per-service node_modules — so
+    // `next build`'s type check must not start from them. CI type-checks the
+    // full tree via tsconfig.ci.json, where those deps are installed.
+    "mini-services",
+    "scripts",
+    "tests"
   ]
 }

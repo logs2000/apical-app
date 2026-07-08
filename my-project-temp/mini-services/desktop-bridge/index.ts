@@ -458,14 +458,21 @@ function countOnlineDesktops(): number {
   return n
 }
 
-function readJson(req: IncomingMessage): Promise<unknown> {
+function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', () => {
       try {
         const raw = Buffer.concat(chunks).toString('utf8')
-        resolve(raw ? JSON.parse(raw) : {})
+        const parsed: unknown = raw ? JSON.parse(raw) : {}
+        // Callers expect a JSON object; a non-object body (array, string,
+        // number) is treated as empty and fails their field validation.
+        resolve(
+          parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : {},
+        )
       } catch (err) {
         reject(err)
       }
