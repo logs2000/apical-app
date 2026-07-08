@@ -2,8 +2,9 @@
 //
 // Drives the outbound email layer: gate approvals, flagged items, daily briefs,
 // schedule outcomes, billing receipts, system notices. Every send writes an
-// EmailLog row first (status='queued'), then attempts the actual SMTP send (or,
-// in dev with no SMTP_URI, just logs the would-be send and marks it 'sent').
+// EmailLog row first (status='queued'), then attempts the actual SMTP send. If
+// no SMTP_URI is configured it does NOT send — it records the row as 'logged'
+// (never 'sent'), so nothing claims mail went out when it didn't.
 //
 // SMTP transport is a zero-dependency minimal SMTPS client built on Node's
 // `net` + `tls` modules — parses `smtps://user:pass@host:465` style URIs and
@@ -490,16 +491,18 @@ export async function sendEmail(p: SendEmailParams): Promise<EmailLog> {
   // 3. Attempt the send.
   try {
     const from = getFromEmail()
-    if (isSmtpConfigured()) {
-      const raw = buildRawMessage(from, p.to, p.subject, p.body)
-      await deliverViaSmtp(from, p.to, raw)
-    } else {
-      // Dev / log-only mode: SMTP_URI is empty (or unparseable). Don't
-      // attempt a send — just log it for the developer + mark as 'sent'.
-      console.log(
-        `[notifications] (dev, not sent) ${p.kind} → ${p.to}: ${p.subject}`,
-      )
+    if (!isSmtpConfigured()) {
+      // Log-only mode: SMTP_URI is empty (or unparseable). Nothing was sent, so
+      // record it honestly as 'logged' — never 'sent' — so the email log and any
+      // "delivered" counts don't claim mail went out when it didn't.
+      console.log(`[notifications] (log-only, not sent) ${p.kind} → ${p.to}: ${p.subject}`)
+      return await db.emailLog.update({
+        where: { id: row.id },
+        data: { status: 'logged' },
+      })
     }
+    const raw = buildRawMessage(from, p.to, p.subject, p.body)
+    await deliverViaSmtp(from, p.to, raw)
     return await db.emailLog.update({
       where: { id: row.id },
       data: { status: 'sent', sentAt: new Date() },

@@ -25,7 +25,6 @@ import {
   Database,
   CreditCard,
   Settings,
-  LayoutTemplate,
   Activity,
   Brain,
   Wand2,
@@ -58,7 +57,10 @@ export const PRIMARY_NAV: NavItem[] = [
 export const SECONDARY_NAV: NavItem[] = [
   { key: "settings", label: "Settings", icon: Settings, shortcut: "," },
   { key: "billing", label: "Billing", icon: CreditCard },
-  { key: "templates", label: "Templates", icon: LayoutTemplate },
+  // "Templates" is hidden until it's backed by real, installable templates —
+  // the current gallery is demo-only (installs are local), so shipping it in the
+  // nav would promise a feature that doesn't do anything yet. The view code
+  // stays for when it's built out.
   { key: "activity", label: "Activity", icon: Activity },
   { key: "memory", label: "Memory", icon: Brain },
   { key: "skills", label: "Skills", icon: Wand2 },

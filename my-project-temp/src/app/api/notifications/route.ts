@@ -6,8 +6,8 @@
 //   POST  /api/notifications  { to?, subject, body, kind }
 //         → send a test / system email. `to` defaults to the user's email.
 //           Respects notification prefs: if `kind` is disabled, returns
-//           status='skipped'. In dev (no SMTP_URI) the row is marked 'sent'
-//           but no real send happens (log-only).
+//           status='skipped'. With no SMTP_URI configured no real send happens
+//           and the row is marked 'logged' (not 'sent').
 
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
