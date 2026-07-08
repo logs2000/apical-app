@@ -85,6 +85,10 @@ jobs:
         working-directory: my-project-temp
         run: bunx tsc --noEmit
 
+      - name: Unit tests
+        working-directory: my-project-temp
+        run: bun test tests/
+
       # `bun run lint` exits non-zero on the known pre-existing baseline. Enforce
       # "no new problems" by failing only when the count exceeds the baseline.
       - name: Lint (enforce the 12-problem baseline)
