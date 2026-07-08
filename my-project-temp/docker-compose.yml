@@ -1,0 +1,146 @@
+# Apical single-box deployment: Postgres + the web app + the four network
+# mini-services + a Caddy edge proxy, all from one image.
+#
+# Quickstart:
+#   1. cp .env.docker.example .env.docker   (and fill in the secrets)
+#   2. docker compose --env-file .env.docker build
+#   3. docker compose --env-file .env.docker up -d
+#   4. curl http://localhost:${APICAL_HTTP_PORT:-8080}/api/health
+#
+# Migrations + backfills run once via the `migrate` service before the app
+# starts (prisma migrate deploy — never db push).
+
+name: apical
+
+x-app-image: &app-image
+  image: apical
+  build: .
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.docker}@postgres:5432/${POSTGRES_DB:-apical}
+  DIRECT_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-apical}
+  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?set NEXTAUTH_SECRET in .env.docker}
+  APICAL_VAULT_KEY: ${APICAL_VAULT_KEY:?set APICAL_VAULT_KEY in .env.docker}
+  # Shared service-auth secrets (the app authenticates to each mini-service).
+  APICAL_RELAY_SECRET: ${APICAL_RELAY_SECRET:?set APICAL_RELAY_SECRET in .env.docker}
+  APICAL_SCHEDULER_SECRET: ${APICAL_SCHEDULER_SECRET:?set APICAL_SCHEDULER_SECRET in .env.docker}
+  APICAL_BRIDGE_SECRET: ${APICAL_BRIDGE_SECRET:?set APICAL_BRIDGE_SECRET in .env.docker}
+  AGENT_WORKER_SECRET: ${AGENT_WORKER_SECRET:?set AGENT_WORKER_SECRET in .env.docker}
+  # In-cluster service URLs (compose DNS names).
+  RELAY_URL: http://run-relay:3003
+  BRIDGE_URL: http://desktop-bridge:3005
+  AGENT_WORKER_URL: http://agent-worker:3006
+  # Web auth: Supabase in a hosted deploy. DESKTOP_LOCAL=true switches to the
+  # local credentials path (no Supabase) — single-user/self-hosted only.
+  DESKTOP_LOCAL: ${DESKTOP_LOCAL:-false}
+  NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+  SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+  # LLM providers (set at least one, or link Apical cloud PATs per user).
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+  XAI_API_KEY: ${XAI_API_KEY:-}
+  LLM_DEFAULT_PROVIDER: ${LLM_DEFAULT_PROVIDER:-}
+  # Optional integrations.
+  SMTP_URI: ${SMTP_URI:-}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  # The public origin of this deployment (used for desktop-bridge CORS).
+  APICAL_BRIDGE_CORS_ORIGINS: ${APICAL_PUBLIC_ORIGIN:-}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.docker}
+      POSTGRES_DB: ${POSTGRES_DB:-apical}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d $${POSTGRES_DB:-apical}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # One-shot: apply committed migrations + registered backfills, then exit.
+  migrate:
+    <<: *app-image
+    command: ['bun', 'run', 'db:release']
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  app:
+    <<: *app-image
+    command: ['bun', '.next/standalone/server.js']
+    environment:
+      <<: *app-env
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'bun', '-e', "const r = await fetch('http://127.0.0.1:3000/api/health'); process.exit(r.status < 500 ? 0 : 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  run-relay:
+    <<: *app-image
+    command: ['bun', 'mini-services/run-relay/index.ts']
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  scheduler:
+    <<: *app-image
+    command: ['bun', 'mini-services/scheduler/index.ts']
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  desktop-bridge:
+    <<: *app-image
+    command: ['bun', 'mini-services/desktop-bridge/index.ts']
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  agent-worker:
+    <<: *app-image
+    command: ['bun', 'mini-services/agent-worker/index.ts']
+    environment: *app-env
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - '${APICAL_HTTP_PORT:-8080}:80'
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:

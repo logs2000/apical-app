@@ -34,6 +34,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.docker.example
 
 # vercel
 .vercel
@@ -72,3 +73,7 @@ server.log
 /public/downloads/*.dmg
 /public/downloads/*.exe
 /public/downloads/*.AppImage
+
+# build-time extra CA certs (corporate/CI proxies) — never commit real certs
+docker/certs/*.crt
+!docker/certs/.gitkeep

@@ -1,0 +1,14 @@
+# Compose edge proxy. Terminates HTTP on :80 and forwards everything to the
+# Next.js app; socket.io upgrades pass through untouched.
+#
+# For TLS in production, change the site address to your domain (e.g.
+# `apical.example.com`) and Caddy provisions certificates automatically —
+# publish 443 in docker-compose.yml when you do.
+:80 {
+	reverse_proxy app:3000 {
+		header_up Host {host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+}
