@@ -29,6 +29,25 @@ from the app's schema.
 - A machine with a normal storage driver (overlay2). ~4 GB RAM to start.
 - At least one LLM provider key, or users linking their own Apical cloud token.
 
+## Picking a box (cheap-first)
+
+Any VPS that runs Docker works. Realistic starting points:
+
+- **Oracle Cloud "Always Free"** — up to 4 ARM cores / 24 GB RAM, genuinely $0
+  forever. Best free option; signup and regional capacity can be finicky.
+- **Hetzner CX22 / CAX11** — ~€4/mo for 4 GB RAM. The dependable budget pick.
+- **DigitalOcean / Vultr / Linode** — ~$6/mo for 1–2 GB (tight; prefer 4 GB).
+
+PaaS free tiers (Render, Railway, Fly) are not a fit: this stack is six
+always-on containers plus optional Chromium, which free tiers sleep, cap, or
+price per-service. A VPS + the push-to-deploy workflow below gets you the same
+"git push and it's live" feel at a fraction of the cost.
+
+You can also skip the bundled Postgres and point `DATABASE_URL` at a managed
+database (e.g. Supabase's free tier) — then don't start the `postgres`/`migrate`
+dependency on it, and you get managed backups for free while the box only runs
+the app + services.
+
 ## Quickstart
 
 ```bash
@@ -77,6 +96,36 @@ The app validates configuration at boot: it logs a grouped checklist and, in
 production, refuses to start if a hard-required variable is missing (fail fast
 instead of serving a broken app). Demo OAuth connections are disabled in
 production unless `ALLOW_DEMO_OAUTH=true`.
+
+## Push-to-deploy (Vercel-like)
+
+`.github/workflows/deploy.yml` gives the compose stack a Vercel-style flow:
+every push to `main` SSHes into the box, fast-forwards the checkout, rebuilds,
+migrates, restarts, and fails the workflow unless `/api/health` comes back.
+It is a silent no-op until the secrets exist, so setup is:
+
+**One-time on the box** (Ubuntu/Debian):
+
+```bash
+curl -fsSL https://get.docker.com | sh          # Docker + compose plugin
+sudo mkdir -p /opt/apical && sudo chown $USER /opt/apical
+git clone https://github.com/logs2000/apical-app /opt/apical
+cd /opt/apical/my-project-temp
+cp .env.docker.example .env.docker && $EDITOR .env.docker   # fill in secrets
+bash scripts/deploy/update.sh                   # first build + migrate + up
+```
+
+**One-time on GitHub** (repo → Settings → Secrets and variables → Actions):
+
+- `DEPLOY_HOST` — the box's IP or hostname
+- `DEPLOY_USER` — SSH user (must be able to run docker)
+- `DEPLOY_SSH_KEY` — a dedicated ed25519 private key; put its `.pub` in the
+  user's `~/.ssh/authorized_keys` (`ssh-keygen -t ed25519 -f deploy_key`)
+- `DEPLOY_PATH` — optional, defaults to `/opt/apical`
+
+From then on, merging to `main` deploys. `workflow_dispatch` lets you redeploy
+the current main by hand, and `scripts/deploy/update.sh` is the same script you
+can run on the box directly.
 
 ## TLS
 

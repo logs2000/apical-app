@@ -1,0 +1,64 @@
+# Push-to-deploy: every push to main SSHes into the single-box VPS, fast-forwards
+# the checkout, and runs the compose update script (build → migrate → up →
+# health-check). Vercel-like flow for the docker-compose stack in docs/DEPLOY.md.
+#
+# No-op until these repository SECRETS are configured (Settings → Secrets):
+#   DEPLOY_HOST      e.g. 203.0.113.7 or apical.example.com
+#   DEPLOY_USER      SSH user on the box (needs docker access)
+#   DEPLOY_SSH_KEY   private key (ed25519) whose public half is in the user's
+#                    authorized_keys
+#   DEPLOY_PATH      optional; repo checkout path on the box (default /opt/apical)
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check deploy secrets
+        id: gate
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$KEY" ]; then
+            echo "Deploy secrets not configured — skipping (see .github/workflows/deploy.yml header)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up SSH
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy over SSH
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          SHA: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$USER@$HOST" \
+            "set -euo pipefail; \
+             cd '${DEPLOY_PATH:-/opt/apical}'; \
+             git fetch origin main; \
+             git reset --hard '$SHA'; \
+             bash my-project-temp/scripts/deploy/update.sh"
