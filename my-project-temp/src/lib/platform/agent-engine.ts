@@ -49,6 +49,7 @@ import {
   type ClarificationRequest,
 } from './agent-tools'
 import { sanitizeTraceInput, traceStepLabel, savedWorkflowHasExecutableSteps } from './workflow-trace'
+import { evaluateActionGate } from './action-policy'
 import {
   clientPlatformFromRequest,
   runtimeContextForLLM,
@@ -155,6 +156,15 @@ export interface AgentRunOptions {
   /** Spawn runs: the agent is told to end with JSON matching this shape; the
    *  parsed object surfaces on the final event as `structured`. */
   outputShape?: Record<string, string>
+  // ---- Destructive-action gate (Protection 3) ----
+  /** User's approval tier. Default 'always' (critical still gates). */
+  approvalTier?: 'ask' | 'allowlist' | 'always'
+  /** Program basenames auto-allowed in 'allowlist' tier. */
+  cliAllowlist?: string[]
+  /** No human present (scheduled/cron run) — caution/critical gates become denials. */
+  headless?: boolean
+  /** One-shot approval tokens granted by the user for specific actions. */
+  approvedActionSignatures?: string[]
 }
 
 /** A resumable snapshot of an in-flight native loop. JSON-serializable. */
@@ -371,6 +381,42 @@ function buildObservationText(tool: string, result: ToolResult, def: ToolDef): s
  * recording, credential tracking, and a hard timeout. Emits events but NOT the
  * batch-level acting/thinking status (the caller manages that). Never throws.
  */
+// End the current turn with the pending clarification/approval card. Used when a
+// work-tool gate (Protection 3) pauses the run — mirrors the request_review exit.
+function finishWithClarification(
+  ctx: ToolContext,
+  onEvent: (event: AgentEvent) => void,
+  counters: { iterations: number; toolCalls: number; tokensUsed: number },
+): AgentRunResult {
+  const question = ctx.clarification!
+  const answer =
+    question.kind === 'review'
+      ? `I need your approval before continuing: ${question.question}`
+      : `Before I continue, I need a bit more detail: ${question.question}`
+  onEvent({ type: 'clarification', question })
+  onEvent({ type: 'status', status: 'done' })
+  onEvent({
+    type: 'final',
+    answer,
+    findings: ctx.findings,
+    attachments: ctx.producedAssets,
+    plan: ctx.plan,
+    clarification: question,
+    credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
+  })
+  return {
+    answer,
+    findings: ctx.findings,
+    attachments: ctx.producedAssets,
+    plan: ctx.plan,
+    clarification: question,
+    credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
+    ...counters,
+  }
+}
+
 async function executeWorkTool(
   call: { tool: string; input: Record<string, unknown> },
   ctx: ToolContext,
@@ -444,6 +490,65 @@ async function executeWorkTool(
         observationText: `Error — ${freezeCheck.error}`,
       }
     }
+  }
+
+  // --- Enforced destructive-action gate (Protection 3) ---
+  // Classify the call and apply the user's approval tier. Runs BEFORE the tool
+  // does anything. 'gate' ends the turn with an approval card; 'deny' blocks.
+  // This does not depend on the model choosing request_review.
+  {
+    // Default tier is 'always' so existing behavior is preserved (routine
+    // 'caution' actions run) while the 'critical' floor still fires. Users opt
+    // into 'ask'/'allowlist' for tighter gating (Protection 1).
+    const gate = evaluateActionGate(tool, input, {
+      tier: ctx.approvalTier ?? 'always',
+      headless: ctx.headless ?? false,
+      cliAllowlist: ctx.cliAllowlist,
+      approvedSignatures: ctx.approvedActionSignatures,
+    })
+    if (gate.outcome === 'deny') {
+      onEvent({ type: 'tool_call', tool, input })
+      onEvent({
+        type: 'observation',
+        tool,
+        ok: false,
+        output: null,
+        error: gate.message,
+        display: { title: `Blocked: ${tool}`, summary: gate.summary || 'not permitted', kind: 'info' },
+      })
+      return {
+        result: { ok: false, output: null, error: gate.message },
+        observationText: `BLOCKED — ${gate.summary} ${gate.message} Do not retry this action; choose a safer, narrower approach or tell the user it needs interactive approval.`,
+      }
+    }
+    if (gate.outcome === 'gate') {
+      // Pause: surface an approval card (reuses the request_review path) and
+      // record the exact action so approving it grants a one-shot token.
+      ctx.pendingApproval = { signature: gate.signature, tool, summary: gate.summary, level: gate.level === 'critical' ? 'critical' : 'caution' }
+      ctx.clarification = {
+        id: `gate-${tool}-${ctx.executionTrace?.length ?? 0}`,
+        kind: 'review',
+        question: `Approve this ${gate.level === 'critical' ? 'critical ' : ''}action? ${gate.summary}`,
+        options: [
+          { key: 'approve', label: 'Approve & run' },
+          { key: 'cancel', label: 'Cancel' },
+        ],
+        multiple: false,
+      }
+      onEvent({ type: 'tool_call', tool, input })
+      onEvent({
+        type: 'observation',
+        tool,
+        ok: false,
+        output: null,
+        display: { title: `Needs your approval: ${tool}`, summary: gate.summary, kind: 'info' },
+      })
+      return {
+        result: { ok: false, output: null, error: 'awaiting_approval' },
+        observationText: `PAUSED for your approval — ${gate.summary} (${gate.message}). The turn ends here; the action runs only after the user approves.`,
+      }
+    }
+    if (gate.consumedApproval) ctx.approvedActionSignatures?.delete(gate.signature)
   }
 
   onEvent({ type: 'tool_call', tool, input })
@@ -869,6 +974,8 @@ async function runNativeLoop(
           ...(images ? { images } : {}),
         })
       })
+      // A destructive-action gate paused the run — end the turn with the card.
+      if (ctx.clarification) return finishWithClarification(ctx, onEvent, { iterations, toolCalls, tokensUsed })
       onEvent({ type: 'status', status: 'thinking' })
     }
 
@@ -1195,6 +1302,8 @@ async function runLegacyLoop(
       const { observationText } = await executeWorkTool({ tool, input }, ctx, opts.signal, onEvent)
       toolCalls += 1
       messages.push({ role: 'user', content: `Observation (${tool}): ${observationText}` })
+      // A destructive-action gate paused the run — end the turn with the card.
+      if (ctx.clarification) return finishWithClarification(ctx, onEvent, { iterations, toolCalls, tokensUsed })
       onEvent({ type: 'status', status: 'thinking' })
       continue
     }
@@ -1388,6 +1497,10 @@ export async function runAgent(
     userGoal: goal,
     signal: opts.signal,
     isSubagent: opts.isSubagent,
+    approvalTier: opts.approvalTier,
+    cliAllowlist: opts.cliAllowlist,
+    headless: opts.headless,
+    approvedActionSignatures: new Set(opts.approvedActionSignatures ?? []),
   }
 
   // Carry an unfinished checklist forward so the agent resumes it.

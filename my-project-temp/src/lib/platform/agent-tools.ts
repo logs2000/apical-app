@@ -216,6 +216,20 @@ export interface ToolContext {
   /** The browser session opened for this run (lazily, by the browser tool);
    *  closed by the engine when the run ends. */
   browserSessionId?: string | null
+  // ---- Destructive-action gate (Protection 3) ----
+  /** The user's approval tier for destructive actions ('ask'|'allowlist'|'always').
+   *  Defaults to 'ask' when unset (fail-safe). */
+  approvalTier?: 'ask' | 'allowlist' | 'always'
+  /** Program basenames auto-allowed in 'allowlist' tier. */
+  cliAllowlist?: string[]
+  /** No human is present to approve (scheduled/cron/background run). */
+  headless?: boolean
+  /** One-shot approval tokens (action signatures) granted by the user; a match
+   *  lets the exact action run once, then is consumed. */
+  approvedActionSignatures?: Set<string>
+  /** Set by the engine when a destructive action is gated — the exact action to
+   *  persist so approving it grants a one-shot token. */
+  pendingApproval?: { signature: string; tool: string; summary: string; level: 'caution' | 'critical' }
   /** True when this run is itself a spawned subagent — blocks further spawning
    *  (no recursive subagent forests in v1). */
   isSubagent?: boolean

@@ -1,7 +1,7 @@
 /// <reference types="bun-types" />
 // Unit: the gate decision brain. The safety-critical invariants are the table.
 import { test, expect, describe } from 'bun:test'
-import { decideGate, actionSignature } from '../../src/lib/platform/action-policy'
+import { decideGate, actionSignature, evaluateActionGate } from '../../src/lib/platform/action-policy'
 import type { GateContext } from '../../src/lib/platform/action-policy'
 
 const d = (o: Partial<GateContext>) =>
@@ -33,6 +33,30 @@ describe('caution follows the tier', () => {
     expect(d({ level: 'caution', tier: 'allowlist', allowlisted: false, headless: true })).toBe('deny'))
   test('approved caution runs regardless of tier', () =>
     expect(d({ level: 'caution', tier: 'ask', approved: true })).toBe('run'))
+})
+
+describe('evaluateActionGate (classify + allowlist + decide, end to end)', () => {
+  test('safe tool runs (non-gradable)', () =>
+    expect(evaluateActionGate('web_read', { url: 'x' }, { tier: 'ask', headless: false }).outcome).toBe('run'))
+  test('rm -rf / is gated even under always (critical floor)', () =>
+    expect(evaluateActionGate('cli_run', { command: 'rm -rf /' }, { tier: 'always', headless: false }).outcome).toBe('gate'))
+  test('rm -rf / is DENIED when headless', () =>
+    expect(evaluateActionGate('cli_run', { command: 'rm -rf /' }, { tier: 'always', headless: true }).outcome).toBe('deny'))
+  test('routine ls runs under always (default), gates under ask', () => {
+    expect(evaluateActionGate('cli_run', { command: 'ls' }, { tier: 'always', headless: false }).outcome).toBe('run')
+    expect(evaluateActionGate('cli_run', { command: 'ls' }, { tier: 'ask', headless: false }).outcome).toBe('gate')
+  })
+  test('allowlist tier: git allowed, curl gated', () => {
+    const pol = { tier: 'allowlist' as const, headless: false, cliAllowlist: ['git', 'npm'] }
+    expect(evaluateActionGate('cli_run', { command: 'git status' }, pol).outcome).toBe('run')
+    expect(evaluateActionGate('cli_run', { command: 'curl http://x' }, pol).outcome).toBe('gate')
+  })
+  test('a matching approval token lets a critical action run once', () => {
+    const sig = actionSignature('cli_run', { command: 'rm -rf /' })
+    const r = evaluateActionGate('cli_run', { command: 'rm -rf /' }, { tier: 'ask', headless: false, approvedSignatures: new Set([sig]) })
+    expect(r.outcome).toBe('run')
+    expect(r.consumedApproval).toBe(true)
+  })
 })
 
 describe('actionSignature is stable + specific', () => {

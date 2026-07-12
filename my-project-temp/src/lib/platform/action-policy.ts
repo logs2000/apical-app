@@ -6,6 +6,7 @@
 // executeWorkTool (agent) and the workflow runtime; this is the policy brain.
 
 import type { RiskLevel } from './action-risk'
+import { classifyToolCall, isGradableTool } from './action-risk'
 
 /** The three user-facing tiers (Protection 1). 'off' means the capability is
  *  disabled entirely (handled upstream); the tiers here govern what happens to
@@ -75,6 +76,65 @@ export function decideGate(ctx: GateContext): GateDecision {
   return ctx.headless
     ? { outcome: 'deny', message: 'This action needs approval and no one is present (scheduled run). Blocked.' }
     : { outcome: 'gate', message: 'You asked to approve actions like this before they run.' }
+}
+
+/** Policy inputs the engine supplies (subset of ToolContext). */
+export interface ActionGatePolicy {
+  tier: ApprovalTier
+  headless: boolean
+  cliAllowlist?: string[]
+  approvedSignatures?: Set<string>
+}
+
+export interface ActionGateResult {
+  outcome: GateOutcome
+  level: RiskLevel
+  signature: string
+  summary: string
+  message: string
+  /** True when a one-shot token was matched (caller should consume it on run). */
+  consumedApproval: boolean
+}
+
+/** Full gate evaluation for a tool call: classify → allowlist → decide. Pure so
+ *  it's unit-testable without the engine. Non-gradable/safe → outcome 'run'. */
+export function evaluateActionGate(
+  tool: string,
+  input: Record<string, unknown>,
+  policy: ActionGatePolicy,
+): ActionGateResult {
+  const base = { level: 'safe' as RiskLevel, signature: '', summary: '', message: '', consumedApproval: false }
+  if (!isGradableTool(tool)) return { ...base, outcome: 'run' }
+  const risk = classifyToolCall(tool, input)
+  if (risk.level === 'safe') return { ...base, outcome: 'run' }
+
+  const signature = actionSignature(tool, input)
+  const approved = policy.approvedSignatures?.has(signature) ?? false
+
+  // Allowlist match for cli in 'allowlist' tier: program basename on the list.
+  let allowlisted = false
+  if (policy.tier === 'allowlist' && tool === 'cli_run') {
+    const program = firstProgram(String(input.command ?? ''))
+    allowlisted = !!program && (policy.cliAllowlist ?? []).some((a) => basename(a) === program)
+  }
+
+  const decision = decideGate({ level: risk.level, tier: policy.tier, headless: policy.headless, approved, allowlisted })
+  return {
+    outcome: decision.outcome,
+    level: risk.level,
+    signature,
+    summary: risk.summary,
+    message: decision.message,
+    consumedApproval: approved && decision.outcome === 'run',
+  }
+}
+
+function basename(p: string): string {
+  return (p.split(/[/\\]/).pop() ?? '').toLowerCase()
+}
+function firstProgram(command: string): string {
+  const first = command.trim().split(/\s+/)[0] ?? ''
+  return basename(first)
 }
 
 /** Stable signature for a one-shot approval token: same action → same key. */
