@@ -3,7 +3,21 @@
 // (code, HTTP, MCP, integrations, gates). Production runs execute WITHOUT an
 // agent. Agents design, freeze, schedule, monitor, and improve workflows.
 
-export type StepKind = 'tool' | 'reason' | 'gate' | 'spawn'
+export type StepKind = 'tool' | 'reason' | 'gate' | 'spawn' | 'branch' | 'loop' | 'map'
+
+export type ConditionOp = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'truthy' | 'falsy'
+
+export interface StepCondition {
+  left: string
+  op: ConditionOp
+  right?: unknown
+}
+
+export interface SkillRef {
+  name: string
+  version?: number
+  params?: Record<string, unknown>
+}
 
 export type TriggerKind = 'manual' | 'schedule' | 'hook' | 'watch' | 'rerun'
 
@@ -58,6 +72,20 @@ export interface IntegrationConfig {
   }
   /** For MCP integrations: how to reach the server. */
   mcp?: McpServerConfig
+  /**
+   * For Pipedream-managed connections (the primary acquisition path): the
+   * marker linking this integration to a Pipedream Connect account. Contains
+   * NO secrets — auth headers for the Pipedream MCP server are minted per
+   * call in memory (src/lib/pipedream/mcp.ts) and never persisted here.
+   */
+  pipedream?: {
+    /** Pipedream app name_slug, e.g. "gmail". */
+    appSlug: string
+    /** Pipedream connected-account id ("apn_..."). */
+    accountId: string
+    /** The Apical Credential row (kind="pipedream") for this connection. */
+    credentialId: string
+  }
 }
 
 /** How to reach an MCP server. */
@@ -160,10 +188,33 @@ export interface WorkflowStep {
   mcp?: McpCallSpec
   /** Deterministic code/script — production runs execute without an agent. */
   code?: CodeCallSpec
+  /** Invoke a reusable Skill — the fragment is looked up at run time. */
+  skill?: SkillRef
   /** v2: per-step retry policy for retryable tool failures. */
   retry?: RetryPolicy
   /** v2: hard per-step timeout in ms. */
   timeoutMs?: number
+  // ---- control flow (v2) ----
+  /** branch: the condition deciding then vs else. */
+  when?: StepCondition
+  /** branch: steps run when `when` is true. */
+  thenSteps?: WorkflowStep[]
+  /** branch: steps run when `when` is false. */
+  elseSteps?: WorkflowStep[]
+  /** loop: a {{stepId.field}} ref to an array to iterate. */
+  loopOver?: string
+  /** loop: stop when this condition becomes true. */
+  until?: StepCondition
+  /** loop/map: the steps run each iteration. */
+  bodySteps?: WorkflowStep[]
+  /** loop: hard cap on iterations (default 10). */
+  maxIterations?: number
+  /** map: a {{stepId.field}} ref to the array to map over. */
+  itemsRef?: string
+  /** map: parallel iterations (default 4). */
+  concurrency?: number
+  /** map: keep going if one item fails. */
+  continueOnError?: boolean
 }
 
 /** v2: per-step retry policy. */
@@ -316,6 +367,11 @@ export interface RunReport {
   supervision?: RunSupervision
   /** @deprecated use supervision */
   review?: RunReview
+  /** Reason steps that have resolved consistently enough to suggest hardening
+   *  them into deterministic rules (human approves via the /harden route). */
+  hardenSuggestions?: { stepId: string; occurrences: number }[]
+  /** Set when supervision escalated to a full oversight agent run. */
+  oversightRunId?: string
 }
 
 export interface Run {
@@ -558,6 +614,21 @@ export type AgentEvent =
       }
       /** pending = box still shown; saved/dismissed = resolved. */
       status?: 'pending' | 'saved' | 'dismissed'
+    }
+  | {
+      type: 'connection_request'
+      request: {
+        /** Pipedream app name_slug, e.g. "slack". */
+        app: string
+        name: string
+        imgSrc?: string
+        authType?: string
+        reason?: string
+      }
+      /** pending = card still shown; connected/dismissed = resolved. */
+      status?: 'pending' | 'connected' | 'dismissed'
+      /** Set once connected — the Credential row backing the connection. */
+      credentialId?: string
     }
   | { type: 'plan'; items: Array<{ id: string; label: string; status: 'pending' | 'in_progress' | 'done' }> }
   | {

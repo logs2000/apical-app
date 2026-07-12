@@ -90,12 +90,44 @@ export function rateLimitByUser(
   return rateLimit(key, limit, windowMs)
 }
 
-/** Best-effort client-IP extraction from common proxy headers. */
+/**
+ * Client-IP extraction for rate-limit keying. `x-forwarded-for` is
+ * client-controllable: taking the LEFTMOST entry (the old behavior) let an
+ * attacker forge a fresh IP per request and defeat the anonymous throttle.
+ *
+ * Each trusted proxy in front of the app APPENDS the peer it saw, so the real
+ * client is `TRUSTED_PROXY_HOPS` entries from the RIGHT (default 1 — a single
+ * proxy/CDN like Vercel). Forged entries a client prepends sit to the left of
+ * that and are ignored. Set TRUSTED_PROXY_HOPS to the exact number of proxies
+ * for your deployment; `x-real-ip` (set by the immediate proxy) is preferred
+ * when present.
+ */
 export function clientIp(req: Request): string {
-  const h = req.headers
-  return (
-    h.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    h.get('x-real-ip') ||
-    '0.0.0.0'
-  )
+  const realIp = req.headers.get('x-real-ip')?.trim()
+  if (realIp) return realIp
+  const xff = req.headers.get('x-forwarded-for')
+  if (xff) {
+    const parts = xff.split(',').map((s) => s.trim()).filter(Boolean)
+    if (parts.length > 0) {
+      const hops = Math.max(1, Number(process.env.TRUSTED_PROXY_HOPS ?? '1') || 1)
+      return parts[Math.max(0, parts.length - hops)] ?? parts[parts.length - 1]
+    }
+  }
+  return '0.0.0.0'
+}
+
+/**
+ * Build a rate-limit bucket key for a request, scoped per method+path and per
+ * identity. Prefers the API key id (each key gets its own budget), then the
+ * user id, then the client IP for anonymous callers. Used by the `route()`
+ * wrapper (src/lib/api/route.ts).
+ */
+export function rateKeyForRequest(
+  req: Request,
+  apiKeyId: string | null,
+  userId: string | null,
+): string {
+  const { pathname } = new URL(req.url)
+  const identity = apiKeyId ? `k:${apiKeyId}` : userId ? `u:${userId}` : `ip:${clientIp(req)}`
+  return `${req.method} ${pathname}#${identity}`
 }

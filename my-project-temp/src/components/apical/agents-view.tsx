@@ -28,7 +28,7 @@ import { agentWorkflowRingClass, buildEditHandoffPrompt } from "@/lib/apical/age
 import type { AgentRingState } from "@/lib/apical/agent-display";
 import { routeAgentMessage } from "@/lib/apical/agent-route";
 import { useToast } from "@/hooks/use-toast";
-import { ApicalMark, RuntimeBadge, AgentAvatar, FlaggedCountBadge } from "./logo";
+import { ApicalMark, AgentAvatar, FlaggedCountBadge } from "./logo";
 import { DesktopStatusChip } from "@/components/desktop/desktop-status-chip";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -93,6 +93,7 @@ import {
 import {
   mapPersistedMessages,
   streamAgentThink,
+  attachToAgentRun,
   chatHistoryForApi,
   eventsForPersistedMessage,
   analyzeRun,
@@ -102,16 +103,17 @@ import {
 } from "@/lib/apical/chat-stream";
 import { ChatComposer } from "./chat-composer";
 import { ScheduleEditor } from "./schedule-editor";
-import { workflowStepDetail, workflowStepToolLabel } from "@/lib/apical/workflow-display";
+import { humanizeSchedule, workflowStepDetail, workflowStepToolLabel } from "@/lib/apical/workflow-display";
 import { ArtifactEditor, type ArtifactEditorInitial } from "./artifact-editor";
 import { AssetCards } from "./asset-cards";
 import { SandboxPanel } from "./sandbox-panel";
 import { CredentialRequestList } from "./credential-box";
+import { ConnectAccountCardList } from "./connect-account-card";
 import { ClarificationCard } from "./clarification-card";
 import { MarkdownText } from "./markdown-text";
 import { CopyMessageButton } from "./copy-message-button";
 import { ActivityFlow } from "./activity-flow";
-import { AgentRunSection, RunNowControls } from "./workflow-runs-console";
+import { AgentRunSection, AgentRunsPanel, JobsPanel, RunNowControls } from "./workflow-runs-console";
 import { fetchArtifactText } from "@/lib/apical/attachments";
 import { sandboxItemFromAttachment } from "@/lib/apical/sandbox";
 import type { ChatAttachment } from "@/lib/apical";
@@ -231,10 +233,19 @@ function DesktopAgentsView() {
   // Reveal the Progress rail as soon as the agent starts working, even before
   // the first tool observation produces a sandbox item.
   const showData = sandboxOpen && (hasData || agentWorking);
-  const showInspectorPanel = isWide && inspectorOpen && !!activeAgent && !isNewChat;
-  const showRightRail = isWide && (showData || showInspectorPanel);
+  const showInspectorPanel = inspectorOpen && !!activeAgent && !isNewChat;
+  const showRightRailInline = isWide && (showData || showInspectorPanel);
+  const showRightRailOverlay = !isWide && (showData || showInspectorPanel);
+  const canOpenRightRail = !!activeAgent && !isNewChat;
+
+  const closeRightRail = React.useCallback(() => {
+    const store = useAppStore.getState();
+    store.setInspectorOpen(false);
+    store.setSandboxOpen(false);
+  }, []);
 
   return (
+    <>
     <ResizablePanelGroup
       direction="horizontal"
       autoSaveId="apical-agents-layout"
@@ -260,7 +271,7 @@ function DesktopAgentsView() {
           isPopout={isPopout}
           inspectorOpen={inspectorOpen}
           onToggleInspector={toggleInspector}
-          showInspectorToggle={isWide}
+          showInspectorToggle={canOpenRightRail}
           previewOpen={showData}
           onTogglePreview={() => {
             const store = useAppStore.getState();
@@ -269,14 +280,15 @@ function DesktopAgentsView() {
             } else {
               store.setSandboxOpen(true);
               store.setInspectorSection("progress");
+              store.setInspectorOpen(true);
             }
           }}
-          hasPreviewContent={hasData || agentWorking}
+          hasPreviewContent={canOpenRightRail}
         />
       </ResizablePanel>
 
       {/* Right — agent inspector (Progress tab) or standalone progress panel */}
-      {showRightRail && (
+      {showRightRailInline && (
         <>
           <ResizableHandle withHandle />
           <ResizablePanel id="right-rail" order={3} defaultSize={26} minSize={18} maxSize={42}>
@@ -289,6 +301,26 @@ function DesktopAgentsView() {
         </>
       )}
     </ResizablePanelGroup>
+
+    {/* Below lg: right rail slides over instead of resizing the center pane. */}
+    {showRightRailOverlay && (
+      <div className="fixed inset-0 z-40 flex justify-end">
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          className="absolute inset-0 bg-black/40"
+          onClick={closeRightRail}
+        />
+        <div className="relative z-50 flex h-full w-full max-w-md flex-col border-l border-border bg-background shadow-xl">
+          <RightRailPane
+            agent={activeAgent}
+            showInspector={showInspectorPanel}
+            showData={showData}
+          />
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -424,7 +456,13 @@ function AgentNavigator({
             </div>
           )}
           {filtered.length === 0 && !isLoading && (
-            <p className="px-1.5 py-2 text-[10px] text-muted-foreground">No agents match your search.</p>
+            // A brand-new account has no agents at all — don't imply a failed
+            // search the user never made.
+            <p className="px-1.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
+              {search
+                ? "No agents match your search."
+                : "No agents on staff yet. Describe a job in the chat — Apical hires it out and the agent takes it from there."}
+            </p>
           )}
         </div>
       </div>
@@ -659,7 +697,7 @@ function AgentRailRow({
             <span className="truncate text-[11px] font-medium">{convo.title}</span>
             <FlaggedCountBadge count={agent.flaggedCount} />
           </div>
-          <div className="truncate text-[9px] text-muted-foreground">{agent.trigger === "schedule" ? agent.schedule ?? "Scheduled" : "Manual"}</div>
+          <div className="truncate text-[9px] text-muted-foreground">{agent.trigger === "schedule" ? humanizeSchedule(agent.schedule) : "Manual"}</div>
         </div>
       </button>
       <RailRowActions
@@ -703,7 +741,7 @@ function MobileAgentsView() {
         </span>
         {activeAgent && (
           <span className="ml-auto text-[10px] text-muted-foreground">
-            {activeAgent.trigger === "schedule" ? activeAgent.schedule ?? "Scheduled" : "Manual"}
+            {activeAgent.trigger === "schedule" ? humanizeSchedule(activeAgent.schedule) : "Manual"}
           </span>
         )}
       </header>
@@ -872,7 +910,7 @@ function MobileAgentList({
                 <span className="truncate text-sm font-medium">{wf.name}</span>
                 <FlaggedCountBadge count={wf.flaggedCount} />
               </div>
-              <div className="truncate text-[10px] text-muted-foreground">{wf.trigger === "schedule" ? wf.schedule ?? "Scheduled" : "Manual"}</div>
+              <div className="truncate text-[10px] text-muted-foreground">{wf.trigger === "schedule" ? humanizeSchedule(wf.schedule) : "Manual"}</div>
             </div>
           </button>
           <RailRowActions
@@ -954,8 +992,20 @@ function MobileDetailPane({ agent }: { agent: Workflow }) {
         {section === "workflow" && <AgentWorkflow agent={agent} />}
         {section === "config" && <AgentConfig agent={agent} />}
         {section === "runs" && (
-          <div className="p-3">
+          <div className="space-y-4 p-3">
             <AgentRunSection workflowId={agent.id} />
+            <div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Long-task agent runs
+              </div>
+              <AgentRunsPanel agentId={agent.id} />
+            </div>
+            <div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Compute jobs
+              </div>
+              <JobsPanel agentId={agent.id} />
+            </div>
           </div>
         )}
       </div>
@@ -1010,9 +1060,8 @@ function CenterPane({
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-semibold">{agent.name}</span>
-                <RuntimeBadge runtime={agent.runtime} />
               </div>
-              <div className="text-[10px] text-muted-foreground">{agent.trigger === "schedule" ? agent.schedule ?? "Scheduled" : "Manual"}</div>
+              <div className="text-[10px] text-muted-foreground">{agent.trigger === "schedule" ? humanizeSchedule(agent.schedule) : "Manual"}</div>
             </div>
           </div>
         ) : null}
@@ -1042,14 +1091,28 @@ function CenterPane({
           )}
           {showInspectorToggle && !isNewChat && agent && (
             <button
-              onClick={onToggleInspector}
+              onClick={() => {
+                const store = useAppStore.getState();
+                if (store.inspectorOpen || store.sandboxOpen) {
+                  store.setInspectorOpen(false);
+                  store.setSandboxOpen(false);
+                } else {
+                  store.setInspectorOpen(true);
+                }
+              }}
               className={cn(
                 "flex items-center gap-1 rounded-md p-1.5 transition-colors",
-                inspectorOpen ? "bg-surface-active text-foreground" : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
+                inspectorOpen || previewOpen
+                  ? "bg-surface-active text-foreground"
+                  : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
               )}
-              title={inspectorOpen ? "Hide inspector" : "Show inspector"}
+              title={inspectorOpen || previewOpen ? "Hide sidebar" : "Show sidebar"}
             >
-              {inspectorOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+              {inspectorOpen || previewOpen ? (
+                <PanelRightClose className="h-4 w-4" />
+              ) : (
+                <PanelRightOpen className="h-4 w-4" />
+              )}
             </button>
           )}
         </div>
@@ -1094,6 +1157,8 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
   const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const setPendingAgentHandoff = useAppStore((s) => s.setPendingAgentHandoff);
   const setMobilePane = useAppStore((s) => s.setMobilePane);
+  const pendingQuickAsk = useAppStore((s) => s.pendingQuickAsk);
+  const setPendingQuickAsk = useAppStore((s) => s.setPendingQuickAsk);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { workflows, createConversationFromMessage } = useAgentsData();
@@ -1102,6 +1167,10 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
   const { data: persistedRows, isLoading: messagesLoading } = useAgentMessages(agentIdForQuery);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const abortRef = React.useRef<AbortController | null>(null);
+  /** The in-flight durable AgentRun for this thread (null when inline). */
+  const activeAgentRunIdRef = React.useRef<string | null>(null);
+  /** Agent id we've already checked for a resumable durable run. */
+  const reattachedAgentRef = React.useRef<string | null>(null);
   const lastFailedSendRef = React.useRef<{
     text: string;
     attachments: ChatAttachment[];
@@ -1109,6 +1178,15 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
     pendingUserMsg: ChatMessage;
   } | null>(null);
   const [analyzingId, setAnalyzingId] = React.useState<string | null>(null);
+
+  // Quick Ask (⌘K / palette): when we land in a fresh chat with a queued
+  // question, drop it into the composer so the user just hits send. Consumed once.
+  React.useEffect(() => {
+    if (isNewChat && pendingQuickAsk) {
+      setInput(pendingQuickAsk);
+      setPendingQuickAsk(null);
+    }
+  }, [isNewChat, pendingQuickAsk, setPendingQuickAsk]);
   // ChatPane is keyed by agent id, so these refs reset on a genuine agent
   // switch via remount. We intentionally do NOT reset them in an effect — doing
   // so makes the handoff guard fire twice under React StrictMode, which double-
@@ -1233,6 +1311,71 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
     syncChatThreadCache(agentId, messages);
   }, [isNewChat, agent?.id, messages, isThinking]);
 
+  // Re-attach to an in-flight durable run when this thread opens (page reload,
+  // new tab, or navigating back). The worker keeps executing regardless; here
+  // we just resume streaming its events into the chat and persist the result.
+  React.useEffect(() => {
+    const agentId = agent?.id;
+    if (isNewChat || !agentId || isThinking) return;
+    if (reattachedAgentRef.current === agentId) return;
+    reattachedAgentRef.current = agentId;
+    let cancelled = false;
+    void (async () => {
+      const active = await fetch(`/api/agent-runs?agentId=${agentId}&active=1&limit=1`)
+        .then((r) => (r.ok ? (r.json() as Promise<{ runs?: Array<{ id: string }> }>) : null))
+        .catch(() => null);
+      const runId = active?.runs?.[0]?.id;
+      if (!runId || cancelled || !mountedRef.current) return;
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+      activeAgentRunIdRef.current = runId;
+      setIsThinking(true);
+      useAppStore.getState().setAgentWorking(true);
+      const replyId = `reattach-${runId}`;
+      setMessages((prev) =>
+        prev.some((m) => m.id === replyId)
+          ? prev
+          : [...prev, { id: replyId, role: "agent", content: "", createdAt: new Date().toISOString() }],
+      );
+      try {
+        const result = await attachToAgentRun(runId, {
+          signal: controller.signal,
+          onStatusUpdate: (label) => mountedRef.current && setLiveStatus(label),
+          onTraceUpdate: (trace) =>
+            mountedRef.current &&
+            setMessages((prev) => prev.map((m) => (m.id === replyId ? { ...m, executionTrace: trace } : m))),
+          onAnswerDelta: (ans) =>
+            mountedRef.current &&
+            setMessages((prev) => prev.map((m) => (m.id === replyId ? { ...m, content: ans } : m))),
+          onPlanUpdate: (items) =>
+            mountedRef.current &&
+            setMessages((prev) => prev.map((m) => (m.id === replyId ? { ...m, checklist: items } : m))),
+          onSandboxItem: addSandboxItem,
+        });
+        if (!mountedRef.current) return;
+        // The worker persists the AgentMessage; drop the transient bubble and
+        // refetch so the durable row (with its real id) renders.
+        setMessages((prev) => prev.filter((m) => m.id !== replyId));
+        if (result.finalAnswer) {
+          void queryClient.invalidateQueries({ queryKey: ["agent-messages", agentId] });
+        }
+      } catch {
+        if (mountedRef.current) setMessages((prev) => prev.filter((m) => m.id !== replyId));
+      } finally {
+        activeAgentRunIdRef.current = null;
+        if (mountedRef.current) {
+          setIsThinking(false);
+          setLiveStatus(undefined);
+        }
+        useAppStore.getState().setAgentWorking(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agent?.id, isNewChat, isThinking, addSandboxItem, queryClient]);
+
   function resolveAgentId(): string | undefined {
     return agent?.id ?? useAppStore.getState().pendingAgentHandoff?.agentId;
   }
@@ -1292,6 +1435,13 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
 
   function stopTurn() {
     abortRef.current?.abort();
+    // Durable runs keep executing server-side after an abort — Stop means
+    // stop, so also request cancellation of the active AgentRun.
+    const activeDurable = activeAgentRunIdRef.current;
+    if (activeDurable) {
+      activeAgentRunIdRef.current = null;
+      void fetch(`/api/agent-runs/${activeDurable}/cancel`, { method: "POST" }).catch(() => {});
+    }
   }
 
   // One natural turn. The agent plans internally, converses, and uses tools /
@@ -1362,6 +1512,7 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       // Carry forward the most recent unfinished checklist so the agent resumes
       // it instead of planning from scratch.
       const priorPlan = latestUnfinishedPlan(priorMessages);
+      const durable = useAppStore.getState().durableMode;
       const result = await streamAgentThink(text, {
         context: agentContext,
         history: chatHistoryForApi(priorMessages, true),
@@ -1370,6 +1521,10 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
         attachments: turnAttachments,
         maxIterations: 64,
         signal: controller.signal,
+        durable,
+        onAgentRunId: (id) => {
+          activeAgentRunIdRef.current = id;
+        },
         onStreamOpen: commitUser,
         onStatusUpdate: (label) => {
           if (mountedRef.current) setLiveStatus(label);
@@ -1451,6 +1606,14 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
                       })),
                     }
                   : {}),
+                ...(result.connectionRequests?.length
+                  ? {
+                      connectionRequests: result.connectionRequests.map((r) => ({
+                        ...r,
+                        status: "pending" as const,
+                      })),
+                    }
+                  : {}),
                 ...(automationSaveSucceeded(result.trace, result.workflowSavedToAgentId)
                   ? { workflowSaved: { agentName: agent?.name ?? "this agent" } }
                   : {}),
@@ -1492,6 +1655,14 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
               })),
             }
           : {}),
+        ...(result.connectionRequests?.length
+          ? {
+              connectionRequests: result.connectionRequests.map((r) => ({
+                ...r,
+                status: "pending" as const,
+              })),
+            }
+          : {}),
         ...(result.createdAgentId
           ? {
               createdAgent: {
@@ -1520,6 +1691,14 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
       // scaffolding should appear.
       const usedTools = result.trace.some((s) => stepKind(s) === "tool");
 
+      // Durable runs are persisted server-side by the agent-worker — a client
+      // save here would duplicate the message.
+      if (durable) {
+        activeAgentRunIdRef.current = null;
+        void queryClient.invalidateQueries({ queryKey: ["agent-messages", agentId] });
+        return;
+      }
+
       void persistMessage(finishedMsg).then((serverId) => {
         // Remember the server row id so interactive-card state (credential
         // boxes) can be PATCHed when the user saves/dismisses them.
@@ -1543,13 +1722,16 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
               (analysis.workflowAutoSaved || !!result.workflowSavedToAgentId) &&
               analysis.success &&
               analysis.outcomeAchieved !== false;
-            // Merge in the LIVE credential-box state — the user may have saved
-            // a key while the analysis was still running.
-            const liveCreds = messagesRef.current.find((m) => m.id === replyId)
-              ?.credentialRequests;
+            // Merge in the LIVE credential-box / connect-card state — the user
+            // may have saved a key or connected an app while the analysis was
+            // still running.
+            const liveMsg = messagesRef.current.find((m) => m.id === replyId);
+            const liveCreds = liveMsg?.credentialRequests;
+            const liveConnections = liveMsg?.connectionRequests;
             const analyzedMsg: ChatMessage = {
               ...finishedMsg,
               ...(liveCreds ? { credentialRequests: liveCreds } : {}),
+              ...(liveConnections ? { connectionRequests: liveConnections } : {}),
               runAnalysis: analysis,
               ...(showWorkflowSaved
                 ? { workflowSaved: { agentName: agent?.name ?? "this agent" } }
@@ -1770,6 +1952,46 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
     }
   }
 
+  // User connected or skipped an inline "Connect your <App>" card. Update +
+  // persist the card state; once every card in the message is resolved, resume
+  // the agent automatically with which apps were connected vs skipped.
+  function handleConnectionResolved(
+    messageId: string,
+    info: { app: string; action: "connected" | "dismissed"; credentialId?: string },
+  ) {
+    const msg = messagesRef.current.find((m) => m.id === messageId);
+    if (!msg?.connectionRequests) return;
+    const nextReqs = msg.connectionRequests.map((r) =>
+      r.app === info.app
+        ? { ...r, status: info.action, credentialId: info.credentialId }
+        : r,
+    );
+    const nextMsg: ChatMessage = { ...msg, connectionRequests: nextReqs };
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? nextMsg : m)));
+    if (nextMsg.serverId) void patchMessage(nextMsg.serverId, nextMsg);
+    const pending = nextReqs.some((r) => !r.status || r.status === "pending");
+    const connected = nextReqs.filter((r) => r.status === "connected");
+    const skipped = nextReqs.filter((r) => r.status === "dismissed").map((r) => r.name);
+    // Resume once every connection is resolved (connected OR skipped) — like
+    // credential boxes, an all-skipped turn still resumes so the agent can
+    // adapt rather than hang.
+    if (!pending && !isThinking && (connected.length > 0 || skipped.length > 0)) {
+      const parts: string[] = [];
+      if (connected.length) {
+        parts.push(
+          `connected ${connected
+            .map((r) => `${r.name}${r.credentialId ? ` (credentialId: ${r.credentialId})` : ""}`)
+            .join(", ")}`,
+        );
+      }
+      if (skipped.length) parts.push(`skipped connecting ${skipped.join(", ")}`);
+      const tail = connected.length
+        ? "Please continue — the connected apps are now available via mcp_list_servers / app_search."
+        : "Please continue without those connections — use placeholders where needed or suggest alternatives.";
+      sendDirect(`I've ${parts.join(" and ")}. ${tail}`);
+    }
+  }
+
   // User clicked a multiple-choice clarification option — mark it answered and
   // send the choice back so the agent resumes with the answer.
   function handleClarificationAnswer(messageId: string, answer: string) {
@@ -1928,6 +2150,7 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
             }
             onEditArtifact={openArtifactForEdit}
             onCredentialResolved={handleCredentialResolved}
+            onConnectionResolved={handleConnectionResolved}
             onPickPrompt={(prompt) => send({ text: prompt })}
             onClarify={handleClarificationAnswer}
             onRetryFailedSend={retryFromDeliveryError}
@@ -1950,6 +2173,25 @@ function ChatPane({ agent, isNewChat }: { agent: Workflow | undefined; isNewChat
           </div>
         )}
       </div>
+
+      {/* User-initiated freeze: until now only the model could decide to call
+          workflow_freeze. This gives the user an explicit "keep this" control;
+          the save still funnels through the validated workflow_freeze path. */}
+      {!isNewChat && agent && !isThinking && messages.some((m) => m.role === "agent") && (
+        <div className="flex justify-end px-3 pb-1">
+          <button
+            onClick={() =>
+              sendDirect(
+                "Save what you did in this conversation as my repeatable workflow. Distill the steps you actually executed (use workflow_freeze), keep it faithful to what happened, and tell me exactly what you saved.",
+              )
+            }
+            className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            title="Distill this conversation into the agent's saved workflow"
+          >
+            <Save className="h-3 w-3" /> Save as workflow
+          </button>
+        </div>
+      )}
 
       <ChatComposer
         value={input}
@@ -2000,6 +2242,7 @@ function MessageBubble({
   liveStatus,
   onEditArtifact,
   onCredentialResolved,
+  onConnectionResolved,
   onPickPrompt,
   onClarify,
   onRetryFailedSend,
@@ -2018,6 +2261,10 @@ function MessageBubble({
     messageId: string,
     info: { service: string; label: string },
     action: "saved" | "dismissed",
+  ) => void;
+  onConnectionResolved?: (
+    messageId: string,
+    info: { app: string; action: "connected" | "dismissed"; credentialId?: string },
   ) => void;
   onPickPrompt?: (prompt: string) => void;
   onClarify?: (messageId: string, answer: string) => void;
@@ -2142,6 +2389,14 @@ function MessageBubble({
             requests={message.credentialRequests}
             onSaved={(info) => onCredentialResolved?.(message.id, info, "saved")}
             onDismiss={(info) => onCredentialResolved?.(message.id, info, "dismissed")}
+          />
+        </div>
+      )}
+      {message.connectionRequests && message.connectionRequests.length > 0 && (
+        <div className="select-none">
+          <ConnectAccountCardList
+            requests={message.connectionRequests}
+            onResolved={(info) => onConnectionResolved?.(message.id, info)}
           />
         </div>
       )}
@@ -2373,8 +2628,20 @@ function InspectorPane({ agent, embedded }: { agent: Workflow; embedded?: boolea
           </div>
         )}
         {section === "runs" && (
-          <div className="h-full overflow-y-auto overscroll-contain p-3">
+          <div className="h-full space-y-4 overflow-y-auto overscroll-contain p-3">
             <AgentRunSection workflowId={agent.id} />
+            <div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Long-task agent runs
+              </div>
+              <AgentRunsPanel agentId={agent.id} />
+            </div>
+            <div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Compute jobs
+              </div>
+              <JobsPanel agentId={agent.id} />
+            </div>
           </div>
         )}
       </div>
@@ -2400,10 +2667,14 @@ function InspectorOverview({
         <div className="mb-2 flex items-center gap-2">
           <span className={cn("h-2 w-2 rounded-full", status.color)} />
           <span className="text-xs font-semibold capitalize">{status.label}</span>
-          <RuntimeBadge runtime={agent.runtime} />
         </div>
         <div className="text-[10px] text-muted-foreground">
-          {agent.trigger === "schedule" ? `Schedule · ${agent.schedule}` : "Manual trigger"}
+          {agent.trigger === "schedule" ? `Schedule · ${humanizeSchedule(agent.schedule)}` : "Manual trigger"}
+        </div>
+        <div className="mt-1 text-[10px] text-muted-foreground">
+          {agent.runtime === "local"
+            ? "Uses your computer (files or apps), so it runs through your desktop."
+            : "Runs in Apical's cloud."}
         </div>
         <div className="mt-1 text-[10px] text-muted-foreground">
           {agent.runsCount} runs · {agent.itemsProcessed.toLocaleString()} items
@@ -2575,7 +2846,8 @@ function AgentConfig({ agent }: { agent: Workflow }) {
   const [name, setName] = React.useState(agent.name);
   const [description, setDescription] = React.useState(agent.description);
   const [trigger, setTrigger] = React.useState<"manual" | "schedule">(agent.trigger);
-  const [runtime, setRuntime] = React.useState<AgentRuntime>(agent.runtime);
+  // Derived server-side from the workflow's steps — read-only here.
+  const runtime: AgentRuntime = agent.runtime;
   const [modelPref, setModelPref] = React.useState(agent.modelPreference ?? "");
   const [availableModels, setAvailableModels] = React.useState<Array<{ id: string; name: string; provider: string }>>([]);
   const [confidenceThreshold, setConfidenceThreshold] = React.useState("0.85");
@@ -2605,7 +2877,6 @@ function AgentConfig({ agent }: { agent: Workflow }) {
           name: name.trim(),
           description,
           trigger,
-          runtime,
           modelPreference: modelPref.trim() || null,
           confidenceThreshold: parseFloat(confidenceThreshold) || null,
           autoHardenAfter: parseInt(autoHardenAfter, 10) || null,
@@ -2647,31 +2918,29 @@ function AgentConfig({ agent }: { agent: Workflow }) {
               <DesktopStatusChip />
             </div>
           )}
+          {/* Runtime is DERIVED from what the workflow actually does (steps
+              touching your files/apps/CLI need the desktop; everything else
+              runs in the cloud) — not a setting anyone has to reason about.
+              The old manual Local/Hosted picker let you pick a value that
+              contradicted the workflow and broke runs. */}
           <div className="space-y-1.5">
             <Label className="text-xs">Where this agent runs</Label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setRuntime("local")}
-                className={cn("rounded-lg border p-3 text-left transition", runtime === "local" ? "border-foreground/20 bg-muted" : "border-border hover:border-border/80")}
-              >
-                <div className="flex items-center gap-2">
-                  <Monitor className={cn("h-4 w-4", runtime === "local" ? "text-foreground" : "text-muted-foreground")} />
-                  <span className="text-xs font-semibold">Local (desktop)</span>
-                  {runtime === "local" && <Check className="ml-auto h-3 w-3 text-foreground" />}
-                </div>
-                <div className="mt-1 text-[10px] text-muted-foreground">Uses this computer&apos;s files and apps. Requires the desktop app running in the background; enable Remote Access in desktop Settings for web/scheduled runs.</div>
-              </button>
-              <button
-                onClick={() => setRuntime("hosted")}
-                className={cn("rounded-lg border p-3 text-left transition", runtime === "hosted" ? "border-foreground/20 bg-muted" : "border-border hover:border-border/80")}
-              >
-                <div className="flex items-center gap-2">
-                  <Cloud className={cn("h-4 w-4", runtime === "hosted" ? "text-foreground" : "text-muted-foreground")} />
-                  <span className="text-xs font-semibold">Hosted (cloud)</span>
-                  {runtime === "hosted" && <Check className="ml-auto h-3 w-3 text-foreground" />}
-                </div>
-                <div className="mt-1 text-[10px] text-muted-foreground">Runs entirely in Apical&apos;s cloud. No desktop filesystem or CLI access.</div>
-              </button>
+            <div className="rounded-lg border border-border bg-muted/30 p-3">
+              <div className="flex items-center gap-2">
+                {runtime === "local" ? (
+                  <Monitor className="h-4 w-4 text-foreground" />
+                ) : (
+                  <Cloud className="h-4 w-4 text-foreground" />
+                )}
+                <span className="text-xs font-semibold">
+                  {runtime === "local" ? "On your computer" : "In Apical's cloud"}
+                </span>
+              </div>
+              <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                {runtime === "local"
+                  ? "This agent works with your computer's files or apps, so it runs through the desktop app. Keep the desktop app running (or enable Remote Access in its Settings) for scheduled and web-started runs."
+                  : "This agent doesn't touch your computer, so it runs entirely in the cloud — it works even when your computer is off. If you later ask it to use your files or apps, it switches automatically."}
+              </div>
             </div>
           </div>
           <div className="mt-3 space-y-1.5">

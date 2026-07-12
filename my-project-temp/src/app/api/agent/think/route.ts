@@ -1,8 +1,13 @@
 import { withUser } from '@/lib/auth-helpers'
+import { db } from '@/lib/db'
 import { deriveDesktopContext } from '@/lib/desktop/device-auth'
+import { currentApprovalPolicy } from '@/lib/desktop/desktop-policy'
+import { isLocalDesktopRuntime } from '@/lib/platform/desktop-local-runtime'
 import { rateLimit } from '@/lib/rate-limit'
 import { runAgent, type AgentEvent } from '@/lib/platform/agent-engine'
 import { captureClientContext } from '@/lib/platform/client-context'
+import { mintRunRelayToken } from '@/lib/relay-token'
+import type { StoredAgentRunOpts } from '@/lib/platform/agent-run-worker'
 import type { PlanItem } from '@/lib/platform/agent-tools'
 
 interface ThinkBody {
@@ -25,6 +30,16 @@ interface ThinkBody {
   maxIterations?: number
   /** Browser-reported time/place so the agent can reason about "today", etc. */
   clientContext?: { timezone?: string; locale?: string }
+  /**
+   * Durable mode: instead of running the loop inside this request (and dying
+   * with it), enqueue an AgentRun for the agent-worker and return 202 with
+   * { agentRunId, relayToken }. The run survives disconnects and is resumable.
+   */
+  durable?: boolean
+  /** One-shot approvals the user granted for gated destructive actions
+   *  (Protection 3): the client echoes the clarification's approvalSignature
+   *  here on "Approve & run" so the re-issued action runs once. */
+  approvedActionSignatures?: string[]
 }
 
 // POST /api/agent/think — run the autonomous agent loop.
@@ -56,9 +71,57 @@ export const POST = withUser(async (req, { user }) => {
 
   const desktop = await deriveDesktopContext(req, user.id)
 
+  // Destructive-action approval policy (Protection 1/3). On a desktop-local
+  // machine, source the tier from the user's CLI mode; hosted runs default to
+  // 'always' (the engine's 'critical' floor still gates catastrophic actions).
+  // Interactive chat is never headless.
+  const approval = isLocalDesktopRuntime()
+    ? currentApprovalPolicy()
+    : { approvalTier: 'always' as const, cliAllowlist: [] as string[] }
+  const approvedActionSignatures = Array.isArray(body.approvedActionSignatures)
+    ? body.approvedActionSignatures.filter((s): s is string => typeof s === 'string')
+    : undefined
+
   // Capture the caller's timezone/locale + approximate IP geo BEFORE the loop
   // so this turn's context block already reflects it. Best-effort, never throws.
   await captureClientContext(req, user.id, body.clientContext)
+
+  // Durable mode — enqueue for the agent-worker instead of running inline.
+  if (body.durable) {
+    const opts: StoredAgentRunOpts = {
+      context: body.context,
+      history: (body.history ?? []).slice(-12).map((m) => ({
+        role: m.role === 'user' ? ('user' as const) : ('agent' as const),
+        content: m.content,
+      })),
+      attachments: body.attachments,
+      script: body.script,
+      priorPlan: Array.isArray(body.priorPlan) ? body.priorPlan : undefined,
+      modelId: body.modelId,
+      maxIterations: body.maxIterations,
+      allowCli: desktop.allowCli,
+      isDesktop: desktop.isDesktop,
+      source: 'agent',
+      approvalTier: approval.approvalTier,
+      cliAllowlist: approval.cliAllowlist,
+      headless: false,
+      approvedActionSignatures,
+    }
+    const run = await db.agentRun.create({
+      data: {
+        userId: user.id,
+        agentId: body.agentId ?? null,
+        origin: 'chat',
+        goal,
+        optsJson: JSON.stringify(opts),
+      },
+    })
+    const minted = mintRunRelayToken(`agentrun:${run.id}`)
+    return Response.json(
+      { agentRunId: run.id, relayToken: minted?.token ?? null, relayExpiresAt: minted?.expiresAt ?? null },
+      { status: 202 },
+    )
+  }
 
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
@@ -90,6 +153,10 @@ export const POST = withUser(async (req, { user }) => {
             allowCli: desktop.allowCli,
             isDesktop: desktop.isDesktop,
             source: 'agent',
+            approvalTier: approval.approvalTier,
+            cliAllowlist: approval.cliAllowlist,
+            headless: false,
+            approvedActionSignatures,
             // When the client disconnects, stop the loop instead of letting
             // the LLM keep burning tokens against a dead stream.
             signal: req.signal,

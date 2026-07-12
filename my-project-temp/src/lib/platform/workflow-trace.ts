@@ -17,6 +17,8 @@ export const WORKFLOW_META_TOOLS = new Set([
   'integration_list',
   'mcp_list_servers',
   'credential_request',
+  'app_search',
+  'connection_request',
   'update_plan',
   'ask_clarification',
   'request_review',
@@ -28,12 +30,31 @@ export const MIN_SUBSTANTIVE_FREEZE_STEPS = 2
 export const EXPLORATION_ONLY_TOOLS = new Set([
   'web_search',
   'web_read',
+  'image_read',
+  // Browser automation is not deterministically replayable — the agent freezes
+  // the DATA it extracted (via http/code steps), not the click sequence.
+  'browser',
+  // Job polling glue — a job_submit freezes into a single job.run step, so the
+  // status/collect calls aren't saved as their own workflow nodes.
+  'job_status',
+  'job_collect',
+  'job_cancel',
+  // Subagent polling glue — an agent_spawn freezes into a single spawn step.
+  'agent_status',
+  'agent_collect',
+  // Skill/workflow meta — skill_docs is lookup; workflow_run is delegation glue.
+  'skill_docs',
+  // Memory tools are never part of a deterministic workflow.
+  'memory_save',
+  'memory_search',
   'agent_list',
   'agent_create',
   'credential_list',
   'integration_list',
   'mcp_list_servers',
   'credential_request',
+  'app_search',
+  'connection_request',
   'tool_configure',
   'workflow_freeze',
   'workflow_update',
@@ -269,6 +290,63 @@ export function buildWorkflowStepFromTrace(step: EngineTraceStep, index: number)
         args: (input.args as Record<string, unknown>) ?? {},
       },
       inputs: sanitizeTraceInput(input),
+      hardened: true,
+    }
+  }
+
+  // A skill_invoke freezes into a `skill` tool step — the workflow doc stores
+  // only the reference (name + version + params), never the expansion.
+  if (agentTool === 'skill_invoke') {
+    let params: Record<string, unknown> = {}
+    try {
+      params = input.params ? (JSON.parse(str(input.params, 100_000)) as Record<string, unknown>) : {}
+    } catch {
+      /* leave empty */
+    }
+    return {
+      id: `s${index + 1}`,
+      kind: 'tool',
+      label,
+      tool: 'skill.invoke',
+      skill: {
+        name: str(input.name, 100),
+        ...(typeof input.version === 'number' ? { version: input.version } : {}),
+        params,
+      },
+      hardened: true,
+    }
+  }
+
+  // An agent_spawn in the trace freezes into a single spawn step — the
+  // runtime creates the subagent run and waits. Polling calls are glue.
+  if (agentTool === 'agent_spawn') {
+    return {
+      id: `s${index + 1}`,
+      kind: 'spawn',
+      label,
+      spawnPrompt: str(input.goal, 20_000),
+      ...(Array.isArray(input.tools) ? { spawnTools: input.tools.filter((t) => typeof t === 'string') as string[] } : {}),
+      ...(str(input.outputShape) ? (() => { try { return { spawnOutputShape: JSON.parse(str(input.outputShape, 4000)) as Record<string, string> } } catch { return {} } })() : {}),
+    }
+  }
+
+  // A job_submit in the trace freezes into a single blocking job.run step —
+  // the deterministic runtime submits + polls to completion (workflows can't
+  // poll across steps). job_status/job_collect are exploration-only glue.
+  if (agentTool === 'job_submit') {
+    return {
+      id: `s${index + 1}`,
+      kind: 'tool',
+      label,
+      tool: 'job.run',
+      inputs: {
+        label: str(input.label) || label,
+        language: str(input.language) || 'python',
+        source: str(input.source, 200_000),
+        ...(Array.isArray(input.packages) ? { packages: input.packages } : {}),
+        ...(str(input.backend) ? { backend: str(input.backend) } : {}),
+        ...(input.timeoutMinutes != null ? { timeoutMinutes: input.timeoutMinutes } : {}),
+      },
       hardened: true,
     }
   }

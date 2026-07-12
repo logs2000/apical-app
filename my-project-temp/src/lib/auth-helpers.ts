@@ -17,7 +17,7 @@ import { getToken } from 'next-auth/jwt'
 import { cookies } from 'next/headers'
 import { db } from './db'
 import { createSupabaseServerClient } from './supabase/server'
-import { authenticateApiKey, getWorkspaceForUser } from './api-key-auth'
+import { getWorkspaceForUser } from './api-key-auth'
 import { authenticateDesktopToken } from './desktop/device-auth'
 import { getDevAutoLoginUser } from './dev-login'
 import { sessionCookieName } from '@/lib/desktop/session-cookie'
@@ -85,12 +85,17 @@ async function getUserFromNextAuthSession(): Promise<User | null> {
  * resolution doesn't need it (it reads cookies via next/headers).
  */
 export async function getCurrentUser(req?: Request): Promise<User | null> {
-  // 1. Unified API key (Authorization: Bearer ap_pat_... / ap_sk_...).
+  // SECURITY: this resolver deliberately does NOT accept unified API keys.
+  // It backs the first-party `/api/*` surface (browser session + desktop
+  // app), which has no per-route scope enforcement — accepting keys here let
+  // any key act on any `/api` route regardless of its scopes (a scope bypass).
+  // Programmatic API-key callers go through `resolveAuth`/`withAuth`
+  // (src/lib/with-auth.ts), which authenticates the key AND enforces scopes,
+  // or through `withDevAuth` for the legacy `/api/dev/*` surface.
+  //
+  // 1. Desktop device token (Authorization: Bearer dsk_...) — the desktop app
+  //    calls `/api/*` with these; they are not scoped API keys.
   if (req) {
-    const keyAuth = await authenticateApiKey(req)
-    if (keyAuth?.user) return keyAuth.user
-
-    // 2. Desktop device token (Authorization: Bearer dsk_...).
     const desktopAuth = await authenticateDesktopToken(req)
     if (desktopAuth) return desktopAuth.user
   }

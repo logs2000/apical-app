@@ -26,6 +26,12 @@ export interface WorkflowStepExecResult {
   error?: string
   aiTokens: number
   aiCostCents: number
+  /**
+   * Set when a Pipedream-managed connection failed with an auth-shaped error
+   * (revoked/expired upstream). The runtime pauses the run at a reconnect
+   * gate instead of failing it — the user reconnects and the step re-runs.
+   */
+  needsReconnect?: { app: string; credentialId: string }
 }
 
 /** Map a saved workflow step to an agent-tool invocation (reuse proven executors). */
@@ -61,24 +67,14 @@ export function workflowStepToToolCall(
   if (step.code?.source) {
     const lang = step.code.language
     const packages = step.code.packages?.length ? step.code.packages : undefined
+    // Resolve {{stepId.field}} / {{item}} / {{$index}} refs in the data payload
+    // (and the source, so loop/map bodies can interpolate the current item).
+    const resolvedData = step.code.data != null ? JSON.stringify(resolveRefs(step.code.data, outputs)) : undefined
+    const resolvedSource = resolveRefs(step.code.source, outputs) as string
     if (lang === 'javascript' && !packages) {
-      return {
-        tool: 'code_eval',
-        input: {
-          code: step.code.source,
-          data: step.code.data != null ? JSON.stringify(step.code.data) : undefined,
-        },
-      }
+      return { tool: 'code_eval', input: { code: resolvedSource, data: resolvedData } }
     }
-    return {
-      tool: 'script_run',
-      input: {
-        language: lang,
-        code: step.code.source,
-        packages,
-        data: step.code.data != null ? JSON.stringify(step.code.data) : undefined,
-      },
-    }
+    return { tool: 'script_run', input: { language: lang, code: resolvedSource, packages, data: resolvedData } }
   }
 
   const tool = step.tool ? agentToolName(step.tool) : ''
@@ -108,6 +104,7 @@ export function workflowStepToToolCall(
     'code_eval',
     'http_request',
     'mcp_call_tool',
+    'job.run',
   ])
   if (!productionTools.has(tool)) return null
 
@@ -156,7 +153,11 @@ async function executeFrozenIntegrationTool(
   const headers: Record<string, string> = { Accept: 'application/json' }
   let credSecret: string | null = null
   if (artifact.auth.credentialId) {
-    const { headers: secure } = await buildSecureHeaders({}, artifact.auth.credentialId, userId)
+    // allowPay: the user wired this credential into the frozen integration's
+    // config themselves — that IS the explicit payment grant.
+    const { headers: secure } = await buildSecureHeaders({}, artifact.auth.credentialId, userId, {
+      allowPay: true,
+    })
     Object.assign(headers, secure)
   }
 
@@ -226,19 +227,77 @@ export async function executeProductionStep(
   }
 
   const result = await def.run(call.input, toolCtx)
-  return {
+  const execResult: WorkflowStepExecResult = {
     ok: result.ok,
     output: result.output,
     error: result.error,
     aiTokens: 0,
     aiCostCents: 0,
   }
+  if (!result.ok && result.error) {
+    const reconnect = await detectPipedreamReconnect(step, call, result.error, ctx.userId)
+    if (reconnect) execResult.needsReconnect = reconnect
+  }
+  return execResult
+}
+
+/** Auth-shaped failure text — the signals that a connection needs re-auth. */
+const AUTH_ERROR_RE =
+  /\b401\b|unauthorized|authentication failed|invalid[_ ](?:token|grant)|token (?:expired|revoked)|expired token|account not found|reconnect/i
+
+/**
+ * When a failed step was backed by a Pipedream-managed connection and the
+ * error looks like an auth failure, resolve the app + credential so the
+ * runtime can pause at a reconnect gate.
+ */
+async function detectPipedreamReconnect(
+  step: WorkflowStep,
+  call: { tool: string; input: Record<string, unknown> },
+  error: string,
+  userId: string,
+): Promise<{ app: string; credentialId: string } | null> {
+  if (!AUTH_ERROR_RE.test(error)) return null
+  try {
+    // MCP step → the integration's config carries the pipedream marker.
+    if (call.tool === 'mcp_call_tool') {
+      const serverId = String(call.input.serverId ?? '')
+      if (!serverId) return null
+      const row = await db.integration.findUnique({
+        where: { id: serverId },
+        select: { config: true },
+      })
+      if (!row) return null
+      const cfg = parseConfig<{ pipedream?: { appSlug: string; credentialId: string } }>(
+        row.config,
+        {},
+      )
+      if (!cfg.pipedream) return null
+      return { app: cfg.pipedream.appSlug, credentialId: cfg.pipedream.credentialId }
+    }
+    // HTTP step → the referenced credential is kind="pipedream".
+    if (call.tool === 'http_request') {
+      const credentialId = String(call.input.credentialId ?? step.http?.auth?.ref ?? '')
+      if (!credentialId) return null
+      const cred = await db.credential.findFirst({
+        where: { id: credentialId, userId, kind: 'pipedream' },
+        select: { id: true, pipedreamApp: true },
+      })
+      if (!cred?.pipedreamApp) return null
+      return { app: cred.pipedreamApp, credentialId: cred.id }
+    }
+  } catch {
+    // Detection is best-effort — fall through to a normal failure.
+  }
+  return null
 }
 
 /** Whether a saved workflow can run agent-free (has executable production nodes). */
 export function isProductionExecutableStep(step: WorkflowStep): boolean {
   if (step.kind === 'gate') return true
+  // Control flow + spawn execute directly in the runtime (not via a tool call).
+  if (step.kind === 'branch' || step.kind === 'loop' || step.kind === 'map' || step.kind === 'spawn') return true
   if (step.kind === 'reason' && step.hardened) return true
+  if (step.skill?.name) return true
   if (step.http?.url) return true
   if (step.mcp?.integrationId && step.mcp.tool) return true
   if (step.code?.source) return true

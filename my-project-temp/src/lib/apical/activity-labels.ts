@@ -111,6 +111,10 @@ export function friendlyActionLabel(
       return pick('Checking saved keys', 'Checked saved keys', "Couldn't check saved keys")
     case 'credential_request':
       return pick('Requesting an API key', 'Requested an API key', "Couldn't request the key")
+    case 'app_search':
+      return pick('Searching the app catalog', 'Searched the app catalog', "Couldn't search apps")
+    case 'connection_request':
+      return pick('Requesting an account connection', 'Requested an account connection', "Couldn't request the connection")
     case 'tool_configure':
       return pick('Adding a new capability', 'Added a new capability', "Couldn't add the capability")
     case 'workflow_freeze':

@@ -3,7 +3,7 @@
  * Ported from the production Apical app — used by the logged-in AppShell.
  */
 
-export type StepKind = "tool" | "reason" | "gate" | "spawn";
+export type StepKind = "tool" | "reason" | "gate" | "spawn" | "branch" | "loop" | "map";
 export type AgentRuntime = "local" | "hosted";
 export type WorkflowStatus = "draft" | "active" | "paused";
 export type RunStatus = "running" | "completed" | "failed" | "awaiting_gate" | "cancelled";
@@ -114,6 +114,10 @@ export interface ChatMessage {
   /** When the agent needs API keys — renders one inline, secure vault box per request.
    *  Persisted with the message; each box stays until saved or dismissed. */
   credentialRequests?: CredentialRequestState[];
+  /** When the agent needs app accounts connected — renders one "Connect your
+   *  <App>" card per request (Pipedream managed auth). Persisted with the
+   *  message; each card stays until connected or dismissed. */
+  connectionRequests?: ConnectionRequestState[];
   /** The server row id once persisted — used to PATCH interactive-card state. */
   serverId?: string;
   /** The agent's live checklist (from update_plan) — rendered above the answer. */
@@ -176,6 +180,24 @@ export interface CredentialRequestInfo {
     placeholder?: string;
     required?: boolean;
   }>;
+}
+
+/** A request from an agent for the user to connect an app account through
+ *  managed auth (Pipedream Connect). Rendered as an inline connect card. */
+export interface ConnectionRequestInfo {
+  /** Pipedream app name_slug, e.g. "slack". */
+  app: string;
+  name: string;
+  imgSrc?: string;
+  authType?: string;
+  reason?: string;
+}
+
+/** A connection request + its lifecycle state (persists until connected/dismissed). */
+export interface ConnectionRequestState extends ConnectionRequestInfo {
+  status?: "pending" | "connected" | "dismissed";
+  /** Set once connected — the Credential row backing the connection. */
+  credentialId?: string;
 }
 
 // ─── Execution trace (learn-first mode) ──────────────────────────────────────
@@ -265,6 +287,24 @@ export const STEP_KIND_META: Record<
     color: "reason",
     description: "Delegate. Spins up a temporary subagent to handle a subtask, collects the result.",
   },
+  branch: {
+    label: "Branch",
+    short: "IF",
+    color: "tool",
+    description: "Fork. Runs one set of steps or another based on a deterministic condition.",
+  },
+  loop: {
+    label: "Loop",
+    short: "LP",
+    color: "tool",
+    description: "Repeat. Runs its body over each item of a list, or until a condition holds.",
+  },
+  map: {
+    label: "Map",
+    short: "MP",
+    color: "tool",
+    description: "Fan out. Runs its body once per item, several in parallel, and collects the results.",
+  },
 };
 
 // ─── Agent naming + avatars ─────────────────────────────────────────────────
@@ -335,28 +375,26 @@ export function formatDuration(ms: number): string {
 
 export const DEFAULT_PROMPTS = [
   {
-    title: "Sort my scanner PDFs",
-    prompt:
-      "Sort the PDFs my scanner dumps into /Scan Inbox by client, and file them. Ask me if anything is unclear.",
-    reason: "A common starting point.",
+    title: "Combine files into a PDF",
+    prompt: "Combine these files into a single PDF and give me the download.",
+    reason: "A quick one-off.",
   },
   {
-    title: "Weekly client updates",
+    title: "How much space do I have?",
+    prompt: "How much free disk space is left on my computer?",
+    reason: "Ask about this machine.",
+  },
+  {
+    title: "Rename files by date",
+    prompt:
+      "Rename the files in this folder so each starts with its date, like 2026-07-07-name.",
+    reason: "Tidy up, fast.",
+  },
+  {
+    title: "Draft weekly client updates",
     prompt:
       "Every Monday, draft a short summary email to each client about last week. Send me the drafts first.",
-    reason: "Recurring client comms.",
-  },
-  {
-    title: "Chase overdue invoices",
-    prompt:
-      "Check unpaid invoices every day. Send a polite reminder if 7 days late; if 30 days, draft an escalation for me to approve.",
-    reason: "Cash flow.",
-  },
-  {
-    title: "Audit expense reports",
-    prompt:
-      "Audit new expense reports against our policy. Flag anything over $500 or missing a receipt for me; auto-approve the rest.",
-    reason: "Policy enforcement.",
+    reason: "Set it once, it repeats.",
   },
 ];
 

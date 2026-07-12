@@ -1,0 +1,34 @@
+# Never bake env/secrets into the image — configuration comes from the runtime
+# environment (docker-compose.yml / your orchestrator).
+.env
+.env.*
+!.env.example
+
+node_modules
+mini-services/*/node_modules
+.next
+out
+build
+coverage
+uploads
+download
+*.log
+*.tsbuildinfo
+.dev.pid
+
+.git
+.github
+.claude
+.vercel
+.DS_Store
+
+# Desktop build output — not part of the server image.
+src-tauri/target
+src-tauri/gen
+src-tauri/app-dist
+src-tauri/bundle-resources
+src-tauri/binaries
+public/downloads/*.dmg
+public/downloads/*.exe
+public/downloads/*.AppImage
+public/downloads/*.tar.gz

@@ -12,6 +12,7 @@
 
 import { db } from '@/lib/db'
 import { integrationVisibleWhere } from '@/lib/integration-scope'
+import { AI_PROVIDER_API_HOSTS } from '@/lib/platform/llm-service'
 import {
   validateWorkflowJSON,
   type WorkflowValidationIssue,
@@ -115,6 +116,20 @@ export async function validateWorkflowForWorkspace(
       }
     }
   }
+
+  // ---- LLM calls belong in reason steps, not raw AI provider http nodes ----
+  // Apical provides LLM access in-house (billed to the user's credits); users
+  // are never asked for AI provider keys, so these nodes have no key to use.
+  wf.steps.forEach((step, idx) => {
+    const url = step.http?.url ?? ''
+    const host = AI_PROVIDER_API_HOSTS.find((h) => url.includes(h))
+    if (host) {
+      warnings.push({
+        path: `steps.${idx}`,
+        message: `Step "${step.id}" calls an AI provider API directly (${host}). Use a reason step (kind:"reason" with a prompt + outputShape) instead — Apical provides in-house LLM access billed to the user's plan; users are never asked for AI provider keys.`,
+      })
+    }
+  })
 
   if (issues.length > 0) return { ok: false, workflow: wf, issues, warnings }
   return { ok: true, workflow: wf, issues: [], warnings }

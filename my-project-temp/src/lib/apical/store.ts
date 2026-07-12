@@ -33,11 +33,12 @@ export type Mode =
   | "settings"
   | "templates"
   | "activity"
-  | "memory";
+  | "memory"
+  | "skills";
 
 /** Active tab in the right-rail inspector (desktop) or detail pane (mobile). */
 export type InspectorSection = "overview" | "progress" | "workflow" | "config" | "runs";
-export type VaultSection = "connections" | "tokens" | "integrations" | "desktop";
+export type VaultSection = "apps" | "connections" | "tokens" | "integrations" | "desktop";
 export type MobilePane = "list" | "chat" | "detail";
 
 /** Auto-navigate to an agent chat and send an opening prompt (edit routing or first message). */
@@ -113,10 +114,19 @@ interface AppState {
   /** Drives tab switch + auto-sent prompt when routing to another agent. */
   pendingAgentHandoff: PendingAgentHandoff | null;
   setPendingAgentHandoff: (handoff: PendingAgentHandoff | null) => void;
+  /** Quick Ask: text to drop into a fresh ephemeral chat's composer — the
+   *  "ask apical from anywhere" entry (⌘K / palette). Consumed once by the new
+   *  chat pane, which prefills the composer so the user just hits send. */
+  pendingQuickAsk: string | null;
+  setPendingQuickAsk: (text: string | null) => void;
   /** Sidebar pin order — persisted in localStorage (conversation ids). */
   pinnedConversationIds: string[];
   hydratePinnedConversations: () => void;
   togglePinConversation: (id: string) => void;
+  /** Long-task mode: the next send runs as a DURABLE agent run (survives
+   *  tab close; executed by the agent-worker). Persisted in localStorage. */
+  durableMode: boolean;
+  setDurableMode: (v: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -159,7 +169,7 @@ export const useAppStore = create<AppState>((set) => ({
   setSandboxOpen: (v) => set({ sandboxOpen: v }),
   highlightedStepId: null,
   setHighlightedStepId: (id) => set({ highlightedStepId: id }),
-  vaultSection: "connections",
+  vaultSection: "apps",
   setVaultSection: (s) => set({ vaultSection: s }),
   installedTemplates: [],
   installTemplate: (t) =>
@@ -182,6 +192,8 @@ export const useAppStore = create<AppState>((set) => ({
     })),
   pendingAgentHandoff: null,
   setPendingAgentHandoff: (handoff) => set({ pendingAgentHandoff: handoff }),
+  pendingQuickAsk: null,
+  setPendingQuickAsk: (text) => set({ pendingQuickAsk: text }),
   pinnedConversationIds: DEFAULT_PINNED,
   hydratePinnedConversations: () =>
     set({ pinnedConversationIds: readPinnedConversationIds() }),
@@ -194,4 +206,15 @@ export const useAppStore = create<AppState>((set) => ({
       writePinnedConversationIds(next);
       return { pinnedConversationIds: next };
     }),
+  durableMode:
+    typeof window !== "undefined" &&
+    window.localStorage?.getItem("apical.durableMode") === "1",
+  setDurableMode: (v) => {
+    try {
+      window.localStorage?.setItem("apical.durableMode", v ? "1" : "0");
+    } catch {
+      // private mode — in-memory only
+    }
+    set({ durableMode: v });
+  },
 }));

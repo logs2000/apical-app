@@ -22,11 +22,14 @@ import {
   AlertCircle,
   Loader2,
   Search,
+  Grid2x2,
 } from "lucide-react";
+import { PipedreamAppsSection } from "./pipedream-apps-section";
 
 const SECTIONS: { key: VaultSection; label: string; icon: typeof PlugZap; desc: string }[] = [
-  { key: "connections", label: "Connections", icon: PlugZap, desc: "OAuth integrations (Gmail, Slack, Stripe…)" },
-  { key: "integrations", label: "MCP & APIs", icon: Server, desc: "MCP servers + OpenAPI integrations in use" },
+  { key: "apps", label: "Apps", icon: Grid2x2, desc: "One-click managed connections (3,000+ apps)" },
+  { key: "connections", label: "Direct connections", icon: PlugZap, desc: "Advanced: direct OAuth (bring your own app)" },
+  { key: "integrations", label: "MCP & APIs", icon: Server, desc: "Advanced: MCP servers + OpenAPI integrations" },
   { key: "tokens", label: "Access tokens", icon: KeyRound, desc: "API tokens for MCP / REST" },
   { key: "desktop", label: "Desktop", icon: Monitor, desc: "Let agents read your files + run commands" },
 ];
@@ -71,6 +74,7 @@ export function VaultTab() {
               </button>
             ))}
           </div>
+          {section === "apps" && <PipedreamAppsSection />}
           {section === "connections" && <ConnectionsSection />}
           {section === "integrations" && <IntegrationsSection />}
           {section === "tokens" && <TokensSection />}

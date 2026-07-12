@@ -13,7 +13,7 @@ import { serializeWorkflowJSON } from './apical-server'
 import { mapWorkflow } from './mappers'
 import { saveWorkflowSteps } from './platform/workflow-revisions'
 import { computeNextRun, validateSchedule, type ScheduleKind } from './platform/cron'
-import { inferRuntimeFromSteps } from './workflow-schema'
+import { inferRuntimeFromSteps, KNOWN_STEP_KINDS } from './workflow-schema'
 import type {
   AutomationFile,
   HttpCallSpec,
@@ -80,7 +80,12 @@ export function normalizeSteps(raw: unknown[]): WorkflowStep[] {
   return raw
     .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
     .map((s, i) => {
-      const kind = s.kind === 'reason' || s.kind === 'gate' ? s.kind : 'tool'
+      // Preserve every known kind verbatim (coercing spawn/loop/etc. to `tool`
+      // silently breaks the step). Unknown kinds pass through unchanged so
+      // validateWorkflowJSON rejects them loudly instead of masking them.
+      const kind = (
+        typeof s.kind === 'string' && KNOWN_STEP_KINDS.includes(s.kind) ? s.kind : typeof s.kind === 'string' && s.kind ? s.kind : 'tool'
+      ) as WorkflowStep['kind']
       const id = typeof s.id === 'string' && s.id ? s.id : `s${i + 1}`
       const label =
         typeof s.label === 'string' && s.label
@@ -89,7 +94,9 @@ export function normalizeSteps(raw: unknown[]): WorkflowStep[] {
             ? 'Reason'
             : kind === 'gate'
               ? 'Approve'
-              : 'Run tool'
+              : kind === 'spawn'
+                ? 'Delegate'
+                : 'Run tool'
       const out: WorkflowStep = { id, kind, label }
       if (kind === 'tool') {
         if (typeof s.tool === 'string') out.tool = s.tool
@@ -148,7 +155,40 @@ export function normalizeSteps(raw: unknown[]): WorkflowStep[] {
         }
       } else if (kind === 'gate') {
         if (typeof s.gateMessage === 'string') out.gateMessage = s.gateMessage
+      } else if (kind === 'spawn') {
+        if (typeof s.spawnPrompt === 'string') out.spawnPrompt = s.spawnPrompt
+        if (Array.isArray(s.spawnTools)) {
+          out.spawnTools = s.spawnTools.filter((t) => typeof t === 'string') as string[]
+        }
+        if (s.spawnOutputShape && typeof s.spawnOutputShape === 'object') {
+          out.spawnOutputShape = s.spawnOutputShape as Record<string, string>
+        }
+      } else if (kind === 'branch') {
+        if (s.when && typeof s.when === 'object') out.when = s.when as WorkflowStep['when']
+        if (Array.isArray(s.thenSteps)) out.thenSteps = normalizeSteps(s.thenSteps)
+        if (Array.isArray(s.elseSteps)) out.elseSteps = normalizeSteps(s.elseSteps)
+      } else if (kind === 'loop') {
+        if (typeof s.loopOver === 'string') out.loopOver = s.loopOver
+        if (s.until && typeof s.until === 'object') out.until = s.until as WorkflowStep['until']
+        if (Array.isArray(s.bodySteps)) out.bodySteps = normalizeSteps(s.bodySteps)
+        if (typeof s.maxIterations === 'number') out.maxIterations = s.maxIterations
+      } else if (kind === 'map') {
+        if (typeof s.itemsRef === 'string') out.itemsRef = s.itemsRef
+        if (Array.isArray(s.bodySteps)) out.bodySteps = normalizeSteps(s.bodySteps)
+        if (typeof s.concurrency === 'number') out.concurrency = s.concurrency
+        if (typeof s.continueOnError === 'boolean') out.continueOnError = s.continueOnError
       }
+      if (s.retry && typeof s.retry === 'object' && !Array.isArray(s.retry)) {
+        const r = s.retry as Record<string, unknown>
+        if (typeof r.maxAttempts === 'number') {
+          out.retry = {
+            maxAttempts: r.maxAttempts,
+            ...(typeof r.backoffMs === 'number' ? { backoffMs: r.backoffMs } : {}),
+            ...(typeof r.backoffMultiplier === 'number' ? { backoffMultiplier: r.backoffMultiplier } : {}),
+          } as WorkflowStep['retry']
+        }
+      }
+      if (typeof s.timeoutMs === 'number') out.timeoutMs = s.timeoutMs
       if (typeof s.note === 'string') out.note = s.note
       if (typeof s.hardened === 'boolean') out.hardened = s.hardened
       if (typeof s.rule === 'string') out.rule = s.rule
@@ -160,6 +200,16 @@ export function normalizeSteps(raw: unknown[]): WorkflowStep[] {
             integrationId: m.integrationId,
             tool: m.tool,
             ...(m.args && typeof m.args === 'object' ? { args: m.args as Record<string, unknown> } : {}),
+          }
+        }
+      }
+      if (s.skill && typeof s.skill === 'object' && !Array.isArray(s.skill)) {
+        const sk = s.skill as Record<string, unknown>
+        if (typeof sk.name === 'string' && sk.name) {
+          out.skill = {
+            name: sk.name,
+            ...(typeof sk.version === 'number' ? { version: sk.version } : {}),
+            ...(sk.params && typeof sk.params === 'object' ? { params: sk.params as Record<string, unknown> } : {}),
           }
         }
       }
@@ -175,6 +225,9 @@ export function normalizeSteps(raw: unknown[]): WorkflowStep[] {
             language: lang,
             source: c.source,
             ...('data' in c ? { data: c.data } : {}),
+            ...(Array.isArray(c.packages)
+              ? { packages: c.packages.filter((p) => typeof p === 'string') as string[] }
+              : {}),
           }
         }
       }

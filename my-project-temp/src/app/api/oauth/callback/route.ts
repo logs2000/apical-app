@@ -45,7 +45,7 @@ export async function GET(req: Request) {
   }
 
   // 3. Verify + consume the state (one-shot — replay attacks rejected).
-  const entry = consumeOAuthState(state)
+  const entry = await consumeOAuthState(state)
   if (!entry) {
     return redirectTo('?oauth_error=invalid_or_expired_state')
   }

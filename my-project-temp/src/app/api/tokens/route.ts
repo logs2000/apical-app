@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withUser, getWorkspaceForUser } from '@/lib/auth-helpers'
-import { generateApiKey } from '@/lib/api-key-auth'
+import { generateApiKey, ALL_SCOPES } from '@/lib/api-key-auth'
 
 // GET  /api/tokens — list the current user's personal API keys (ap_pat_).
 //   Returns: { tokens: [{ id, label, tokenPrefix, lastUsedAt, status, createdAt }] }
@@ -55,6 +55,9 @@ export const POST = withUser(async (req, { user }) => {
       label,
       keyHash: hash,
       keyPrefix: prefix,
+      // Personal tokens are full-access by design; record scopes explicitly
+      // rather than relying on the empty-list sentinel (now fail-closed).
+      scopesJson: JSON.stringify(ALL_SCOPES),
       status: 'active',
     },
   })

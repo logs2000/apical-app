@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { withUser } from '@/lib/auth-helpers'
 import { isKnownTool } from '@/lib/platform/desktop-tools'
 import { enforceGrantedRoots } from '@/lib/platform/granted-folders'
+import { BRIDGE_INVOKE_URL } from '@/lib/service-urls'
 
 // POST /api/desktop/bridge/invoke — proxy an MCP tool invocation to the
 // desktop-bridge mini-service on port 3005.
@@ -24,7 +25,13 @@ import { enforceGrantedRoots } from '@/lib/platform/granted-folders'
 // This route is what hosted agents actually call. They never talk to port 3005
 // directly — Caddy only exposes 3000.
 
-const BRIDGE_URL = 'http://localhost:3005/invoke'
+const BRIDGE_URL = BRIDGE_INVOKE_URL
+
+// Shared secret the bridge requires on /invoke (it refuses to start without
+// one). Read lazily so tests can set it after import.
+function bridgeSecret(): string {
+  return (process.env.APICAL_BRIDGE_SECRET || '').trim()
+}
 
 interface InvokeBody {
   sessionId?: string
@@ -87,12 +94,20 @@ export const POST = withUser(async (req, { user }) => {
     return NextResponse.json({ ok: false, error: rootViolation }, { status: 403 })
   }
 
+  // Fail closed: the bridge rejects unauthenticated /invoke, so without the
+  // shared secret configured here there is nothing useful to forward.
+  const secret = bridgeSecret()
+  if (!secret) {
+    console.error('[desktop-bridge/invoke] APICAL_BRIDGE_SECRET is not set — refusing to proxy')
+    return NextResponse.json({ ok: false, error: 'bridge_not_configured' }, { status: 503 })
+  }
+
   // Forward to the desktop-bridge mini-service.
   let bridgeRes: Response
   try {
     bridgeRes = await fetch(BRIDGE_URL, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-bridge-secret': secret },
       body: JSON.stringify({ sessionId, tool, args, timeoutMs }),
       // Don't let the fetch itself hang beyond the timeout + slack.
       signal: AbortSignal.timeout(timeoutMs + 5_000),

@@ -1,9 +1,6 @@
 import { createHash, randomBytes } from 'crypto'
-import { mkdir, writeFile, readFile, unlink } from 'fs/promises'
-import path from 'path'
 import { db } from '@/lib/db'
-
-const UPLOAD_ROOT = path.join(process.cwd(), 'uploads')
+import { putObject, getObject, deleteObject } from './storage'
 
 export type AssetKind = 'image' | 'file' | 'folder' | 'code'
 export type AssetSource = 'upload' | 'agent' | 'script'
@@ -43,9 +40,9 @@ function inferKind(mimeType: string, name: string): AssetKind {
   return 'file'
 }
 
-function storagePath(userId: string, assetId: string, name: string): string {
+function storageKeyFor(userId: string, assetId: string, name: string): string {
   const safe = name.replace(/[^\w.\-()+ ]/g, '_').slice(0, 120)
-  return path.join(UPLOAD_ROOT, userId, assetId, safe)
+  return `${userId}/${assetId}/${safe}`
 }
 
 export function assetDownloadUrl(assetId: string): string {
@@ -85,9 +82,7 @@ export async function saveAsset(input: SaveAssetInput): Promise<AssetRecord> {
   const id = `asset_${randomBytes(8).toString('hex')}`
   const mimeType = input.mimeType || 'application/octet-stream'
   const kind = input.kind || inferKind(mimeType, input.name)
-  const absPath = storagePath(input.userId, id, input.name)
-  await mkdir(path.dirname(absPath), { recursive: true })
-  await writeFile(absPath, input.bytes)
+  const storageKey = await putObject(storageKeyFor(input.userId, id, input.name), input.bytes, mimeType)
 
   const row = await db.userAsset.create({
     data: {
@@ -99,7 +94,7 @@ export async function saveAsset(input: SaveAssetInput): Promise<AssetRecord> {
       name: input.name,
       mimeType,
       sizeBytes: input.bytes.length,
-      storageKey: path.relative(UPLOAD_ROOT, absPath),
+      storageKey,
       kind,
       source: input.source ?? 'upload',
       localPath: input.localPath ?? null,
@@ -170,6 +165,7 @@ export async function listUserAssets(
   const rows = await db.userAsset.findMany({
     where: {
       userId,
+      deletedAt: null, // hide soft-deleted assets (recoverable via restore)
       ...(opts?.agentId ? { agentId: opts.agentId } : {}),
       ...(opts?.kind ? { kind: opts.kind } : {}),
     },
@@ -180,31 +176,24 @@ export async function listUserAssets(
 }
 
 export async function getUserAsset(userId: string, assetId: string) {
-  return db.userAsset.findFirst({ where: { id: assetId, userId } })
+  return db.userAsset.findFirst({ where: { id: assetId, userId, deletedAt: null } })
 }
 
 export async function readAssetBytes(userId: string, assetId: string): Promise<Buffer | null> {
   const row = await getUserAsset(userId, assetId)
-  if (!row || row.kind === 'folder') return null
-  const absPath = path.join(UPLOAD_ROOT, row.storageKey)
-  try {
-    return await readFile(absPath)
-  } catch {
-    return null
-  }
+  if (!row || row.kind === 'folder' || row.storageKey.startsWith('ref/')) return null
+  return getObject(row.storageKey)
 }
 
+/**
+ * Soft-delete an asset (Protection 2): the row + bytes are kept so a restore can
+ * recover it; it's just hidden from listings. A prune job hard-deletes the bytes
+ * once the recovery window has passed.
+ */
 export async function deleteUserAsset(userId: string, assetId: string): Promise<boolean> {
   const row = await getUserAsset(userId, assetId)
   if (!row) return false
-  if (row.kind !== 'folder') {
-    try {
-      await unlink(path.join(UPLOAD_ROOT, row.storageKey))
-    } catch {
-      // file may already be gone
-    }
-  }
-  await db.userAsset.delete({ where: { id: assetId } })
+  await db.userAsset.update({ where: { id: assetId }, data: { deletedAt: new Date() } })
   return true
 }
 

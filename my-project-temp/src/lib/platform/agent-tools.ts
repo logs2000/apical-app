@@ -18,19 +18,27 @@
 
 import { db } from '@/lib/db'
 import type { ToolSpec } from '@/lib/platform/llm-gateway'
+import { isAiProviderKeyRequest } from '@/lib/platform/llm-service'
 import { integrationFromRow, parseConfig, serializeWorkflowJSON } from '@/lib/apical-server'
 import { callMcpTool, connectMcpServer } from '@/lib/mcp-client'
 import { buildSecureHeaders, listCredentialsForAgent } from '@/lib/platform/agent-credentials'
 import { ingestOpenApiSpec } from '@/lib/openapi-parser'
 import { searchWeb } from '@/lib/platform/web-search'
 import { saveAsset, assetDownloadUrl } from '@/lib/platform/assets'
+import { normalizeImage } from '@/lib/platform/images'
+import { assertPublicUrl, fetchPublicUrl } from '@/lib/platform/net-guard'
+import { BRIDGE_INVOKE_URL } from '@/lib/service-urls'
 import { normalizeSteps } from '@/lib/deploy'
 import { inferRuntimeFromSteps } from '@/lib/workflow-schema'
 import { buildStepsForFreeze } from '@/lib/platform/workflow-distill'
 import { saveWorkflowSteps, appendWorkflowStep, patchWorkflowStep } from '@/lib/platform/workflow-revisions'
 import { validateWorkflowJSON } from '@/lib/workflow-schema'
 import { validateSchedule, parseFixedRate, type ScheduleKind } from '@/lib/platform/cron'
-import type { WorkflowJSON, McpServerConfig } from '@/lib/types'
+import { buildPipedreamMcpConfig } from '@/lib/pipedream/mcp'
+import { searchApps, getApp as getPipedreamApp } from '@/lib/pipedream/apps'
+import { proxyFetch } from '@/lib/pipedream/proxy'
+import { isPipedreamConfigured } from '@/lib/pipedream/config'
+import type { WorkflowJSON, McpServerConfig, IntegrationConfig } from '@/lib/types'
 import {
   WORKFLOW_META_TOOLS,
   MIN_SUBSTANTIVE_FREEZE_STEPS,
@@ -66,6 +74,9 @@ export interface ToolResult {
   ok: boolean
   output: unknown // structured; serialized to a string for the LLM
   error?: string
+  /** Vision output — normalized images the agent loop feeds to the model on
+   *  the next LLM call (vision models only). Keep small: ≤4 per result. */
+  images?: Array<{ mimeType: string; base64: string; label?: string }>
   /** Optional display hints for the UI. */
   display?: {
     title: string
@@ -97,6 +108,22 @@ export interface CredentialRequest {
   headerPrefix?: string
 }
 
+/** An account connection the agent asks the user to authorize via
+ *  connection_request — rendered in chat as a "Connect your <App>" card that
+ *  opens the Pipedream managed-auth window. */
+export interface ConnectionRequest {
+  /** Pipedream app name_slug, e.g. "slack". */
+  app: string
+  /** Display name, e.g. "Slack". */
+  name: string
+  /** App logo URL (Pipedream img_src). */
+  imgSrc?: string
+  /** Pipedream auth type: "oauth" | "keys" | "none". */
+  authType?: string
+  /** Plain-English: why the agent needs this connection. */
+  reason?: string
+}
+
 /** A single checklist item the agent declares + updates via update_plan. */
 export interface PlanItem {
   id: string
@@ -123,6 +150,10 @@ export interface ClarificationRequest {
   freeTextPlaceholder?: string
   /** 'clarification' = disambiguate; 'review' = approval gate (default 'clarification'). */
   kind?: 'clarification' | 'review'
+  /** For an enforced destructive-action gate (Protection 3): the one-shot action
+   *  signature. On "Approve & run" the client re-sends the ask with this value in
+   *  `approvedActionSignatures`, letting the re-issued action through once. */
+  approvalSignature?: string
 }
 
 export interface ToolContext {
@@ -151,6 +182,9 @@ export interface ToolContext {
   /** Set by credential_request — surfaced to the chat as inline key-entry boxes.
    *  An array so one turn can request several keys (one box each). */
   credentialRequests?: CredentialRequest[]
+  /** Set by connection_request — surfaced to the chat as "Connect your <App>"
+   *  cards that open the Pipedream managed-auth window. */
+  connectionRequests?: ConnectionRequest[]
   /** Set by update_plan — the live checklist surfaced above the answer. */
   plan?: PlanItem[]
   /** Set by ask_clarification — a multiple-choice question that ends the turn. */
@@ -183,6 +217,31 @@ export interface ToolContext {
   }>
   /** Meta-tool failures (workflow_freeze, schedule_agent, etc.) — not in executionTrace. */
   metaToolFailures?: Array<{ tool: string; error: string }>
+  /** The browser session opened for this run (lazily, by the browser tool);
+   *  closed by the engine when the run ends. */
+  browserSessionId?: string | null
+  // ---- Destructive-action gate (Protection 3) ----
+  /** The user's approval tier for destructive actions ('ask'|'allowlist'|'always').
+   *  Defaults to 'ask' when unset (fail-safe). */
+  approvalTier?: 'ask' | 'allowlist' | 'always'
+  /** Program basenames auto-allowed in 'allowlist' tier. */
+  cliAllowlist?: string[]
+  /** No human is present to approve (scheduled/cron/background run). */
+  headless?: boolean
+  /** One-shot approval tokens (action signatures) granted by the user; a match
+   *  lets the exact action run once, then is consumed. */
+  approvedActionSignatures?: Set<string>
+  /** Set by the engine when a destructive action is gated — the exact action to
+   *  persist so approving it grants a one-shot token. */
+  pendingApproval?: { signature: string; tool: string; summary: string; level: 'caution' | 'critical' }
+  /** The durable run id, when this turn runs as an AgentRun (undo anchor). */
+  runId?: string | null
+  /** The restore checkpoint for this turn (Protection 2). When set, desktop
+   *  fs writes/moves capture a before-image for undo. */
+  restoreCheckpointId?: string | null
+  /** True when this run is itself a spawned subagent — blocks further spawning
+   *  (no recursive subagent forests in v1). */
+  isSubagent?: boolean
   /**
    * Abort signal from the originating HTTP request. Long-running tools
    * (network fetches, CLI/script runs) should pass this to their I/O so a
@@ -291,6 +350,33 @@ async function invokeDesktopTool(
       }
     }
 
+    // Capture a before-image for undo (Protection 2). Best-effort; never blocks
+    // the op. Direct-fs capture only applies where the file is on this box
+    // (desktop-local); the bridge path captures via a read round-trip (follow-up).
+    // The checkpoint opens lazily on the first file mutation, so runs that never
+    // touch files create no empty checkpoints.
+    if (isLocalDesktopRuntime() && (tool === 'desktop.fs.write' || tool === 'desktop.fs.move')) {
+      try {
+        const { openCheckpoint, captureBeforeWrite, captureBeforeMove } = await import('./restore')
+        if (!ctx.restoreCheckpointId) {
+          ctx.restoreCheckpointId = await openCheckpoint({
+            userId: ctx.userId,
+            agentId: ctx.agentId,
+            runId: ctx.runId ?? null,
+            label: ctx.userGoal?.slice(0, 120) ?? '',
+            now: Date.now(),
+          })
+        }
+        if (tool === 'desktop.fs.write' && typeof args.path === 'string') {
+          await captureBeforeWrite(ctx.restoreCheckpointId, args.path)
+        } else if (tool === 'desktop.fs.move' && typeof args.from === 'string' && typeof args.to === 'string') {
+          await captureBeforeMove(ctx.restoreCheckpointId, args.from, args.to)
+        }
+      } catch {
+        /* capture failure must not stop the user's work */
+      }
+    }
+
     if (isLocalDesktopRuntime()) {
       const data = await invokeLocalDesktopTool(tool, args, timeoutMs)
       return {
@@ -314,7 +400,7 @@ async function invokeDesktopTool(
         output: null,
         error: 'No online desktop session. Connect the desktop app + enable desktop access in Settings → Desktop.',
       }
-    const r = await fetch('http://localhost:3005/invoke', {
+    const r = await fetch(BRIDGE_INVOKE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -400,11 +486,19 @@ const webRead: ToolDef = {
 
     // SECURITY: resolve credential + build headers server-side. Strips any
     // auth-shaped headers the LLM tried to set.
-    const { headers, hadCredential } = await buildSecureHeaders(
+    const { headers, hadCredential, paymentBlocked } = await buildSecureHeaders(
       { 'User-Agent': 'Apical-Research-Bot/1.0', Accept: 'text/html,application/json,text/plain,*/*' },
       credentialId || undefined,
       ctx.userId,
+      { agentId: ctx.agentId },
     )
+    if (credentialId && paymentBlocked) {
+      return {
+        ok: false,
+        output: null,
+        error: `credentialId "${credentialId}" is payment-capable and this agent has no explicit grant for it. The user must add it to the agent's allowed credentials before it can be used.`,
+      }
+    }
     if (credentialId && !hadCredential) {
       return {
         ok: false,
@@ -420,7 +514,8 @@ const webRead: ToolDef = {
     const usedMethod = 'fetch'
 
     try {
-      const r = await fetch(url, {
+      // SSRF guard: public hosts only, re-checked on every redirect hop.
+      const r = await fetchPublicUrl(url, {
         signal: toolAbortSignal(ctx, 12_000),
         headers,
       })
@@ -489,6 +584,13 @@ const httpRequest: ToolDef = {
     const url = asString(input.url, 2000)
     if (!url || !/^https?:\/\//.test(url))
       return { ok: false, output: null, error: 'valid http(s) url is required' }
+    // SSRF guard: applies to the direct path AND the Pipedream proxy path —
+    // no reason to let an agent aim either one at internal addresses.
+    try {
+      await assertPublicUrl(url)
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
     const method = (asString(input.method, 10) || 'GET').toUpperCase()
     const body = asString(input.body, 100_000)
     const credentialId = asString(input.credentialId, 100)
@@ -496,11 +598,60 @@ const httpRequest: ToolDef = {
     // SECURITY: build headers server-side. Strips any auth-shaped headers
     // the LLM tried to set; injects the secret from the vault if credentialId
     // is provided.
-    const { headers, hadCredential } = await buildSecureHeaders(
+    const { headers, hadCredential, pipedream, paymentBlocked } = await buildSecureHeaders(
       (input.headers as Record<string, string>) ?? {},
       credentialId || undefined,
       ctx.userId,
+      { agentId: ctx.agentId },
     )
+    if (credentialId && paymentBlocked) {
+      return {
+        ok: false,
+        output: null,
+        error: `credentialId "${credentialId}" is payment-capable and this agent has no explicit grant for it. The user must add it to the agent's allowed credentials before it can be used.`,
+        display: { title: `${method} ${url}`, summary: 'payment credential blocked', kind: 'http' },
+      }
+    }
+
+    // Pipedream-managed credential: the token lives in Pipedream's vault, so
+    // the request routes through their proxy (auth injected upstream). Same
+    // insulation guarantee — the LLM only ever sees the response body.
+    if (pipedream?.pipedreamAccountId) {
+      ctx.usedCredentialIds = ctx.usedCredentialIds ?? []
+      if (!ctx.usedCredentialIds.includes(credentialId)) {
+        ctx.usedCredentialIds.push(credentialId)
+      }
+      const proxied = await proxyFetch(ctx.userId, pipedream.pipedreamAccountId, {
+        url,
+        method,
+        headers,
+        body: ['GET', 'HEAD'].includes(method) ? null : body,
+      })
+      let parsed: unknown = proxied.body
+      try {
+        parsed = JSON.parse(proxied.body)
+      } catch {
+        /* keep text */
+      }
+      if (!proxied.ok && proxied.error) {
+        return {
+          ok: false,
+          output: { status: proxied.status, body: parsed },
+          error: proxied.error,
+          display: { title: `${method} ${url}`, summary: `proxy HTTP ${proxied.status}`, kind: 'http' },
+        }
+      }
+      return {
+        ok: proxied.ok,
+        output: {
+          status: proxied.status,
+          ok: proxied.ok,
+          body: typeof parsed === 'string' ? truncate(parsed, ctx.maxFetchBytes) : parsed,
+          via: 'pipedream-proxy',
+        },
+        display: { title: `${method} ${url}`, summary: `HTTP ${proxied.status} (managed)`, kind: 'http' },
+      }
+    }
 
     if (credentialId && !hadCredential) {
       return {
@@ -512,7 +663,8 @@ const httpRequest: ToolDef = {
     }
 
     try {
-      const r = await fetch(url, {
+      // SSRF guard again at fetch time: re-validates every redirect hop.
+      const r = await fetchPublicUrl(url, {
         method,
         headers,
         body: ['GET', 'HEAD'].includes(method) ? undefined : body,
@@ -606,6 +758,613 @@ const assetSave: ToolDef = {
   },
 }
 
+// 4c. image_read — load an image so the model can SEE it (vision input).
+const imageRead: ToolDef = {
+  name: 'image_read',
+  description:
+    'Look at an image. Loads an image from an asset id, URL, or desktop file path and attaches it to your next reasoning step so you can see the pixels (vision models only; on non-vision models you get a text note instead). Use this to inspect screenshots, charts, photos, satellite tiles, or generated renders before deciding what to do next.',
+  inputSchema: {
+    assetId: { type: 'string', description: 'A UserAsset id (from asset_save, uploads, or job artifacts).' },
+    url: { type: 'string', description: 'An http(s) or data: image URL.' },
+    path: { type: 'string', description: "Absolute file path on the user's desktop (requires desktop access)." },
+    label: { type: 'string', description: 'Short label for the image, e.g. "satellite tile row 2".' },
+  },
+  async run(input, ctx) {
+    const assetId = asString(input.assetId, 100)
+    const url = asString(input.url, 4000)
+    const path = asString(input.path, 2000)
+    const label = asString(input.label, 200) || undefined
+    if (!assetId && !url && !path) {
+      return { ok: false, output: null, error: 'one of assetId, url, or path is required' }
+    }
+    try {
+      let normalized
+      if (path) {
+        if (!ctx.allowCli && !isLocalDesktopRuntime()) {
+          return { ok: false, output: null, error: 'Desktop access is disabled. Use assetId or url instead.' }
+        }
+        const read = await fsRead.run({ path, encoding: 'base64' }, ctx)
+        const content = read.ok ? (read.output as { content?: string } | null)?.content : null
+        if (!content) return { ok: false, output: null, error: read.error || 'could not read image file' }
+        normalized = await normalizeImage({ bytes: Buffer.from(content, 'base64'), label })
+      } else {
+        normalized = await normalizeImage({ assetId: assetId || undefined, userId: ctx.userId, url: url || undefined, label })
+      }
+      return {
+        ok: true,
+        output: {
+          width: normalized.width,
+          height: normalized.height,
+          mimeType: normalized.mimeType,
+          sizeBytes: normalized.sizeBytes,
+          source: assetId ? `asset:${assetId}` : url || path,
+          note: 'Image attached — it is visible to you in this turn.',
+        },
+        images: [{ mimeType: normalized.mimeType, base64: normalized.base64, label }],
+        display: {
+          title: label || 'Read image',
+          summary: `${normalized.width}×${normalized.height} ${normalized.mimeType}`,
+          kind: 'image',
+          ...(assetId ? { assetId, assetUrl: assetDownloadUrl(assetId) } : {}),
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 4d/4e/4f/4g. job_* — async compute (submit → poll → collect). For work too
+// heavy or slow for a normal tool call (photogrammetry, video CV, big data,
+// long renders): the job runs detached in the worker (backend: server) or on
+// the user's machine (backend: desktop), for up to hours, and produces
+// downloadable artifacts. Poll job_status, then job_collect.
+const jobSubmit: ToolDef = {
+  name: 'job_submit',
+  description:
+    'Start a long-running compute job (heavy/slow work: photogrammetry, video frame extraction, large data crunching, 3D processing, long renders). Runs detached — it survives beyond one tool call. Returns a jobId to poll with job_status and gather with job_collect. Prefer this over script_run when the work takes more than a minute.',
+  inputSchema: {
+    label: { type: 'string', description: 'Short human label for the job.', required: true },
+    language: { type: 'string', description: 'python | javascript | shell.', required: true },
+    source: { type: 'string', description: 'Script source. Write output files to $APICAL_JOB_DIR/out (they become downloadable artifacts). Rewrite $APICAL_JOB_DIR/progress.json with {"progress":0..1,"note":"…"} to report progress.', required: true },
+    packages: { type: 'array', description: 'npm/PyPI packages to install (max 20).', items: { type: 'string' } },
+    args: { type: 'array', description: 'String args; also passed as JSON in APICAL_DATA.', items: { type: 'string' } },
+    backend: { type: 'string', description: "'server' (default) or 'desktop' (runs on the user's machine — needed for local GPU/files)." },
+    timeoutMinutes: { type: 'number', description: 'Max runtime in minutes (default 30, max 360).' },
+  },
+  async run(input, ctx) {
+    const label = asString(input.label, 200)
+    const language = asString(input.language, 20).toLowerCase()
+    const source = asString(input.source, 200_000)
+    if (!label || !source) return { ok: false, output: null, error: 'label and source are required' }
+    if (!['python', 'javascript', 'shell'].includes(language)) {
+      return { ok: false, output: null, error: 'language must be python, javascript, or shell' }
+    }
+    const backend = asString(input.backend, 20) === 'desktop' ? 'desktop' : 'server'
+    if (backend === 'desktop' && !ctx.allowCli && !isLocalDesktopRuntime()) {
+      return { ok: false, output: null, error: 'Desktop backend needs desktop access (Settings → Desktop). Use backend "server".' }
+    }
+    const packages = Array.isArray(input.packages) ? (input.packages as unknown[]).filter((p) => typeof p === 'string').slice(0, 20) as string[] : []
+    const args = Array.isArray(input.args) ? (input.args as unknown[]).filter((a) => typeof a === 'string') as string[] : []
+    const timeoutMinutes = Math.max(1, Math.min(360, Number(input.timeoutMinutes) || 30))
+    try {
+      const job = await db.job.create({
+        data: {
+          userId: ctx.userId,
+          workspaceId: ctx.workspaceId ?? null,
+          agentId: ctx.agentId ?? null,
+          label,
+          kind: language === 'shell' ? 'cli' : 'script',
+          backend,
+          timeoutMs: timeoutMinutes * 60_000,
+          payloadJson: JSON.stringify({ language, source, packages, args }),
+        },
+      })
+      return {
+        ok: true,
+        output: { jobId: job.id, backend, status: 'queued', note: 'Job queued. Poll job_status; gather with job_collect.' },
+        display: { title: `Submitted job: ${label}`, summary: `${backend} · ${language}`, kind: 'code' },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const jobStatus: ToolDef = {
+  name: 'job_status',
+  description: 'Check a job’s status and progress. Optionally wait up to a few seconds for it to advance. Returns status (queued|accepted|running|completed|failed|cancelled|timeout), progress (0–1), and a note.',
+  inputSchema: {
+    jobId: { type: 'string', description: 'The job id from job_submit.', required: true },
+    waitSeconds: { type: 'number', description: 'Block up to this many seconds (max 55) for progress.' },
+  },
+  async run(input, ctx) {
+    const jobId = asString(input.jobId, 100)
+    if (!jobId) return { ok: false, output: null, error: 'jobId is required' }
+    const waitMs = Math.max(0, Math.min(55, Number(input.waitSeconds) || 0)) * 1000
+    const deadline = Date.now() + waitMs
+    const terminal = new Set(['completed', 'failed', 'cancelled', 'timeout'])
+    for (;;) {
+      const job = await db.job.findFirst({ where: { id: jobId, userId: ctx.userId } })
+      if (!job) return { ok: false, output: null, error: 'job not found' }
+      if (terminal.has(job.status) || Date.now() >= deadline) {
+        return {
+          ok: true,
+          output: {
+            status: job.status,
+            progress: job.progress ?? 0,
+            note: job.progressNote ?? undefined,
+            error: job.error ?? undefined,
+            elapsedMs: job.startedAt ? Date.now() - +new Date(job.startedAt) : 0,
+          },
+          display: { title: `Job ${job.status}`, summary: job.progressNote ?? `${Math.round((job.progress ?? 0) * 100)}%`, kind: 'info' },
+        }
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  },
+}
+
+const jobCollect: ToolDef = {
+  name: 'job_collect',
+  description: 'Gather a finished job’s result and artifacts. Returns the result summary and downloadable artifacts; image artifacts are shown to you so you can inspect the output. Call after job_status reports completed.',
+  inputSchema: {
+    jobId: { type: 'string', description: 'The job id from job_submit.', required: true },
+  },
+  async run(input, ctx) {
+    const jobId = asString(input.jobId, 100)
+    if (!jobId) return { ok: false, output: null, error: 'jobId is required' }
+    const job = await db.job.findFirst({ where: { id: jobId, userId: ctx.userId } })
+    if (!job) return { ok: false, output: null, error: 'job not found' }
+    if (!['completed', 'failed', 'timeout', 'cancelled'].includes(job.status)) {
+      return { ok: false, output: null, error: `job is still ${job.status} — poll job_status first` }
+    }
+    const artifactIds: string[] = job.artifactIdsJson ? (JSON.parse(job.artifactIdsJson) as string[]) : []
+    const assets = artifactIds.length
+      ? await db.userAsset.findMany({ where: { id: { in: artifactIds }, userId: ctx.userId } })
+      : []
+    const artifacts = assets.map((a) => ({ id: a.id, name: a.name, mimeType: a.mimeType, url: assetDownloadUrl(a.id) }))
+    for (const a of assets) {
+      ctx.producedAssets?.push({ id: a.id, name: a.name, mimeType: a.mimeType, kind: a.kind, url: assetDownloadUrl(a.id), sizeBytes: a.sizeBytes })
+    }
+    // Show image artifacts to the model (vision) so it can judge the output.
+    const images: ToolResult['images'] = []
+    for (const a of assets.filter((x) => x.mimeType.startsWith('image/')).slice(0, 4)) {
+      try {
+        const norm = await normalizeImage({ assetId: a.id, userId: ctx.userId, label: a.name })
+        images.push({ mimeType: norm.mimeType, base64: norm.base64, label: a.name })
+      } catch {
+        /* skip unreadable artifact */
+      }
+    }
+    const result = job.resultJson ? (JSON.parse(job.resultJson) as Record<string, unknown>) : null
+    return {
+      ok: job.status === 'completed',
+      output: { status: job.status, error: job.error ?? undefined, result, artifacts },
+      ...(images.length ? { images } : {}),
+      display: { title: `Job ${job.status}: ${job.label}`, summary: `${artifacts.length} artifact(s)`, kind: 'file' },
+    }
+  },
+}
+
+const jobCancel: ToolDef = {
+  name: 'job_cancel',
+  description: 'Cancel a running or queued job.',
+  inputSchema: { jobId: { type: 'string', description: 'The job id.', required: true } },
+  async run(input, ctx) {
+    const jobId = asString(input.jobId, 100)
+    if (!jobId) return { ok: false, output: null, error: 'jobId is required' }
+    const job = await db.job.findFirst({ where: { id: jobId, userId: ctx.userId }, select: { id: true } })
+    if (!job) return { ok: false, output: null, error: 'job not found' }
+    const { cancelJob } = await import('@/lib/platform/jobs')
+    await cancelJob(jobId)
+    return { ok: true, output: { jobId, status: 'cancelled' }, display: { title: 'Job cancelled', summary: jobId, kind: 'info' } }
+  },
+}
+
+// agent_spawn / agent_status / agent_collect — live subagents. The agent
+// delegates a bounded subtask to a fresh durable AgentRun (executed by the
+// agent-worker) and collects its result. Freezing an agent_spawn+collect pair
+// yields a "spawn" workflow step. A spawned run cannot spawn again (depth cap).
+const SPAWN_SAFE_TOOLS = new Set([
+  'web_search', 'web_read', 'http_request', 'code_eval', 'script_run',
+  'image_read', 'browser', 'job_submit', 'job_status', 'job_collect', 'data_table_query',
+])
+
+const agentSpawn: ToolDef = {
+  name: 'agent_spawn',
+  description:
+    'Delegate a bounded subtask to a temporary subagent that runs independently (in parallel with your other work) and returns a result. Use this to fan out — research several things at once, process items concurrently, or offload a self-contained investigation. Returns an agentRunId; check it with agent_status and gather the result with agent_collect. Subagents cannot spawn further subagents.',
+  inputSchema: {
+    goal: { type: 'string', description: 'The self-contained task for the subagent.', required: true },
+    tools: { type: 'array', description: 'Tool names the subagent may use (subset of safe tools).', items: { type: 'string' } },
+    maxIterations: { type: 'number', description: 'Max reasoning steps (default 16, max 40).' },
+    outputShape: { type: 'string', description: 'Optional JSON describing the fields you want back.' },
+  },
+  async run(input, ctx) {
+    if (ctx.isSubagent) {
+      return { ok: false, output: null, error: 'subagents cannot spawn further subagents' }
+    }
+    const goal = asString(input.goal, 20_000)
+    if (!goal) return { ok: false, output: null, error: 'goal is required' }
+    const tools = Array.isArray(input.tools)
+      ? (input.tools as unknown[]).filter((t) => typeof t === 'string' && SPAWN_SAFE_TOOLS.has(t)) as string[]
+      : []
+    let outputShape: Record<string, string> | undefined
+    if (input.outputShape) {
+      try {
+        outputShape = JSON.parse(asString(input.outputShape, 4000)) as Record<string, string>
+      } catch {
+        /* ignore malformed shape */
+      }
+    }
+    try {
+      const run = await db.agentRun.create({
+        data: {
+          userId: ctx.userId,
+          workspaceId: ctx.workspaceId ?? null,
+          agentId: ctx.agentId ?? null,
+          origin: 'spawn',
+          goal,
+          optsJson: JSON.stringify({
+            maxIterations: Math.max(1, Math.min(40, Number(input.maxIterations) || 16)),
+            source: 'workflow',
+            allowedTools: tools.length ? tools : undefined,
+            outputShape,
+          }),
+        },
+      })
+      return { ok: true, output: { agentRunId: run.id, status: 'queued' }, display: { title: 'Spawned subagent', summary: goal.slice(0, 80), kind: 'info' } }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const agentStatus: ToolDef = {
+  name: 'agent_status',
+  description: 'Check a spawned subagent’s status. Optionally wait up to a few seconds for it to progress.',
+  inputSchema: {
+    agentRunId: { type: 'string', description: 'From agent_spawn.', required: true },
+    waitSeconds: { type: 'number', description: 'Block up to this many seconds (max 55).' },
+  },
+  async run(input, ctx) {
+    const id = asString(input.agentRunId, 100)
+    if (!id) return { ok: false, output: null, error: 'agentRunId is required' }
+    const waitMs = Math.max(0, Math.min(55, Number(input.waitSeconds) || 0)) * 1000
+    const deadline = Date.now() + waitMs
+    const terminal = new Set(['completed', 'failed', 'cancelled', 'awaiting_input'])
+    for (;;) {
+      const run = await db.agentRun.findFirst({ where: { id, userId: ctx.userId }, select: { status: true, iterations: true, error: true } })
+      if (!run) return { ok: false, output: null, error: 'subagent run not found' }
+      if (terminal.has(run.status) || Date.now() >= deadline) {
+        return { ok: true, output: { status: run.status, iterations: run.iterations, error: run.error ?? undefined } }
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  },
+}
+
+const agentCollect: ToolDef = {
+  name: 'agent_collect',
+  description: 'Gather a finished subagent’s answer (and structured output if you requested a shape). Call after agent_status reports completed.',
+  inputSchema: { agentRunId: { type: 'string', description: 'From agent_spawn.', required: true } },
+  async run(input, ctx) {
+    const id = asString(input.agentRunId, 100)
+    if (!id) return { ok: false, output: null, error: 'agentRunId is required' }
+    const run = await db.agentRun.findFirst({ where: { id, userId: ctx.userId }, select: { status: true, finalJson: true, error: true } })
+    if (!run) return { ok: false, output: null, error: 'subagent run not found' }
+    if (!['completed', 'awaiting_input', 'failed', 'cancelled'].includes(run.status)) {
+      return { ok: false, output: null, error: `subagent is still ${run.status} — poll agent_status first` }
+    }
+    const final = run.finalJson ? (JSON.parse(run.finalJson) as { answer?: string; structured?: unknown }) : {}
+    return {
+      ok: run.status === 'completed' || run.status === 'awaiting_input',
+      output: { status: run.status, answer: final.answer ?? '', structured: final.structured, error: run.error ?? undefined },
+      display: { title: `Subagent ${run.status}`, summary: (final.answer ?? '').slice(0, 80), kind: 'info' },
+    }
+  },
+}
+
+// memory_save / memory_search — explicit long-term memory. Most memories are
+// auto-extracted post-turn; these let the agent deliberately remember or recall.
+const memorySave: ToolDef = {
+  name: 'memory_save',
+  description:
+    'Remember a durable fact, preference, correction, or entity about the user or their work for future sessions. Use when the user states a lasting preference or corrects you. Keep it to one concise sentence.',
+  inputSchema: {
+    kind: { type: 'string', description: 'entity | preference | correction | pattern | fact', required: true },
+    content: { type: 'string', description: 'One concise sentence to remember.', required: true },
+    subject: { type: 'string', description: 'Optional stable dedupe key, e.g. "client:smith-llp".' },
+  },
+  async run(input, ctx) {
+    const content = asString(input.content, 2000)
+    if (!content) return { ok: false, output: null, error: 'content is required' }
+    const { saveMemory } = await import('@/lib/platform/memory')
+    await saveMemory({
+      userId: ctx.userId,
+      agentId: ctx.agentId ?? null,
+      kind: asString(input.kind, 20) || 'fact',
+      content,
+      subject: asString(input.subject, 200) || null,
+      confidence: 0.8,
+      sourceKind: 'chat',
+    })
+    return { ok: true, output: { remembered: content }, display: { title: 'Remembered', summary: content.slice(0, 80), kind: 'info' } }
+  },
+}
+
+const memorySearch: ToolDef = {
+  name: 'memory_search',
+  description: 'Search your long-term memory about the user (facts, preferences, corrections, entities). Returns matching entries ranked by relevance + recency.',
+  inputSchema: {
+    query: { type: 'string', description: 'What to recall.', required: true },
+    kind: { type: 'string', description: 'Optional filter: entity | preference | correction | pattern | fact.' },
+  },
+  async run(input, ctx) {
+    const query = asString(input.query, 500)
+    if (!query) return { ok: false, output: null, error: 'query is required' }
+    const kind = asString(input.kind, 20)
+    const rows = await db.memoryEntry.findMany({
+      where: {
+        userId: ctx.userId,
+        status: 'active',
+        ...(kind ? { kind } : {}),
+        OR: [
+          { content: { contains: query, mode: 'insensitive' } },
+          { subject: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      orderBy: [{ confidence: 'desc' }, { updatedAt: 'desc' }],
+      take: 15,
+      select: { kind: true, subject: true, content: true, confidence: true },
+    })
+    return { ok: true, output: { matches: rows }, display: { title: `Memory: ${rows.length} match(es)`, summary: query, kind: 'info' } }
+  },
+}
+
+// skill_invoke / skill_save / skill_docs — reusable, parameterized
+// capabilities. skill_invoke runs a proven skill (records ONE trace step so a
+// later freeze emits the skill reference, not the expansion); skill_save
+// distills the turn's work into a new parameterized skill.
+const skillInvoke: ToolDef = {
+  name: 'skill_invoke',
+  description:
+    'Run one of YOUR saved skills — a reusable, parameterized capability you built earlier. This is the "lazy executor" move: instead of re-deriving multi-step work, call the proven skill with params. See your skills in the catalog above; get details with skill_docs.',
+  inputSchema: {
+    name: { type: 'string', description: 'The skill slug (from your skills catalog).', required: true },
+    version: { type: 'number', description: 'Pin a specific version (default: latest).' },
+    params: { type: 'string', description: 'JSON object of parameter values for the skill.', required: true },
+  },
+  async run(input, ctx) {
+    const name = asString(input.name, 100)
+    if (!name) return { ok: false, output: null, error: 'name is required' }
+    let params: Record<string, unknown> = {}
+    if (input.params) {
+      try {
+        params = JSON.parse(asString(input.params, 100_000)) as Record<string, unknown>
+      } catch {
+        return { ok: false, output: null, error: 'params must be a JSON object' }
+      }
+    }
+    const version = typeof input.version === 'number' ? input.version : undefined
+    const { loadSkill, executeSkillFragment, recordSkillUse } = await import('@/lib/platform/skills')
+    const skill = await loadSkill(ctx.userId, name, version)
+    if (!skill) return { ok: false, output: null, error: `skill "${name}"${version ? ` v${version}` : ''} not found` }
+    try {
+      const res = await executeSkillFragment(skill, params, {
+        userId: ctx.userId,
+        runtime: ctx.allowCli ? 'local' : 'hosted',
+      })
+      void recordSkillUse(skill.id)
+      return {
+        ok: res.ok,
+        output: res.ok ? { skill: name, version: skill.version, result: res.output } : { error: res.error },
+        error: res.ok ? undefined : res.error,
+        display: { title: `Skill: ${skill.title}`, summary: res.ok ? `v${skill.version}` : (res.error ?? 'failed'), kind: 'workflow' },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const skillSave: ToolDef = {
+  name: 'skill_save',
+  description:
+    'Save the multi-step work you just did as a REUSABLE, PARAMETERIZED skill — the "how" that future tasks (and workflows) can call in one step. Distills your recent freezable steps into a fragment, replacing task-specific literals with {{param.x}} per the params schema you declare. Different from workflow_freeze (a scheduled task): a skill is trigger-less and reusable.',
+  inputSchema: {
+    name: { type: 'string', description: 'Skill slug, e.g. "stitch-satellite-tiles".', required: true },
+    title: { type: 'string', description: 'Short human title.', required: true },
+    description: { type: 'string', description: 'What the skill does + when to use it.', required: true },
+    params: { type: 'string', description: 'JSON Schema of parameters: {"type":"object","properties":{...},"required":[...]}.', required: true },
+    docs: { type: 'string', description: 'Optional usage docs (no secrets).' },
+    fromStepIds: { type: 'array', description: 'Trace step ids to include (default: all freezable steps this turn).', items: { type: 'string' } },
+  },
+  async run(input, ctx) {
+    const name = asString(input.name, 100).toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+    const title = asString(input.title, 200)
+    const description = asString(input.description, 1000)
+    if (!name || !title || !description) return { ok: false, output: null, error: 'name, title, and description are required' }
+    let paramsSchema: Record<string, unknown> = { type: 'object', properties: {} }
+    if (input.params) {
+      try {
+        paramsSchema = JSON.parse(asString(input.params, 20_000)) as Record<string, unknown>
+      } catch {
+        return { ok: false, output: null, error: 'params must be a JSON Schema object' }
+      }
+    }
+    // Distill the freezable trace steps into a fragment.
+    const trace = ctx.executionTrace ?? []
+    const wanted = Array.isArray(input.fromStepIds) ? new Set(input.fromStepIds as string[]) : null
+    const traceSteps = trace.filter((s) => (wanted ? wanted.has(s.stepId) : true))
+    const engineSteps = workflowStepsFromExecutionTrace(traceSteps as never)
+    if (engineSteps.length === 0) {
+      return { ok: false, output: null, error: 'no freezable steps to build a skill from — do the work first, then save it' }
+    }
+    const { validateSkillFragment } = await import('@/lib/platform/skills')
+    const check = validateSkillFragment(engineSteps)
+    if (!check.ok) {
+      return { ok: false, output: null, error: `skill fragment invalid: ${check.issues.slice(0, 3).join('; ')}` }
+    }
+    try {
+      const specJson = JSON.stringify(engineSteps)
+      const paramsSchemaJson = JSON.stringify(paramsSchema)
+      const docsMd = asString(input.docs, 20_000) || null
+      const existing = await db.skill.findFirst({ where: { userId: ctx.userId, name } })
+      if (existing) {
+        const nextVersion = existing.version + 1
+        await db.skillVersion.create({
+          data: { skillId: existing.id, number: nextVersion, specJson, paramsSchemaJson, docsMd, author: 'agent' },
+        })
+        await db.skill.update({
+          where: { id: existing.id },
+          data: { title, description, specJson, paramsSchemaJson, docsMd, version: nextVersion, status: 'active' },
+        })
+        return { ok: true, output: { name, version: nextVersion, steps: engineSteps.length }, display: { title: `Updated skill: ${title}`, summary: `v${nextVersion}`, kind: 'workflow' } }
+      }
+      const skill = await db.skill.create({
+        data: { userId: ctx.userId, workspaceId: ctx.workspaceId ?? null, name, title, description, specJson, paramsSchemaJson, docsMd, sourceAgentId: ctx.agentId ?? null },
+      })
+      await db.skillVersion.create({ data: { skillId: skill.id, number: 1, specJson, paramsSchemaJson, docsMd, author: 'agent' } })
+      return { ok: true, output: { name, version: 1, steps: engineSteps.length }, display: { title: `Saved skill: ${title}`, summary: `${engineSteps.length} steps`, kind: 'workflow' } }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const skillDocs: ToolDef = {
+  name: 'skill_docs',
+  description: 'Get the full docs + parameter schema for one of your skills before invoking it.',
+  inputSchema: { name: { type: 'string', description: 'The skill slug.', required: true } },
+  async run(input, ctx) {
+    const name = asString(input.name, 100)
+    if (!name) return { ok: false, output: null, error: 'name is required' }
+    const { loadSkill } = await import('@/lib/platform/skills')
+    const skill = await loadSkill(ctx.userId, name)
+    if (!skill) return { ok: false, output: null, error: `skill "${name}" not found` }
+    return {
+      ok: true,
+      output: { name: skill.name, title: skill.title, description: skill.description, version: skill.version, paramsSchema: skill.paramsSchema, docs: skill.docsMd ?? undefined, steps: skill.spec.length },
+    }
+  },
+}
+
+// workflow_run — delegate to an existing proven workflow instead of redoing
+// its steps by hand. The "lazy executor" move at the workflow level.
+const workflowRun: ToolDef = {
+  name: 'workflow_run',
+  description:
+    'Run one of your existing workflows now (agent-triggered), instead of manually redoing the steps it already automates. Use this to reuse a proven automation as part of a larger task. Returns a runId; watch it with the run console.',
+  inputSchema: {
+    workflowId: { type: 'string', description: 'The workflow/agent id to run. Omit to run YOUR OWN workflow (the agent you are).', required: false },
+  },
+  async run(input, ctx) {
+    const workflowId = asString(input.workflowId, 100) || ctx.agentId || ''
+    if (!workflowId) return { ok: false, output: null, error: 'workflowId is required (or run as a specific agent)' }
+    const wf = await db.workflow.findFirst({ where: { id: workflowId, userId: ctx.userId } })
+    if (!wf) return { ok: false, output: null, error: 'workflow not found' }
+    try {
+      const { startWorkflowRun } = await import('@/lib/platform/start-run')
+      const { runId } = await startWorkflowRun(wf, { trigger: 'manual', actingUserId: ctx.userId })
+      return { ok: true, output: { runId, workflowId, status: 'running' }, display: { title: `Running workflow: ${wf.name}`, summary: runId, kind: 'workflow' } }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// job.run — deterministic submit+poll+collect for FROZEN WORKFLOWS only
+// (hidden from the interactive LLM, which uses the async trio + its own loop).
+// A frozen workflow can't poll across steps, so heavy compute freezes into one
+// blocking node that waits for the job to finish.
+const jobRun: ToolDef = {
+  name: 'job.run',
+  description: 'Run a compute job to completion (deterministic workflow step).',
+  inputSchema: {
+    label: { type: 'string', description: 'Job label.', required: true },
+    language: { type: 'string', description: 'python | javascript | shell.', required: true },
+    source: { type: 'string', description: 'Script source.', required: true },
+    packages: { type: 'array', description: 'Packages to install.', items: { type: 'string' } },
+    backend: { type: 'string', description: 'server | desktop.' },
+    timeoutMinutes: { type: 'number', description: 'Max runtime (default 30, max 360).' },
+  },
+  async run(input, ctx) {
+    const submitted = await jobSubmit.run(input, ctx)
+    if (!submitted.ok) return submitted
+    const jobId = (submitted.output as { jobId?: string }).jobId
+    if (!jobId) return { ok: false, output: null, error: 'job submission returned no id' }
+    const timeoutMs = Math.max(1, Math.min(360, Number(input.timeoutMinutes) || 30)) * 60_000
+    const deadline = Date.now() + timeoutMs + 60_000
+    const terminal = new Set(['completed', 'failed', 'cancelled', 'timeout'])
+    for (;;) {
+      if (ctx.signal?.aborted) return { ok: false, output: null, error: 'aborted' }
+      const job = await db.job.findFirst({ where: { id: jobId, userId: ctx.userId }, select: { status: true } })
+      if (!job) return { ok: false, output: null, error: 'job vanished' }
+      if (terminal.has(job.status)) return jobCollect.run({ jobId }, ctx)
+      if (Date.now() > deadline) return { ok: false, output: null, error: 'job did not finish within the step timeout' }
+      await new Promise((r) => setTimeout(r, 3000))
+    }
+  },
+}
+
+// 4i. browser — drive a real headless browser (navigate/click/type/scroll)
+// and SEE each page via screenshots. Runs on the agent-worker (Vercel can't
+// run Chromium). This is how the agent reads pages that need JS, captures
+// satellite/map imagery, grabs video frames, or automates a web UI. Gated on
+// the worker being configured (toolSpecsForLLM), so it only appears when live.
+const browserTool: ToolDef = {
+  name: 'browser',
+  description:
+    'Control a real web browser and look at pages. Actions: navigate (url), click (selector), type (selector,text), press (key), scroll (deltaY), screenshot, back, wait, close. Each action returns the page title, a text summary of headings/links/text, and a screenshot you can see (vision). Use this for JS-heavy pages, capturing map/satellite imagery, grabbing frames, or automating a web UI — prefer http_request/web_read for simple static fetches.',
+  inputSchema: {
+    action: { type: 'string', description: 'navigate | click | type | press | scroll | screenshot | back | wait | close', required: true },
+    url: { type: 'string', description: 'For navigate: the URL to open.' },
+    selector: { type: 'string', description: 'CSS selector for click/type.' },
+    text: { type: 'string', description: 'For type: the text to enter.' },
+    key: { type: 'string', description: 'For press: the key (e.g. Enter).' },
+    deltaY: { type: 'number', description: 'For scroll: pixels to scroll (default 600).' },
+  },
+  async run(input, ctx) {
+    const { browserAvailable, openBrowserSession, browserAct, closeBrowserSession } = await import('@/lib/platform/browser-client')
+    if (!browserAvailable()) {
+      return { ok: false, output: null, error: 'Browser is not available (agent-worker not configured). Use web_read or http_request instead.' }
+    }
+    const action = asString(input.action, 20) as import('@/lib/platform/browser-client').BrowserActParams['action']
+    if (!action) return { ok: false, output: null, error: 'action is required' }
+
+    try {
+      if (action === 'close') {
+        if (ctx.browserSessionId) {
+          await closeBrowserSession(ctx.browserSessionId)
+          ctx.browserSessionId = null
+        }
+        return { ok: true, output: { closed: true }, display: { title: 'Closed browser', summary: '', kind: 'info' } }
+      }
+      if (!ctx.browserSessionId) {
+        ctx.browserSessionId = await openBrowserSession(ctx.userId)
+      }
+      const result = await browserAct(ctx.browserSessionId, {
+        action,
+        url: asString(input.url, 4000) || undefined,
+        selector: asString(input.selector, 1000) || undefined,
+        text: asString(input.text, 10_000) || undefined,
+        key: asString(input.key, 40) || undefined,
+        deltaY: typeof input.deltaY === 'number' ? input.deltaY : undefined,
+      })
+      return {
+        ok: true,
+        output: { url: result.url, title: result.title, page: result.domSummary },
+        ...(result.image ? { images: [result.image] } : {}),
+        display: { title: `${action}: ${result.title || result.url}`, summary: result.url, kind: 'image' },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
 // 4. code_eval — sandboxed JS for computations + data transformation.
 //    NO filesystem, NO require, NO process, NO fetch (the agent uses
 //    http_request for network). Pure computation only.
@@ -628,49 +1387,23 @@ const codeEval: ToolDef = {
         return { ok: false, output: null, error: 'data is not valid JSON' }
       }
     }
-    try {
-      // Sandbox: wrap in a function with no access to globals. We provide a
-      // minimal `data` binding + JSON + Math + standard built-ins, plus a
-      // `console` shim that captures log output (so scripts behave like a REPL).
-      const logs: string[] = []
-      const mkLog =
-        () =>
-        (...args: unknown[]) => {
-          logs.push(
-            args
-              .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
-              .join(' '),
-          )
-        }
-      const console = { log: mkLog(), info: mkLog(), warn: mkLog(), error: mkLog(), debug: mkLog() }
-      const fn = new Function(
-        'data',
-        'console',
-        '"use strict";\n' +
-          'return (function(){\n' +
-          code +
-          '\n})();',
-      )
-      const result = fn(data, console)
-      const logText = logs.join('\n')
-      const resultStr =
-        result === undefined
-          ? ''
-          : typeof result === 'string'
-            ? result
-            : JSON.stringify(result, null, 2)
-      const combined = [logText, resultStr].filter(Boolean).join('\n')
-      return {
-        ok: true,
-        output: {
-          result: typeof result === 'string' ? truncate(result, 10_000) : result,
-          logs: logText || undefined,
-          stdout: truncate(combined, 10_000) || '(no output)',
-        },
-        display: { title: 'Ran code', summary: 'evaluated JS', kind: 'code' },
-      }
-    } catch (e) {
-      return { ok: false, output: null, error: (e as Error).message }
+    // Runs in an isolated, secret-free subprocess (see runCodeEval) so an
+    // escape from the JS context can't read env secrets or reach the DB.
+    const { runCodeEval } = await import('@/lib/platform/script-runner')
+    const res = await runCodeEval(code, data)
+    if (!res.ok) return { ok: false, output: null, error: res.error || 'code failed' }
+    const result = res.result
+    const resultStr =
+      result === undefined ? '' : typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+    const combined = [res.logs, resultStr].filter(Boolean).join('\n')
+    return {
+      ok: true,
+      output: {
+        result: typeof result === 'string' ? truncate(result, 10_000) : result,
+        logs: res.logs || undefined,
+        stdout: truncate(combined, 10_000) || '(no output)',
+      },
+      display: { title: 'Ran code', summary: 'evaluated JS', kind: 'code' },
     }
   },
 }
@@ -873,9 +1606,15 @@ const integrationList: ToolDef = {
         where: { status: 'connected', ...integrationScope(wsId) },
       })
       const out = all.map((i) => integrationFromRow(i))
+      const providers = new Map(
+        all.map((r) => [
+          r.id,
+          parseConfig<IntegrationConfig>(r.config, {}).pipedream ? 'pipedream' : 'direct',
+        ]),
+      )
       return {
         ok: true,
-        output: out.map((i) => ({ id: i.id, name: i.name, kind: i.kind, tools: i.tools.map((t) => ({ id: t.id, name: t.name, description: t.description })) })),
+        output: out.map((i) => ({ id: i.id, name: i.name, kind: i.kind, provider: providers.get(i.id) ?? 'direct', tools: i.tools.map((t) => ({ id: t.id, name: t.name, description: t.description })) })),
         display: { title: 'Available integrations', summary: `${out.length} connected`, kind: 'info' },
       }
     } catch (e) {
@@ -902,7 +1641,7 @@ const mcpListServers: ToolDef = {
         where: { kind: 'mcp', status: 'connected', ...integrationScope(wsId) },
       })
       const servers = pool.map((r) => {
-        const cfg = parseConfig<{ mcp?: McpServerConfig }>(r.config, {})
+        const cfg = parseConfig<IntegrationConfig>(r.config, {})
         const tools = JSON.parse(r.tools) as Array<{ id: string; name: string; description?: string; inputSchema?: Record<string, unknown> }>
         return {
           id: r.id,
@@ -911,6 +1650,9 @@ const mcpListServers: ToolDef = {
           transport: cfg.mcp?.transport ?? 'unknown',
           command: cfg.mcp?.command,
           url: cfg.mcp?.url,
+          // Managed connections (Pipedream) vs direct MCP servers.
+          provider: cfg.pipedream ? 'pipedream' : 'direct',
+          app: cfg.pipedream?.appSlug,
           toolCount: tools.length,
           tools: tools.map((t) => ({
             name: t.name || t.id,
@@ -961,9 +1703,29 @@ const mcpCallTool: ToolDef = {
         where: { id: serverId, kind: 'mcp', ...integrationScope(wsId) },
       })
       if (!row) return { ok: false, output: null, error: 'MCP server not found' }
-      const cfg = parseConfig<{ mcp?: McpServerConfig }>(row.config, {})
-      if (!cfg.mcp) return { ok: false, output: null, error: 'MCP server config missing' }
-      const result = await callMcpTool(cfg.mcp, toolName, args)
+      const cfg = parseConfig<IntegrationConfig>(row.config, {})
+      // Pipedream-managed connection: auth headers are minted per call, in
+      // memory only — the stored config carries no secrets.
+      let mcpCfg = cfg.mcp
+      if (cfg.pipedream) {
+        const built = await buildPipedreamMcpConfig(ctx.userId, cfg.pipedream.appSlug)
+        if (!built) {
+          return {
+            ok: false,
+            output: null,
+            error:
+              'This integration uses a Pipedream-managed connection, but Pipedream is not configured or authentication failed.',
+          }
+        }
+        mcpCfg = built
+        // Record the connection as a dependency so workflow freeze captures it.
+        ctx.usedCredentialIds = ctx.usedCredentialIds ?? []
+        if (!ctx.usedCredentialIds.includes(cfg.pipedream.credentialId)) {
+          ctx.usedCredentialIds.push(cfg.pipedream.credentialId)
+        }
+      }
+      if (!mcpCfg) return { ok: false, output: null, error: 'MCP server config missing' }
+      const result = await callMcpTool(mcpCfg, toolName, args)
       // callMcpTool returns { error } on failure, or the raw result on success.
       const errObj = result as { error?: string }
       if (errObj && typeof errObj.error === 'string') {
@@ -1302,10 +2064,17 @@ const toolConfigure: ToolDef = {
 //     successfully accomplished the task by hand (via tool calls), to convert
 //     what it learned into a reusable automation. Production runs execute the
 //     frozen artifact verbatim — no re-deriving.
+
+// Shared {{...}} template-ref grammar, appended to every workflow-authoring
+// tool description so the model never invents namespaces (e.g. {{lead.x}}).
+const REF_GRAMMAR =
+  ' Template refs in step fields: {{stepId.field}} (an EARLIER step\'s output), {{trigger.field}} (the trigger payload), {{cred:service.field}} (vault credential — colon, not dot), {{env:VAR}}. Inside a loop or map body ONLY, you may also use {{item}} / {{item.field}} (the current element) and {{$index}} (0-based position); loops also expose {{$iteration}}. Outside a loop/map body those per-item refs are invalid — never invent other namespaces like {{lead.x}}. Control-flow step kinds: "branch" ({ when: {left,op,right}, thenSteps[], elseSteps[] }), "loop" ({ loopOver: "{{s.rows}}" or until: {...}, bodySteps[], maxIterations }), "map" ({ itemsRef: "{{s.rows}}", bodySteps[], concurrency }). A map exposes {{mapStepId.outputs}} (array of each item\'s last body output) and {{mapStepId.count}}. Gates must stay at the top level (not inside a body).'
+
 const workflowFreeze: ToolDef = {
   name: 'workflow_freeze',
   description:
-    'Freeze an n8n-style production automation: tie together the proven steps from the work you just did into 2–8 deterministic nodes (code, HTTP, MCP, integrations, gates) that the runtime replays without an agent. Prefer workflow_step_append to capture single steps as you go during first-time work; call workflow_freeze to tie several steps together or to make the initial save. Optional "steps" array if you already designed the automation. Exploration tools are never saved.',
+    'Freeze an n8n-style production automation: tie together the proven steps from the work you just did into 2–8 deterministic nodes (code, HTTP, MCP, integrations, gates) that the runtime replays without an agent. Prefer workflow_step_append to capture single steps as you go during first-time work; call workflow_freeze to tie several steps together or to make the initial save. Optional "steps" array if you already designed the automation. Exploration tools are never saved.' +
+    REF_GRAMMAR,
   inputSchema: {
     name: { type: 'string', description: 'A name for the agent (e.g. "Sorter", "InvoiceChaser").', required: true },
     description: { type: 'string', description: 'One-line description of what the agent does.', required: true },
@@ -1457,7 +2226,8 @@ async function findOwnedWorkflow(
 const workflowUpdate: ToolDef = {
   name: 'workflow_update',
   description:
-    "Replace THIS agent's saved automation with a COMPLETE new steps array (n8n-style nodes: code, HTTP, MCP, integrations, gates). Use for a broad restructure; prefer workflow_step_patch for a single-node fix. Only valid when you ARE a specific agent.",
+    "Replace THIS agent's saved automation with a COMPLETE new steps array (n8n-style nodes: code, HTTP, MCP, integrations, gates). Use for a broad restructure; prefer workflow_step_patch for a single-node fix. Only valid when you ARE a specific agent." +
+    REF_GRAMMAR,
   inputSchema: {
     steps: { type: 'array', description: 'The complete new workflow steps array (replaces the current one).', items: { type: 'object' }, required: true },
     description: { type: 'string', description: 'Optional updated one-line description of what the workflow does.' },
@@ -1513,7 +2283,8 @@ const workflowUpdate: ToolDef = {
 const workflowStepAppend: ToolDef = {
   name: 'workflow_step_append',
   description:
-    "Add ONE proven step to THIS agent's living workflow. Use when you solve a subproblem (script_run, http_request, fs_*, etc.) that should run the same way next time — capture it immediately as a node instead of waiting to freeze everything at the end. Pass a single step object with kind, label, and an executable spec (tool+inputs, http, mcp, or code). An id is auto-assigned if omitted. Only valid when acting as a specific agent.",
+    "Add ONE proven step to THIS agent's living workflow. Use when you solve a subproblem (script_run, http_request, fs_*, etc.) that should run the same way next time — capture it immediately as a node instead of waiting to freeze everything at the end. Pass a single step object with kind, label, and an executable spec (tool+inputs, http, mcp, or code). An id is auto-assigned if omitted. Only valid when acting as a specific agent." +
+    REF_GRAMMAR,
   inputSchema: {
     step: {
       type: 'object',
@@ -1564,7 +2335,8 @@ const workflowStepAppend: ToolDef = {
 const workflowStepPatch: ToolDef = {
   name: 'workflow_step_patch',
   description:
-    "Surgically update ONE step in THIS agent's workflow by id (partial fields are merged into the existing node). Prefer this over workflow_update for single-node fixes — e.g. fixing a URL, credentialId, or code node after a run failed. Only valid when acting as a specific agent.",
+    "Surgically update ONE step in THIS agent's workflow by id (partial fields are merged into the existing node). Prefer this over workflow_update for single-node fixes — e.g. fixing a URL, credentialId, or code node after a run failed. Only valid when acting as a specific agent." +
+    REF_GRAMMAR,
   inputSchema: {
     stepId: { type: 'string', description: 'The id of the step to patch.', required: true },
     changes: {
@@ -1781,7 +2553,7 @@ const requestReviewTool: ToolDef = {
 const credentialRequestTool: ToolDef = {
   name: 'credential_request',
   description:
-    "Ask the user for an API key / token you need. This renders a SECURE inline entry in the chat where the user types the key — it is saved straight to the vault and you get back only a credentialId (never the secret). Call it ONCE PER KEY, and request ALL the keys this job needs IN THE SAME TURN — they are presented to the user as a single checklist stepped through ONE AT A TIME (each with a Skip option), NOT as a stack of boxes. So call credential_request for every key up front rather than trickling them across turns. Call credential_list first to skip keys already saved. In your final answer, briefly LIST the keys you're asking for and why each is needed, but do NOT describe the boxes/stepper themselves and do NOT ask the user to paste keys into chat. The user may save or skip each; you'll be resumed with a summary of what was saved vs skipped — proceed with placeholders/mocks for skipped keys.",
+    "Ask the user for an API key / token you need. This renders a SECURE inline entry in the chat where the user types the key — it is saved straight to the vault and you get back only a credentialId (never the secret). NEVER request AI model provider keys (OpenAI, Anthropic/Claude, Google AI/Gemini, xAI/Grok, Mistral, etc.) — Apical provides LLM access in-house on the user's plan credits; for LLM work inside an automation use a reason step. Call it ONCE PER KEY, and request ALL the keys this job needs IN THE SAME TURN — they are presented to the user as a single checklist stepped through ONE AT A TIME (each with a Skip option), NOT as a stack of boxes. So call credential_request for every key up front rather than trickling them across turns. Call credential_list first to skip keys already saved. In your final answer, briefly LIST the keys you're asking for and why each is needed, but do NOT describe the boxes/stepper themselves and do NOT ask the user to paste keys into chat. The user may save or skip each; you'll be resumed with a summary of what was saved vs skipped — proceed with placeholders/mocks for skipped keys.",
   inputSchema: {
     service: { type: 'string', description: 'The service the key is for (e.g. "openai", "stripe", "github").', required: true },
     label: { type: 'string', description: 'A human label for the credential (e.g. "OpenAI API key").', required: true },
@@ -1795,6 +2567,16 @@ const credentialRequestTool: ToolDef = {
     const label = asString(input.label, 200) || service
     if (!service)
       return { ok: false, output: null, error: 'service is required' }
+    // HOUSE RULE: users are never asked for AI model provider keys — Apical
+    // provides LLM access in-house, billed to the user's plan credits.
+    if (isAiProviderKeyRequest(service, label)) {
+      return {
+        ok: false,
+        output: null,
+        error:
+          `Never ask the user for an AI model provider key ("${service}"). Apical provides LLM access in-house on the user's plan credits — you already have model access in this run. For LLM work inside an automation (drafting emails, summarizing, classifying, extracting), use a reason step (kind:"reason" with a prompt + outputShape); the runtime executes it on Apical's models and bills the user's credits automatically. Only if the user EXPLICITLY says they want to use their own key, point them to Settings → Models (BYOK) — do not request it here.`,
+      }
+    }
     ctx.credentialRequests = ctx.credentialRequests ?? []
     // Dedupe repeat calls for the same key within one turn (same service may
     // legitimately need several keys, e.g. Stripe publishable + secret).
@@ -1828,6 +2610,179 @@ const credentialRequestTool: ToolDef = {
         summary: 'Awaiting the user to save it to the vault',
         kind: 'info',
       },
+    }
+  },
+}
+
+// 13d. app_search — search the managed app catalog (Pipedream Connect,
+//      3,000+ apps). The PRIMARY way to find a connector for a service the
+//      user mentions. Results include whether the user already connected it.
+const appSearchTool: ToolDef = {
+  name: 'app_search',
+  description:
+    'Search the managed app catalog (3,000+ apps: Slack, Notion, QuickBooks, Salesforce, …) for a service you need. Returns each app\'s slug, auth type, and whether the user has ALREADY CONNECTED it (with the credentialId + integrationId to use). If the app you need is not connected, call connection_request with its slug to show the user a one-click connect card. Prefer this over tool_configure / credential_request for well-known SaaS apps — managed connections need no API keys.',
+  inputSchema: {
+    query: { type: 'string', description: 'App name or keyword, e.g. "slack", "accounting".', required: true },
+    limit: { type: 'number', description: 'Max results (default 8).' },
+  },
+  async run(input, ctx) {
+    const query = asString(input.query, 200)
+    if (!query) return { ok: false, output: null, error: 'query is required' }
+    if (!isPipedreamConfigured()) {
+      return {
+        ok: true,
+        output: {
+          apps: [],
+          note: 'Managed connections (Pipedream) are not configured on this deployment. Use mcp_list_servers / integration_list for existing connections, tool_configure to add an MCP server or OpenAPI spec, or credential_request for an API key.',
+        },
+      }
+    }
+    const limit = Math.min(20, Math.max(1, asNumber(input.limit, 8)))
+    try {
+      const { apps, error } = await searchApps(query)
+      if (error) return { ok: false, output: null, error }
+      const top = apps.slice(0, limit)
+      // Merge the user's connection state.
+      const creds = top.length
+        ? await db.credential.findMany({
+            where: {
+              userId: ctx.userId,
+              kind: 'pipedream',
+              status: 'active',
+              pipedreamApp: { in: top.map((a) => a.slug) },
+            },
+            select: { id: true, pipedreamApp: true, pipedreamAccountId: true },
+          })
+        : []
+      const credByApp = new Map(creds.map((c) => [c.pipedreamApp, c]))
+      const accountIds = creds
+        .map((c) => c.pipedreamAccountId)
+        .filter((v): v is string => Boolean(v))
+      const integrations = accountIds.length
+        ? await db.integration.findMany({
+            where: {
+              kind: 'mcp',
+              OR: accountIds.map((id) => ({ config: { contains: `"accountId":"${id}"` } })),
+            },
+            select: { id: true, config: true },
+          })
+        : []
+      const integrationByAccount = new Map<string, string>()
+      for (const row of integrations) {
+        const cfg = parseConfig<IntegrationConfig>(row.config, {})
+        if (cfg.pipedream?.accountId) integrationByAccount.set(cfg.pipedream.accountId, row.id)
+      }
+      const out = top.map((a) => {
+        const cred = credByApp.get(a.slug)
+        return {
+          slug: a.slug,
+          name: a.name,
+          description: a.description,
+          authType: a.authType,
+          connected: Boolean(cred),
+          credentialId: cred?.id,
+          integrationId: cred?.pipedreamAccountId
+            ? integrationByAccount.get(cred.pipedreamAccountId)
+            : undefined,
+        }
+      })
+      return {
+        ok: true,
+        output: {
+          apps: out,
+          note: 'For connected apps, use mcp_list_servers/mcp_call_tool with the integrationId (or http_request with the credentialId). For unconnected apps, call connection_request with the slug.',
+        },
+        display: {
+          title: `Searched apps: "${query}"`,
+          summary: `${out.length} result${out.length === 1 ? '' : 's'}`,
+          kind: 'info',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 13e. connection_request — ask the user to connect an app account by
+//      rendering a one-click "Connect your <App>" card in the chat. The card
+//      opens the Pipedream managed-auth window; the agent is resumed once the
+//      user connects (or skips). Use INSTEAD of telling the user to go set
+//      anything up themselves.
+const connectionRequestTool: ToolDef = {
+  name: 'connection_request',
+  description:
+    'Ask the user to connect an app account (found via app_search) by showing a one-click connect card in the chat. The user authorizes in a popup — no API keys involved. If the app is ALREADY connected this returns the existing credentialId/integrationId immediately (no card). Otherwise the card is shown, the turn should END, and you will be resumed once the user connects or skips. Request ALL connections the job needs in the same turn.',
+  inputSchema: {
+    app: { type: 'string', description: 'The app slug from app_search (e.g. "slack").', required: true },
+    reason: { type: 'string', description: 'One sentence shown on the card: why you need this connection (e.g. "To post the weekly summary to #general").' },
+  },
+  async run(input, ctx) {
+    const app = asString(input.app, 100).trim().toLowerCase()
+    if (!app) return { ok: false, output: null, error: 'app is required' }
+    if (!isPipedreamConfigured()) {
+      return {
+        ok: false,
+        output: null,
+        error:
+          'Managed connections (Pipedream) are not configured on this deployment. Use tool_configure or credential_request for a direct connection instead.',
+      }
+    }
+    try {
+      // Already connected? Return the reference — no card needed.
+      const existing = await db.credential.findFirst({
+        where: { userId: ctx.userId, kind: 'pipedream', status: 'active', pipedreamApp: app },
+        select: { id: true, pipedreamAccountId: true, label: true },
+      })
+      if (existing) {
+        const integration = existing.pipedreamAccountId
+          ? await db.integration.findFirst({
+              where: {
+                kind: 'mcp',
+                config: { contains: `"accountId":"${existing.pipedreamAccountId}"` },
+              },
+              select: { id: true },
+            })
+          : null
+        return {
+          ok: true,
+          output: {
+            alreadyConnected: true,
+            app,
+            credentialId: existing.id,
+            integrationId: integration?.id,
+            note: 'This app is already connected — use it directly via mcp_call_tool / http_request.',
+          },
+          display: { title: `${existing.label}`, summary: 'already connected', kind: 'info' },
+        }
+      }
+
+      // Resolve display metadata server-side so the card looks right.
+      const meta = await getPipedreamApp(app)
+      ctx.connectionRequests = ctx.connectionRequests ?? []
+      if (!ctx.connectionRequests.some((r) => r.app === app)) {
+        ctx.connectionRequests.push({
+          app,
+          name: meta?.name || app,
+          imgSrc: meta?.imgSrc ?? undefined,
+          authType: meta?.authType ?? undefined,
+          reason: asString(input.reason, 500) || undefined,
+        })
+      }
+      return {
+        ok: true,
+        output: {
+          requested: app,
+          note: 'Queued. A connect card is shown to the user for each requested app — request ALL connections this job needs now (call connection_request for each), then emit your final answer: briefly say which connections you asked for and why. Do NOT describe the cards or ask the user to do anything else. The turn ends there; you will be resumed with which apps were connected vs skipped.',
+        },
+        display: {
+          title: `Requested ${meta?.name || app} connection`,
+          summary: 'Awaiting the user to connect the account',
+          kind: 'info',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
     }
   },
 }
@@ -1956,7 +2911,8 @@ const workflowMonitor: ToolDef = {
 const workflowImprove: ToolDef = {
   name: 'workflow_improve',
   description:
-    'Improve YOUR automation. Pass an improvement description and optionally the complete newSteps array (n8n-style nodes). The runtime uses the updated automation on the next run — you do not re-execute the job manually. Prefer workflow_step_patch for a single broken node.',
+    'Improve YOUR automation. Pass an improvement description and optionally the complete newSteps array (n8n-style nodes). The runtime uses the updated automation on the next run — you do not re-execute the job manually. Prefer workflow_step_patch for a single broken node.' +
+    REF_GRAMMAR,
   inputSchema: {
     workflowId: { type: 'string', description: 'The workflow id to improve. Defaults to YOUR OWN workflow when you are a specific agent.' },
     improvement: { type: 'string', description: 'A plain-English description of the improvement (e.g. "add retry to s3", "replace s2 tool").', required: true },
@@ -2492,6 +3448,22 @@ export const AGENT_TOOLS: ToolDef[] = [
   httpRequest,
   codeEval,
   assetSave,
+  imageRead,
+  browserTool,
+  jobSubmit,
+  jobStatus,
+  jobCollect,
+  jobCancel,
+  jobRun,
+  agentSpawn,
+  agentStatus,
+  agentCollect,
+  skillInvoke,
+  skillSave,
+  skillDocs,
+  workflowRun,
+  memorySave,
+  memorySearch,
   scriptRun,
   cliRun,
   fsList,
@@ -2502,6 +3474,8 @@ export const AGENT_TOOLS: ToolDef[] = [
   integrationList,
   mcpListServers,
   mcpCallTool,
+  appSearchTool,
+  connectionRequestTool,
   toolConfigure,
   dataTableCreate,
   dataTableInsert,
@@ -2526,6 +3500,18 @@ export const AGENT_TOOLS: ToolDef[] = [
 // allowCli flag). Hidden from the LLM catalog unless desktop access is on.
 const DESKTOP_TOOLS = new Set(['cli_run', 'fs_list', 'fs_read', 'fs_write', 'fs_move'])
 
+// Tools callable by frozen workflows but hidden from the interactive LLM
+// catalog. `job.run` is the deterministic submit+poll+collect form of the
+// async job trio — a workflow can't poll across steps, so it gets one
+// blocking step instead.
+const HIDDEN_FROM_LLM = new Set(['job.run'])
+
+// The browser tool needs the agent-worker (headless Chromium). Hide it unless
+// that worker is configured — otherwise the LLM would call a dead tool.
+if (!process.env.AGENT_WORKER_URL || !process.env.AGENT_WORKER_SECRET) {
+  HIDDEN_FROM_LLM.add('browser')
+}
+
 export const AGENT_TOOL_MAP: Record<string, ToolDef> = Object.fromEntries(
   AGENT_TOOLS.map((t) => [t.name, t]),
 )
@@ -2537,7 +3523,7 @@ export function getAgentTool(name: string): ToolDef | undefined {
 // The tool catalog passed to the LLM (compact). Legacy fallback for models
 // without native tool calling (llama.cpp) — the native path uses toolSpecsForLLM.
 export function toolCatalogForLLM(allowCli: boolean): string {
-  return AGENT_TOOLS.filter((t) => allowCli || !DESKTOP_TOOLS.has(t.name))
+  return AGENT_TOOLS.filter((t) => (allowCli || !DESKTOP_TOOLS.has(t.name)) && !HIDDEN_FROM_LLM.has(t.name))
     .map((t) => {
       const params = Object.entries(t.inputSchema)
         .map(([k, v]) => `${k}${v.required ? ' (required)' : ''}: ${v.type} — ${v.description}`)
@@ -2550,7 +3536,7 @@ export function toolCatalogForLLM(allowCli: boolean): string {
 // The native tool-calling specs (JSON Schema) passed to the LLM gateway's
 // `tools` param. Mirrors toolCatalogForLLM's desktop gating.
 export function toolSpecsForLLM(allowCli: boolean): ToolSpec[] {
-  return AGENT_TOOLS.filter((t) => allowCli || !DESKTOP_TOOLS.has(t.name)).map((t) => ({
+  return AGENT_TOOLS.filter((t) => (allowCli || !DESKTOP_TOOLS.has(t.name)) && !HIDDEN_FROM_LLM.has(t.name)).map((t) => ({
     name: t.name,
     description: t.description,
     parameters: {

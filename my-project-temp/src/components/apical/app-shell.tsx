@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useAppStore } from "@/lib/apical/store";
+import { NEW_CHAT_CONVERSATION_ID } from "@/lib/apical/agents-data";
 import { AgentsView } from "./agents-view";
 import { VaultTab } from "./vault-tab";
 import { DataTab } from "./data-tab";
@@ -10,6 +11,7 @@ import { SettingsView } from "./settings-view";
 import { TemplatesView } from "./templates-view";
 import { ActivityView } from "./activity-view";
 import { MemoryView } from "./memory-view";
+import { SkillsView } from "./skills-view";
 import {
   CommandMenu,
   ShortcutsDialog,
@@ -57,10 +59,45 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
   const toggleInspector = useAppStore((s) => s.toggleInspector);
   const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const setPopoutConversation = useAppStore((s) => s.setPopoutConversation);
+  const setPendingQuickAsk = useAppStore((s) => s.setPendingQuickAsk);
   const { signOut, closeApp } = useAuth();
+
+  // Quick Ask: land in a fresh ephemeral chat with the question queued for the
+  // composer — the lightest way to ask apical anything, from the palette.
+  const askApical = React.useCallback(
+    (text: string) => {
+      setMode("agents");
+      setActiveConversation(NEW_CHAT_CONVERSATION_ID);
+      if (text) setPendingQuickAsk(text);
+    },
+    [setMode, setActiveConversation, setPendingQuickAsk],
+  );
 
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
+  // Real footer status: count of active durable runs, polled lazily. The old
+  // footer hardcoded "Agent running" + "Local runtime" for everyone.
+  const [activeRuns, setActiveRuns] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      if (document.hidden) return;
+      try {
+        const res = await fetch("/api/agent-runs?active=1&limit=50");
+        if (!res.ok) return;
+        const data = (await res.json()) as { runs?: unknown[] };
+        if (!cancelled) setActiveRuns(Array.isArray(data.runs) ? data.runs.length : 0);
+      } catch {
+        /* leave last known value */
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   // Precomputed so the `?.`/`??` downleveling (browserslist targets pre-`??`
   // engines) happens in statement position. Inlining these in JSX children
@@ -327,16 +364,29 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
         {mode === "templates" && <TemplatesView />}
         {mode === "activity" && <ActivityView />}
         {mode === "memory" && <MemoryView />}
+        {mode === "skills" && <SkillsView />}
       </main>
 
       {/* Footer status bar */}
       <footer className="shrink-0 border-t border-border bg-background/80 px-3 py-1 backdrop-blur-md md:px-4">
         <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-foreground" /> Agent running
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                activeRuns ? "animate-pulse bg-foreground" : "bg-muted-foreground/40",
+              )}
+            />
+            {activeRuns === null
+              ? " "
+              : activeRuns === 0
+                ? "Idle"
+                : activeRuns === 1
+                  ? "1 agent running"
+                  : `${activeRuns} agents running`}
           </span>
           <span className="hidden sm:inline">Apical — Consider it Done.</span>
-          <span>Local runtime</span>
+          <span>{IS_TAURI ? "Desktop app" : "Web app"}</span>
         </div>
       </footer>
 
@@ -350,6 +400,7 @@ export function AppShell({ user }: { user: { email: string; name: string } | nul
         onSignOut={signOut}
         onGoHome={IS_TAURI ? undefined : closeApp}
         onNewWindow={IS_TAURI ? () => void openAppWindow() : undefined}
+        onAskApical={askApical}
       />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>

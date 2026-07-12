@@ -50,9 +50,12 @@ export async function GET(req: Request) {
     }
     return NextResponse.json({
       id: row.id,
+      name: user.name ?? '',
+      email: user.email,
       companyName: row.companyName,
       industry: row.industry,
       notes: row.notes,
+      agentNameStyle: row.agentNameStyle,
       dataSources,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
@@ -67,9 +70,11 @@ export async function GET(req: Request) {
 }
 
 interface PatchBody {
+  name?: string
   companyName?: string
   industry?: string
   notes?: string
+  agentNameStyle?: string
   dataSources?: DataSource[]
 }
 
@@ -93,6 +98,9 @@ export async function PATCH(req: Request) {
     if (typeof body.notes === 'string') {
       data.notes = body.notes
     }
+    if (body.agentNameStyle === 'evocative' || body.agentNameStyle === 'descriptive') {
+      data.agentNameStyle = body.agentNameStyle
+    }
     if (Array.isArray(body.dataSources)) {
       const clean = body.dataSources
         .filter(
@@ -105,11 +113,17 @@ export async function PATCH(req: Request) {
         }))
       data.dataSourcesJson = JSON.stringify(clean)
     }
-    if (Object.keys(data).length === 0) {
+    // Display-name change lives on User, not UserProfile.
+    const trimmedName = typeof body.name === 'string' ? body.name.trim().slice(0, 200) : null
+    if (trimmedName !== null && trimmedName !== (user.name ?? '')) {
+      await db.user.update({ where: { id: user.id }, data: { name: trimmedName } })
+    }
+
+    if (Object.keys(data).length === 0 && trimmedName === null) {
       return NextResponse.json(
         {
           error:
-            'No changes provided. Send companyName, industry, notes, or dataSources.',
+            'No changes provided. Send name, companyName, industry, notes, agentNameStyle, or dataSources.',
         },
         { status: 400 },
       )

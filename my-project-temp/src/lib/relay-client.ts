@@ -9,8 +9,7 @@
 // only consumer.
 
 import { io, type Socket } from 'socket.io-client'
-
-const RELAY_URL = 'http://localhost:3003'
+import { RELAY_URL } from '@/lib/service-urls'
 
 type RelayGlobal = {
   __apicalRelay?: Socket
@@ -89,4 +88,14 @@ export function broadcastRun(
     // Never let a broadcast failure crash a run.
     console.error('[apical-relay] broadcast failed:', err)
   }
+}
+
+/**
+ * Broadcast a durable agent-run event. Rooms reuse the relay's `run:` prefix
+ * with a namespaced id (`run:agentrun:<id>`), so the relay service needs no
+ * changes — browsers subscribe with runId `agentrun:<id>` and a token minted
+ * for that same id.
+ */
+export function broadcastAgentRun(agentRunId: string, event: string, data: unknown): void {
+  broadcastRun(`agentrun:${agentRunId}`, event, data)
 }

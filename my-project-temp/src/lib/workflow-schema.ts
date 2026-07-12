@@ -50,8 +50,24 @@ export const CodeCallSpecSchema = z
     language: z.enum(['javascript', 'python', 'shell']),
     source: z.string().min(1).describe('The script source.'),
     data: z.unknown().optional().describe('Optional JSON passed as `data` to JS scripts.'),
+    packages: z
+      .array(z.string())
+      .max(20)
+      .optional()
+      .describe('npm/PyPI packages installed into the script environment before running.'),
   })
   .describe('A deterministic code/script node — executes without an agent.')
+
+// A reference to a reusable Skill. The workflow doc stores only name+version+
+// params; the executable fragment is looked up from the pinned SkillVersion at
+// run time (like an integration's frozen artifact — never inlined).
+export const SkillRefSchema = z
+  .object({
+    name: z.string().min(1).describe('The skill slug.'),
+    version: z.number().int().optional().describe('Pinned version (defaults to latest at deploy time).'),
+    params: z.record(z.string(), z.unknown()).optional().describe('Param values; may use {{stepId.field}} refs.'),
+  })
+  .describe('Invoke a reusable Skill. Runs its pinned fragment with these params.')
 
 export const RetryPolicySchema = z
   .object({
@@ -63,9 +79,23 @@ export const RetryPolicySchema = z
 
 // ---------------- Steps ----------------
 
-export const StepKindSchema = z.enum(['tool', 'reason', 'gate', 'spawn'])
+export const StepKindSchema = z.enum(['tool', 'reason', 'gate', 'spawn', 'branch', 'loop', 'map'])
 
-export const WorkflowStepSchema = z
+/** Every step kind the schema knows. Normalizers must preserve these verbatim —
+ *  coercing an unknown-but-known kind to `tool` silently breaks the step. */
+export const KNOWN_STEP_KINDS: readonly string[] = StepKindSchema.options
+
+// A deterministic comparison used by branch (when) and loop (until). No eval —
+// a fixed operator over a ref-able left value and an optional literal right.
+export const ConditionSchema = z
+  .object({
+    left: z.string().describe('Value to test — usually a {{stepId.field}} / {{item.field}} ref.'),
+    op: z.enum(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'truthy', 'falsy']),
+    right: z.unknown().optional().describe('Comparison value (not needed for truthy/falsy).'),
+  })
+  .describe('A deterministic condition. left is compared to right using op.')
+
+export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
   .object({
     id: z
       .string()
@@ -82,6 +112,7 @@ export const WorkflowStepSchema = z
     http: HttpCallSpecSchema.optional(),
     mcp: McpCallSpecSchema.optional(),
     code: CodeCallSpecSchema.optional(),
+    skill: SkillRefSchema.optional(),
     integrationId: z.string().optional().describe('Integration that owns this tool step.'),
 
     // ---- reason steps ----
@@ -97,6 +128,21 @@ export const WorkflowStepSchema = z
 
     // ---- gate steps ----
     gateMessage: z.string().optional().describe('For gate steps: what the human is approving.'),
+
+    // ---- control flow (v2) ----
+    // branch: run thenSteps when `when` is true, else elseSteps.
+    when: ConditionSchema.optional().describe('For branch steps: the condition deciding then vs else.'),
+    thenSteps: z.array(z.lazy((): z.ZodType<WorkflowStep> => WorkflowStepSchema)).optional().describe('For branch steps: steps run when `when` is true.'),
+    elseSteps: z.array(z.lazy((): z.ZodType<WorkflowStep> => WorkflowStepSchema)).optional().describe('For branch steps: steps run when `when` is false.'),
+    // loop: repeat bodySteps over loopOver (an array ref) OR until `until` is true.
+    loopOver: z.string().optional().describe('For loop steps: a {{stepId.field}} ref to an array to iterate.'),
+    until: ConditionSchema.optional().describe('For loop steps: stop when this condition becomes true.'),
+    bodySteps: z.array(z.lazy((): z.ZodType<WorkflowStep> => WorkflowStepSchema)).optional().describe('For loop/map steps: the steps run each iteration.'),
+    maxIterations: z.number().int().min(1).max(100).optional().describe('For loop steps: hard cap on iterations (default 10).'),
+    // map: run bodySteps once per item in itemsRef, up to `concurrency` in parallel.
+    itemsRef: z.string().optional().describe('For map steps: a {{stepId.field}} ref to the array to map over.'),
+    concurrency: z.number().int().min(1).max(8).optional().describe('For map steps: parallel iterations (default 4).'),
+    continueOnError: z.boolean().optional().describe('For map steps: keep going if one item fails.'),
 
     // ---- hardening ----
     hardened: z.boolean().optional().describe('True when this step was flipped from reason → deterministic rule.'),
@@ -171,6 +217,41 @@ export type WorkflowValidationResult =
   | { ok: true; workflow: z.output<typeof WorkflowJSONSchema>; warnings: WorkflowValidationIssue[] }
   | { ok: false; issues: WorkflowValidationIssue[]; warnings: WorkflowValidationIssue[] }
 
+/**
+ * Rewrite common near-miss ref syntaxes to their canonical form so
+ * agent-authored workflows don't fail validation over punctuation. Only the
+ * unambiguous aliases are rewritten:
+ *   {{cred.svc.field}}  -> {{cred:svc.field}}  (a colon, not a dot, opens a vault ref)
+ *   {{steps.sId.field}} -> {{sId.field}}       (step outputs are read by id — there is no "steps." namespace)
+ *   {{step.sId.field}}  -> {{sId.field}}
+ * Ambiguous namespaces (e.g. {{lead.x}}) are left untouched so validation can
+ * surface a helpful error instead of guessing.
+ */
+function normalizeRefToken(inner: string): string {
+  const t = inner.trim()
+  if (/^cred\./.test(t)) return `cred:${t.slice('cred.'.length)}`
+  if (/^steps\./.test(t)) return t.slice('steps.'.length)
+  if (/^step\./.test(t)) return t.slice('step.'.length)
+  return t
+}
+
+/** Rewrite every {{...}} token in a string to its canonical form. */
+function normalizeRefsInString(s: string): string {
+  return s.replace(/\{\{([^}]+)\}\}/g, (_m, inner) => `{{${normalizeRefToken(inner)}}}`)
+}
+
+/** Deep-copy a value with all {{...}} refs in its string leaves normalized. */
+function normalizeRefsDeep<T>(value: T): T {
+  if (typeof value === 'string') return normalizeRefsInString(value) as unknown as T
+  if (Array.isArray(value)) return value.map((v) => normalizeRefsDeep(v)) as unknown as T
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) out[k] = normalizeRefsDeep(v)
+    return out as unknown as T
+  }
+  return value
+}
+
 /** Extract {{...}} refs from any JSON-serializable value. */
 function extractRefs(value: unknown): string[] {
   const out: string[] = []
@@ -212,44 +293,111 @@ export function validateWorkflowJSON(data: unknown): WorkflowValidationResult {
   const wf = parsed.data
   const seen = new Set<string>()
 
-  wf.steps.forEach((step, idx) => {
-    const at = `steps.${idx}`
-    if (seen.has(step.id)) {
-      issues.push({ path: `${at}.id`, message: `Duplicate step id "${step.id}".` })
-    }
-    seen.add(step.id)
-
-    if (step.kind === 'tool' && !step.tool && !step.http && !step.mcp && !step.code) {
-      issues.push({
-        path: at,
-        message: `Tool step "${step.id}" needs one of: tool, http, mcp, or code.`,
-      })
-    }
-    if (step.kind === 'reason' && !step.prompt) {
-      issues.push({ path: `${at}.prompt`, message: `Reason step "${step.id}" requires a prompt.` })
-    }
-    if (step.kind === 'spawn' && !step.spawnPrompt) {
-      issues.push({ path: `${at}.spawnPrompt`, message: `Spawn step "${step.id}" requires spawnPrompt.` })
-    }
-    if (step.kind === 'gate' && !step.gateMessage) {
-      warnings.push({ path: `${at}.gateMessage`, message: `Gate step "${step.id}" has no gateMessage; a generic approval prompt will be shown.` })
-    }
-
-    // Referential integrity: {{ref}} targets.
-    const priorIds = new Set(wf.steps.slice(0, idx).map((s) => s.id))
-    for (const ref of extractRefs({ inputs: step.inputs, http: step.http, mcp: step.mcp, code: step.code, prompt: step.prompt })) {
-      if (ref.startsWith('cred:') || ref.startsWith('trigger') || ref.startsWith('env:')) continue
-      const targetStep = ref.split('.')[0]
-      if (targetStep === step.id) {
-        issues.push({ path: at, message: `Step "${step.id}" references its own output ({{${ref}}}).` })
-      } else if (!priorIds.has(targetStep)) {
-        issues.push({
-          path: at,
-          message: `Step "${step.id}" references {{${ref}}} but "${targetStep}" is not an earlier step.`,
-        })
+  // Recursively validate a list of steps in a scope. `visiblePrior` is the set
+  // of step ids that resolve here (accumulated left-to-right, including ids from
+  // enclosing scopes that came before this block). `scopeVars` are the special
+  // namespaces the current block introduces ({{item}}, {{$index}}, {{$iteration}}).
+  type WStep = z.output<typeof WorkflowStepSchema>
+  const validateSteps = (steps: WStep[], path: string, visiblePrior: Set<string>, scopeVars: Set<string>, inBody = false) => {
+    const priorHere = new Set(visiblePrior)
+    steps.forEach((step, idx) => {
+      const at = `${path}.${idx}`
+      if (seen.has(step.id)) {
+        issues.push({ path: `${at}.id`, message: `Duplicate step id "${step.id}".` })
       }
-    }
-  })
+      seen.add(step.id)
+
+      // Kind-specific requirements.
+      if (step.kind === 'tool' && !step.tool && !step.http && !step.mcp && !step.code && !step.skill) {
+        issues.push({ path: at, message: `Tool step "${step.id}" needs one of: tool, http, mcp, code, or skill.` })
+      }
+      if (step.kind === 'reason' && !step.prompt) {
+        issues.push({ path: `${at}.prompt`, message: `Reason step "${step.id}" requires a prompt.` })
+      }
+      if (step.kind === 'spawn' && !step.spawnPrompt) {
+        issues.push({ path: `${at}.spawnPrompt`, message: `Spawn step "${step.id}" requires spawnPrompt.` })
+      }
+      if (step.kind === 'gate' && !step.gateMessage) {
+        warnings.push({ path: `${at}.gateMessage`, message: `Gate step "${step.id}" has no gateMessage; a generic approval prompt will be shown.` })
+      }
+      // Gates inside a control body aren't supported yet (resuming a paused run
+      // can't re-enter nested/parallel scopes). Keep gates at the top level.
+      if (step.kind === 'gate' && inBody) {
+        issues.push({ path: at, message: `Gate step "${step.id}" cannot be inside a branch/loop/map body (not supported yet). Move it to the top level.` })
+      }
+      if (step.kind === 'branch') {
+        if (!step.when) issues.push({ path: `${at}.when`, message: `Branch step "${step.id}" requires a "when" condition.` })
+        if (!step.thenSteps || step.thenSteps.length === 0) issues.push({ path: `${at}.thenSteps`, message: `Branch step "${step.id}" requires thenSteps.` })
+      }
+      if (step.kind === 'loop') {
+        if (!step.loopOver && !step.until) issues.push({ path: at, message: `Loop step "${step.id}" requires loopOver (an array ref) or until (a condition).` })
+        if (!step.bodySteps || step.bodySteps.length === 0) issues.push({ path: `${at}.bodySteps`, message: `Loop step "${step.id}" requires bodySteps.` })
+      }
+      if (step.kind === 'map') {
+        if (!step.itemsRef) issues.push({ path: `${at}.itemsRef`, message: `Map step "${step.id}" requires itemsRef (an array ref).` })
+        if (!step.bodySteps || step.bodySteps.length === 0) issues.push({ path: `${at}.bodySteps`, message: `Map step "${step.id}" requires bodySteps.` })
+      }
+
+      // Normalize near-miss ref syntaxes in place.
+      if (step.inputs) step.inputs = normalizeRefsDeep(step.inputs)
+      if (step.http) step.http = normalizeRefsDeep(step.http)
+      if (step.mcp) step.mcp = normalizeRefsDeep(step.mcp)
+      if (step.code) step.code = normalizeRefsDeep(step.code)
+      if (step.prompt) step.prompt = normalizeRefsInString(step.prompt)
+      if (step.spawnPrompt) step.spawnPrompt = normalizeRefsInString(step.spawnPrompt)
+
+      // Referential integrity: refs may target a visible prior step, an
+      // enclosing-scope var, or a global namespace. `until` is special — it is
+      // evaluated in the loop BODY scope, so it may use this loop's body vars.
+      const bodyScopeVars = new Set(scopeVars)
+      if (step.kind === 'loop') {
+        bodyScopeVars.add('$index').add('$iteration')
+        if (step.loopOver) bodyScopeVars.add('item')
+      }
+      const checkRefs = (values: unknown, allowed: Set<string>) => {
+        for (const ref of extractRefs(values)) {
+          if (ref.startsWith('cred:') || ref.startsWith('trigger') || ref.startsWith('env:')) continue
+          const target = ref.split('.')[0]
+          if (allowed.has(target)) continue
+          if (target === step.id) {
+            issues.push({ path: at, message: `Step "${step.id}" references its own output ({{${ref}}}).` })
+          } else if (!priorHere.has(target)) {
+            issues.push({
+              path: at,
+              message:
+                `Step "${step.id}" references {{${ref}}} but "${target}" is not an earlier step in scope. ` +
+                `Valid references are {{stepId.field}} (an earlier step's output), {{trigger.field}}, {{cred:service.field}}, {{env:VAR}}` +
+                (allowed.size ? `, and in this block ${[...allowed].map((v) => `{{${v}}}`).join(', ')}` : '') + '.',
+            })
+          }
+        }
+      }
+      checkRefs(
+        { inputs: step.inputs, http: step.http, mcp: step.mcp, code: step.code, skill: step.skill, prompt: step.prompt, spawnPrompt: step.spawnPrompt, loopOver: step.loopOver, itemsRef: step.itemsRef, when: step.when },
+        scopeVars,
+      )
+      checkRefs({ until: step.until }, bodyScopeVars)
+
+      // Descend into nested blocks. Body steps see everything visible here plus
+      // the earlier siblings, and gain the block's scope vars.
+      if (step.kind === 'branch') {
+        const inner = new Set(priorHere)
+        if (step.thenSteps) validateSteps(step.thenSteps as WStep[], `${at}.thenSteps`, inner, scopeVars, true)
+        if (step.elseSteps) validateSteps(step.elseSteps as WStep[], `${at}.elseSteps`, inner, scopeVars, true)
+      } else if (step.kind === 'loop' || step.kind === 'map') {
+        const inner = new Set(priorHere)
+        const bodyVars = new Set(scopeVars)
+        bodyVars.add('$index')
+        if (step.kind === 'loop') bodyVars.add('$iteration')
+        if (step.loopOver || step.itemsRef) bodyVars.add('item')
+        if (step.bodySteps) validateSteps(step.bodySteps as WStep[], `${at}.bodySteps`, inner, bodyVars, true)
+      }
+
+      priorHere.add(step.id)
+    })
+  }
+
+  validateSteps(wf.steps as WStep[], 'steps', new Set(), new Set())
 
   if (issues.length > 0) return { ok: false, issues, warnings }
   return { ok: true, workflow: wf, warnings }

@@ -25,9 +25,9 @@ import {
   Database,
   CreditCard,
   Settings,
-  LayoutTemplate,
   Activity,
   Brain,
+  Wand2,
   PanelRight,
   FileText,
   LifeBuoy,
@@ -35,6 +35,7 @@ import {
   LogOut,
   Home,
   SquareStack,
+  Sparkles,
 } from "lucide-react";
 
 export type NavItem = {
@@ -56,9 +57,13 @@ export const PRIMARY_NAV: NavItem[] = [
 export const SECONDARY_NAV: NavItem[] = [
   { key: "settings", label: "Settings", icon: Settings, shortcut: "," },
   { key: "billing", label: "Billing", icon: CreditCard },
-  { key: "templates", label: "Templates", icon: LayoutTemplate },
+  // "Templates" is hidden until it's backed by real, installable templates —
+  // the current gallery is demo-only (installs are local), so shipping it in the
+  // nav would promise a feature that doesn't do anything yet. The view code
+  // stays for when it's built out.
   { key: "activity", label: "Activity", icon: Activity },
   { key: "memory", label: "Memory", icon: Brain },
+  { key: "skills", label: "Skills", icon: Wand2 },
 ];
 
 /** True on Apple platforms — drives whether we show ⌘ or Ctrl. */
@@ -106,6 +111,7 @@ export function CommandMenu({
   onSignOut,
   onGoHome,
   onNewWindow,
+  onAskApical,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -117,10 +123,19 @@ export function CommandMenu({
   onGoHome?: () => void;
   /** Provided only in the desktop build — opens a new native window. */
   onNewWindow?: () => void;
+  /** Drop the typed text into a fresh ephemeral ask — the lightest way to ask
+   *  apical anything, from anywhere. */
+  onAskApical?: (text: string) => void;
 }) {
   const setMode = useAppStore((s) => s.setMode);
   const mode = useAppStore((s) => s.mode);
   const toggleInspector = useAppStore((s) => s.toggleInspector);
+  // Track what the user has typed so the "Ask apical" item can carry it as the
+  // question when nothing else matches.
+  const [query, setQuery] = React.useState("");
+  React.useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
 
   // Run an action then close the palette.
   const run = React.useCallback(
@@ -133,9 +148,32 @@ export function CommandMenu({
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} className="z-[320] sm:max-w-xl">
-      <CommandInput placeholder="Search actions, or jump to a view…" />
+      <CommandInput
+        placeholder="Ask apical to do anything, or jump to a view…"
+        value={query}
+        onValueChange={setQuery}
+      />
       <CommandList>
         <CommandEmpty>No results.</CommandEmpty>
+
+        {onAskApical && (
+          <>
+            <CommandGroup heading="Ask">
+              <CommandItem
+                forceMount
+                value={`ask apical ${query}`}
+                onSelect={() => run(() => onAskApical(query.trim()))}
+              >
+                <Sparkles className="h-4 w-4" />
+                <span>
+                  {query.trim() ? `Ask apical: “${query.trim()}”` : "Ask apical to do anything…"}
+                </span>
+                <CommandShortcut>↵</CommandShortcut>
+              </CommandItem>
+            </CommandGroup>
+            <CommandSeparator />
+          </>
+        )}
 
         <CommandGroup heading="Go to">
           {PRIMARY_NAV.concat(SECONDARY_NAV).map((item) => {

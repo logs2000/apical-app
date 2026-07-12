@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withAuth } from '@/lib/with-auth'
+import { ok } from '@/lib/api/respond'
 import { RUN_COST_CENTS } from '@/lib/platform/run-billing'
 import { workflowScopeWhere } from '@/lib/v1/mappers'
 
@@ -44,7 +44,7 @@ export const GET = withAuth(
       }),
     ])
 
-    return NextResponse.json({
+    return ok({
       workspace: {
         id: workspace.id,
         plan: workspace.plan,
@@ -76,5 +76,5 @@ export const GET = withAuth(
         : null,
     })
   },
-  { scope: 'usage:read' },
+  { scope: 'usage:read', rateLimit: { limit: 120, windowMs: 60_000 } },
 )

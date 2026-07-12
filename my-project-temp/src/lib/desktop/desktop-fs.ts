@@ -14,6 +14,7 @@ import {
   invokeLocalDesktopTool,
   isLocalDesktopRuntime,
 } from '@/lib/platform/desktop-local-runtime'
+import { BRIDGE_INVOKE_URL } from '@/lib/service-urls'
 
 export interface DesktopDirEntry {
   name: string
@@ -27,7 +28,7 @@ export interface DesktopListResult {
   error?: string
 }
 
-const BRIDGE_URL = 'http://localhost:3005/invoke'
+const BRIDGE_URL = BRIDGE_INVOKE_URL
 
 export async function desktopListDir(
   userId: string,

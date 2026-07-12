@@ -24,6 +24,12 @@ const DOCS = {
   title: 'Apical Developer Platform',
   tagline:
     'Deploy + run AI agents from your editor (MCP) or your own code (REST).',
+  // The authoritative, always-in-sync API reference. This hand-curated blob
+  // is for the in-app docs page; the OpenAPI spec below is generated from the
+  // live route manifest (drift-checked in CI) — prefer it for integrations.
+  openapi: '/v1/openapi.json',
+  apiBase: '/v1',
+  deprecatedApiBase: '/api/dev (returns Deprecation headers; migrate to /v1)',
   // ─────────────────────────── MCP server ───────────────────────────
   mcp: {
     name: 'apical-mcp',

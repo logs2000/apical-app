@@ -11,7 +11,9 @@ import {
   Plus,
   ArrowUp,
   Square,
+  Infinity,
 } from "lucide-react";
+import { useAppStore } from "@/lib/apical/store";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { IS_TAURI } from "@/lib/desktop/tauri-bridge";
@@ -164,6 +166,8 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const [busy, setBusy] = React.useState(false);
   const [browserOpen, setBrowserOpen] = React.useState(false);
+  const durableMode = useAppStore((s) => s.durableMode);
+  const setDurableMode = useAppStore((s) => s.setDurableMode);
 
   async function attachFiles(directory = false) {
     setBusy(true);
@@ -259,12 +263,30 @@ export function ChatComposer({
           )}
         />
         <div className="flex items-center justify-between gap-2 px-2 pb-2">
-          <AttachMenu
-            disabled={disabled || working}
-            onUpload={() => void attachFiles(false)}
-            onFolder={() => void attachFiles(true)}
-            onBrowse={() => setBrowserOpen(true)}
-          />
+          <div className="flex items-center gap-1.5">
+            <AttachMenu
+              disabled={disabled || working}
+              onUpload={() => void attachFiles(false)}
+              onFolder={() => void attachFiles(true)}
+              onBrowse={() => setBrowserOpen(true)}
+            />
+            <button
+              type="button"
+              onClick={() => setDurableMode(!durableMode)}
+              disabled={disabled || working}
+              title="Long task: runs on the server and keeps going if you close this tab"
+              aria-pressed={durableMode}
+              className={cn(
+                "flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] font-medium transition",
+                durableMode
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Infinity className="h-3 w-3" strokeWidth={2.5} />
+              Long task
+            </button>
+          </div>
           {working ? (
             <button
               type="button"

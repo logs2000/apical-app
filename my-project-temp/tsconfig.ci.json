@@ -1,0 +1,9 @@
+// Full-tree typecheck for CI: the web app PLUS the dev harness (smoke scripts,
+// unit tests) and the bun mini-services. Runs where all per-service deps are
+// installed (CI installs them for the smoke suite). `next build` uses the
+// narrower tsconfig.json, which checks only the app — see the note there.
+//   bunx tsc --noEmit -p tsconfig.ci.json
+{
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "examples"]
+}

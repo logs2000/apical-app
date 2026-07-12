@@ -1,69 +1,67 @@
-import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { db } from '@/lib/db'
 import { withAuth } from '@/lib/with-auth'
+import { okEnvelope, ApiError } from '@/lib/api/respond'
+import { parseBody } from '@/lib/api/validate'
+import { parsePagination, cursorFilter, cursorOrderBy, paginate } from '@/lib/api/paginate'
 import { serializeWorkflowJSON } from '@/lib/apical-server'
 import { saveWorkflowSteps } from '@/lib/platform/workflow-revisions'
 import { validateWorkflowForWorkspace } from '@/lib/platform/workflow-validate-server'
 import { inferRuntimeFromSteps } from '@/lib/workflow-schema'
 import { mapWorkflowV1, workflowScopeWhere } from '@/lib/v1/mappers'
 
-// GET /v1/workflows — list the workspace's workflows.
+// GET /v1/workflows — list the workspace's workflows (cursor-paginated).
+// Query: status?, limit? (default 50, max 200), cursor?.
 export const GET = withAuth(
   async (req, { workspace, user }) => {
     const url = new URL(req.url)
     const status = url.searchParams.get('status')
-    const limit = Math.min(Number(url.searchParams.get('limit')) || 50, 200)
+    const { limit, cursor } = parsePagination(url)
     const rows = await db.workflow.findMany({
       where: {
         ...workflowScopeWhere(workspace.id, user?.id ?? null),
         ...(status ? { status } : {}),
+        ...cursorFilter(cursor),
       },
-      orderBy: { updatedAt: 'desc' },
-      take: limit,
+      orderBy: cursorOrderBy(),
+      take: limit + 1,
     })
-    return NextResponse.json({ workflows: rows.map(mapWorkflowV1) })
+    const page = paginate(rows, limit)
+    return okEnvelope({ data: page.data.map(mapWorkflowV1), page: page.page })
   },
-  { scope: 'workflows:read' },
+  { scope: 'workflows:read', rateLimit: { limit: 120, windowMs: 60_000 } },
 )
 
-interface CreateBody {
-  name?: string
-  description?: string
-  trigger?: 'manual' | 'schedule'
-  schedule?: string | null
-  status?: 'draft' | 'active' | 'paused'
+const CreateWorkflowSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  description: z.string().max(4000).optional(),
+  trigger: z.enum(['manual', 'schedule']).optional(),
+  schedule: z.string().nullable().optional(),
+  status: z.enum(['draft', 'active', 'paused']).optional(),
   /** How the workflow came to be — the first-party chat UI passes 'agent'/'chat'. */
-  origin?: 'agent' | 'manual' | 'chat'
+  origin: z.enum(['agent', 'manual', 'chat']).optional(),
   /** The raw WorkflowJSON document (see /schemas/workflow/v2.json). */
-  workflow?: unknown
-}
+  workflow: z.unknown(),
+})
 
 // POST /v1/workflows — create a workflow from a raw WorkflowJSON document.
 // The document is validated (schema + referential + workspace integration
 // refs) BEFORE anything is written. Returns 422 with issues on failure.
 export const POST = withAuth(
   async (req, { workspace, user }) => {
-    const body = (await req.json().catch(() => null)) as CreateBody | null
-    if (!body || typeof body !== 'object') {
-      return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
-    }
-    const name = typeof body.name === 'string' ? body.name.trim() : ''
-    if (!name) {
-      return NextResponse.json({ error: 'name is required.' }, { status: 400 })
-    }
-    if (!body.workflow) {
-      return NextResponse.json(
-        { error: 'workflow (a WorkflowJSON document) is required. See /schemas/workflow/v2.json.' },
-        { status: 400 },
+    const body = await parseBody(req, CreateWorkflowSchema)
+    if (body.workflow === undefined || body.workflow === null) {
+      throw new ApiError(
+        'validation_failed',
+        'workflow (a WorkflowJSON document) is required. See /schemas/workflow/v2.json.',
       )
     }
 
     const validation = await validateWorkflowForWorkspace(body.workflow, workspace.id)
     if (!validation.ok) {
-      return NextResponse.json(
-        { error: 'Workflow failed validation.', issues: validation.issues, warnings: validation.warnings },
-        { status: 422 },
-      )
+      throw new ApiError('validation_failed', 'Workflow failed validation.', {
+        details: { issues: validation.issues, warnings: validation.warnings },
+      })
     }
     const wf = validation.workflow!
     const runtime = inferRuntimeFromSteps(wf.steps)
@@ -72,19 +70,13 @@ export const POST = withAuth(
       data: {
         userId: user?.id ?? null,
         workspaceId: workspace.id,
-        name,
-        description: typeof body.description === 'string' ? body.description : '',
+        name: body.name,
+        description: body.description ?? '',
         stepsJson: serializeWorkflowJSON(wf),
         trigger: body.trigger === 'schedule' ? 'schedule' : 'manual',
         schedule: typeof body.schedule === 'string' ? body.schedule : null,
-        status:
-          body.status === 'draft' || body.status === 'paused'
-            ? body.status
-            : 'active',
-        origin:
-          body.origin === 'agent' || body.origin === 'chat'
-            ? body.origin
-            : 'manual',
+        status: body.status === 'draft' || body.status === 'paused' ? body.status : 'active',
+        origin: body.origin === 'agent' || body.origin === 'chat' ? body.origin : 'manual',
         runtime,
       },
     })
@@ -92,20 +84,17 @@ export const POST = withAuth(
     // version yet — skip the revision write + re-read so creation is a single
     // round-trip. The first real revision lands on workflow_freeze/update.
     if (wf.steps.length === 0) {
-      return NextResponse.json(
-        { workflow: mapWorkflowV1(created), warnings: validation.warnings },
+      return okEnvelope(
+        { data: mapWorkflowV1(created), warnings: validation.warnings },
         { status: 201 },
       )
     }
-    await saveWorkflowSteps(created.id, wf, {
-      author: 'user',
-      note: 'Created via POST /v1/workflows.',
-    })
+    await saveWorkflowSteps(created.id, wf, { author: 'user', note: 'Created via POST /v1/workflows.' })
     const row = await db.workflow.findUnique({ where: { id: created.id } })
-    return NextResponse.json(
-      { workflow: mapWorkflowV1(row!), warnings: validation.warnings },
+    return okEnvelope(
+      { data: mapWorkflowV1(row!), warnings: validation.warnings },
       { status: 201 },
     )
   },
-  { scope: 'workflows:write' },
+  { scope: 'workflows:write', rateLimit: { limit: 60, windowMs: 60_000 } },
 )

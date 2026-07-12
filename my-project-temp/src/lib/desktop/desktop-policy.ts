@@ -18,6 +18,7 @@ import path from 'path'
 import os from 'os'
 import { readDesktopSettingsFromDisk } from './desktop-paths'
 import {
+  approvalTierFromCli,
   checkRemoteToolAllowed,
   effectiveRemoteCapabilities,
   toolCapability,
@@ -81,8 +82,10 @@ export function evaluateRemoteInvoke(
     return { allowed: false, error: 'remote_access_denied:local_only' }
   }
 
-  // Capability-level check (fs mode / cli / net / notify; secrets never).
-  const capError = checkRemoteToolAllowed(tool, settings.remote)
+  // Capability-level check (fs mode / cli policy / net / notify; secrets
+  // never). args matter for cli allowlist mode — the invoked program must be
+  // on the user's list, and script jobs (no command to match) are denied.
+  const capError = checkRemoteToolAllowed(tool, settings.remote, args)
   if (capError) return { allowed: false, error: capError }
 
   // Defense-in-depth for filesystem paths: re-enforce against the LOCAL mirror
@@ -112,4 +115,16 @@ export function currentRemoteCapabilities(): string[] {
 /** Current deployment mode (hybrid vs local_only) from the settings file. */
 export function currentDeploymentMode(): 'hybrid' | 'local_only' {
   return readDesktopSettingsFromDisk().deploymentMode
+}
+
+/** The destructive-action approval policy for the agent engine, sourced from the
+ *  desktop CLI mode. Used when the run touches this machine (desktop-local /
+ *  bridge). Hosted runs with no desktop settings default to 'always' (the
+ *  engine's 'critical' floor still applies) — callers pass that default. */
+export function currentApprovalPolicy(): { approvalTier: 'ask' | 'allowlist' | 'always'; cliAllowlist: string[] } {
+  const settings = readDesktopSettingsFromDisk()
+  return {
+    approvalTier: approvalTierFromCli(settings.remote.cli.mode),
+    cliAllowlist: settings.remote.cli.allow,
+  }
 }

@@ -28,7 +28,9 @@ import {
   type GatewayMessage,
   type AssistantToolCall,
   type StopReason,
+  type ImagePart,
 } from '@/lib/platform/llm-gateway'
+import { normalizeImage } from '@/lib/platform/images'
 import {
   AGENT_TOOLS,
   getAgentTool,
@@ -42,16 +44,20 @@ import {
   type ToolResult,
   type ToolDef,
   type CredentialRequest,
+  type ConnectionRequest,
   type PlanItem,
   type ClarificationRequest,
 } from './agent-tools'
 import { sanitizeTraceInput, traceStepLabel, savedWorkflowHasExecutableSteps } from './workflow-trace'
+import { evaluateActionGate } from './action-policy'
 import {
   clientPlatformFromRequest,
   runtimeContextForLLM,
   type ClientPlatform,
 } from './runtime-context'
 import { loadUserContextBlock } from './user-context'
+import { loadSkillsBlock } from './skills'
+import { loadMemoryBlock } from './memory'
 import { db } from '@/lib/db'
 import { parseWorkflowJSON } from '@/lib/apical-server'
 import type { WorkflowJSON } from '@/lib/types'
@@ -81,6 +87,9 @@ export type AgentEvent =
       workflowSavedToAgentId?: string
       /** Set when the agent needs an API key — renders an inline vault box. */
       credentialRequests?: CredentialRequest[]
+      /** Set when the agent needs an app account connected — renders an
+       *  inline "Connect your <App>" card (Pipedream managed auth). */
+      connectionRequests?: ConnectionRequest[]
       /** Set when agent_create materialized a new agent (orchestrator). */
       createdAgentId?: string
       createdAgentName?: string
@@ -134,15 +143,60 @@ export interface AgentRunOptions {
    * response nobody will see.
    */
   signal?: AbortSignal
+  /**
+   * Durable runs: called after every loop iteration with a resumable snapshot.
+   * The agent-worker persists it so a crashed/restarted worker can continue
+   * the run instead of losing it. Native loop only.
+   */
+  onCheckpoint?: (checkpoint: EngineCheckpoint) => void
+  /** Durable runs: continue from a persisted snapshot instead of starting fresh. */
+  resumeFrom?: EngineCheckpoint
+  /** This run is a spawned subagent — blocks further spawning. */
+  isSubagent?: boolean
+  /** Spawn runs: the agent is told to end with JSON matching this shape; the
+   *  parsed object surfaces on the final event as `structured`. */
+  outputShape?: Record<string, string>
+  // ---- Destructive-action gate (Protection 3) ----
+  /** User's approval tier. Default 'always' (critical still gates). */
+  approvalTier?: 'ask' | 'allowlist' | 'always'
+  /** Program basenames auto-allowed in 'allowlist' tier. */
+  cliAllowlist?: string[]
+  /** No human present (scheduled/cron run) — caution/critical gates become denials. */
+  headless?: boolean
+  /** One-shot approval tokens granted by the user for specific actions. */
+  approvedActionSignatures?: string[]
+}
+
+/** A resumable snapshot of an in-flight native loop. JSON-serializable. */
+export interface EngineCheckpoint {
+  /** Full transcript including the system prompt and tool results. */
+  messages: GatewayMessage[]
+  iterations: number
+  toolCalls: number
+  tokensUsed: number
+  answerText: string
+  /** ToolContext state that must survive a resume. */
+  ctxState?: {
+    plan?: PlanItem[]
+    executionTrace?: ToolContext['executionTrace']
+    findings?: ToolContext['findings']
+    producedAssets?: ToolContext['producedAssets']
+    usedCredentialIds?: string[]
+  }
 }
 
 export interface AgentRunResult {
   answer: string
+  /** Set when the run never started (no model, allowance exhausted). Streaming
+   *  clients see the error event; durable callers must mark the run FAILED —
+   *  otherwise it records as 'completed' with an empty answer. */
+  preflightError?: string
   proposedWorkflow?: WorkflowJSON
   findings?: ToolContext['findings']
   attachments?: ToolContext['producedAssets']
   workflowSavedToAgentId?: string
   credentialRequests?: CredentialRequest[]
+  connectionRequests?: ConnectionRequest[]
   createdAgentId?: string
   createdAgentName?: string
   plan?: PlanItem[]
@@ -186,7 +240,9 @@ Respect your runtime capabilities above. Never claim abilities you lack in this 
 
 CONVERSATION: You are in one ongoing conversation — read the history and continue from where you left off. Don't reintroduce yourself, re-ask answered questions, or redo work already completed. Answer simple questions, explanations, opinions, and chat directly in clean markdown with no tools. When the user asks you to DO something, do it with tools.
 
-WORKING STYLE: When you act on the user's existing resources, orient first with cheap lookups (agent_list, credential_list, integration_list — you may call these in parallel in one turn). You can extend your own capabilities: if a tool or API is missing, discover it (web_search), install it (tool_configure with an OpenAPI spec or MCP server), obtain any needed secret (credential_request), then use it (mcp_call_tool / http_request). Never say "I can't access X" without first trying to discover, install, or work around it. If something fails, reason about why and try another approach.
+WORKING STYLE: When you act on the user's existing resources, orient first with cheap lookups (agent_list, credential_list, integration_list, mcp_list_servers — you may call these in parallel in one turn). You can extend your own capabilities: if a tool or API is missing, discover it (web_search), install it (tool_configure with an OpenAPI spec or MCP server), obtain any needed secret (credential_request), then use it (mcp_call_tool / http_request). Never say "I can't access X" without first trying to discover, install, or work around it. If something fails, reason about why and try another approach.
+
+CONNECTING APPS (order matters): For any well-known SaaS app (Slack, Gmail, Notion, QuickBooks, Salesforce, GitHub, …), the PRIMARY path is the managed catalog: app_search to find it, then connection_request to show the user a one-click connect card — no API keys, no OAuth setup, and the connected app's tools appear via mcp_list_servers. Fall back to tool_configure (custom MCP server / OpenAPI spec) or credential_request (raw API key) only when the app isn't in the managed catalog, the managed path is unavailable, or the user explicitly asks for a direct/custom connection.
 
 CHECKLISTS: For any task with 2+ steps, call update_plan first with a short checklist (3–7 short imperative items), and update it as you go (always pass the full list). If a plan is already in progress, continue that same list — mark finished items done and keep going; do NOT start a new one. Skip the checklist for trivial single-step requests and pure questions.
 
@@ -196,7 +252,11 @@ CREDENTIALS: The only way to obtain a secret is credential_request — one call 
 
 SCRIPTS run on Apical (server sandbox or the desktop bridge), NOT on the user's machine — never hand the user a script to download/run or tell them to install packages. Use script_run, passing packages:[...] to auto-install npm/PyPI deps. If a script is part of an automation, bake it into the workflow as a code node.
 
-WORKFLOWS AS LIVING TOOLS: You own the outcome — workflows are accelerators you build and improve, not handoffs to a dumb runner. On first-time tasks, do the real work with tools; whenever a sub-step would plausibly repeat, capture it immediately with workflow_step_append (a script becomes a code node, an API call becomes an http node, a file operation becomes an fs tool node) — parameterize per-run values with {{trigger.field}} / {{stepId.output}} and generate output at runtime, never a snapshot of one run's data. When several steps work together, tie them into a named automation with workflow_freeze; for recurring jobs add schedule_agent (cron or fixed_rate), and for new-file triggers use watch_folder. On repeat runs the runtime replays the saved steps cheaply; when a step fails YOU fix it (workflow_step_patch for one node, workflow_update for a broad rewrite), rerun, and verify success — never leave a failure as a suggestion or a review comment. If recovery is genuinely impossible (auth revoked, resource deleted, gate rejected), fail honestly and say why. Prefer building tools over repeating manual work. Do not notify the user about automatic workflow fixes unless they ask; when the user explicitly asks you to change an existing automation, confirm the specific changes first.
+AI MODEL ACCESS IS IN-HOUSE: You and your automations already have LLM access through Apical's own models, billed to the user's plan credits. NEVER ask the user for an AI provider key (OpenAI, Anthropic/Claude, Google AI/Gemini, xAI/Grok, Mistral, etc.) and never build http nodes that call AI provider APIs directly. For LLM work inside an automation — drafting emails, summarizing, classifying, extracting — use a reason step (kind:"reason" with a prompt + outputShape); the runtime executes it on Apical's models and meters the user's credits automatically.
+
+WORKFLOWS AS LIVING TOOLS: You own the outcome — workflows are accelerators you build and improve, not handoffs to a dumb runner. On first-time tasks, do the real work with tools; whenever a sub-step would plausibly repeat, capture it immediately with workflow_step_append (a script becomes a code node, an API call becomes an http node, a file operation becomes an fs tool node) — parameterize per-run values with template refs and generate output at runtime, never a snapshot of one run's data. Template refs: {{stepId.field}} (an EARLIER step's output), {{trigger.field}} (the trigger payload), {{cred:service.field}} (vault credential — colon, not dot), {{env:VAR}}; and INSIDE a loop/map body only, {{item}}/{{item.field}}/{{$index}} (loops also {{$iteration}}). Never invent other namespaces. For per-row work, use a "map" step (fan out over {{someStep.rows}}, runs items in parallel) or a "loop" step; branch on a condition with a "branch" step; delegate a subtask with a "spawn" step. Gates stay at the top level, not inside a body. When several steps work together, tie them into a named automation with workflow_freeze; for recurring jobs add schedule_agent (cron or fixed_rate), and for new-file triggers use watch_folder. On repeat runs the runtime replays the saved steps cheaply; when a step fails YOU fix it (workflow_step_patch for one node, workflow_update for a broad rewrite), rerun, and verify success — never leave a failure as a suggestion or a review comment. If recovery is genuinely impossible (auth revoked, resource deleted, gate rejected), fail honestly and say why. Prefer building tools over repeating manual work. Do not notify the user about automatic workflow fixes unless they ask; when the user explicitly asks you to change an existing automation, confirm the specific changes first.
+
+INTELLIGENT BUILDER, LAZY EXECUTOR: Be high-effort at figuring things out and building reusable machinery, but "lazy" about redoing work — spend LLM effort on the novel parts and on overseeing results, and delegate the rest to tools/skills/workflows you've built. (1) Before doing multi-step work with raw tools, check YOUR SKILLS and YOUR AUTOMATION above and prefer skill_invoke or workflow_run — reusing a proven capability costs a fraction of re-deriving it. (2) After you finish novel multi-step work that could recur, capture it: extract a reusable, parameterized SKILL with skill_save (the "how" — trigger-less, callable anywhere) or, for a scheduled task, freeze/extend a WORKFLOW. Treat repeating the same raw-tool sequence you've done before as a smell — build the skill instead. Skills and workflows compose: a workflow step can invoke a skill, and freezing skill-using work yields a workflow made of skill references. You never fully leave the loop — you supervise runs and keep improving your automations.
 
 HONESTY (non-negotiable): Never claim success, "done", or "workflow saved" if any tool returned an error this run. State exactly what succeeded and what failed. Your final answer must match the observed tool results, not your intent.`
 
@@ -258,6 +318,38 @@ interface LoopState {
   history: Array<{ role: 'user' | 'agent'; content: string }>
   unfinishedPriorPlan?: PlanItem[]
   maxIterations: number
+  /** Vision input from image-kind attachments, attached to the goal message. */
+  goalImages?: ImagePart[]
+}
+
+/** Max images fed back to the model from a single tool result. */
+const MAX_IMAGES_PER_OBSERVATION = 4
+/** Max image-bearing messages kept in the transcript (older ones are pruned). */
+const MAX_IMAGE_MESSAGES = 8
+
+function toolResultImages(result: ToolResult): ImagePart[] | undefined {
+  if (!result.images || result.images.length === 0) return undefined
+  const parts = result.images
+    .filter((i) => i && typeof i.base64 === 'string' && i.base64.length > 0 && typeof i.mimeType === 'string')
+    .slice(0, MAX_IMAGES_PER_OBSERVATION)
+    .map((i) => ({ mimeType: i.mimeType, base64: i.base64, label: i.label }))
+  return parts.length > 0 ? parts : undefined
+}
+
+/** Drop images from all but the newest MAX_IMAGE_MESSAGES image-bearing
+ *  messages — vision input is huge and stale screenshots rarely matter. */
+function pruneOldImages(messages: GatewayMessage[]): void {
+  const withImages = messages
+    .map((m, i) => ({ m: m as GatewayMessage & { images?: ImagePart[] }, i }))
+    .filter((x) => x.m.images && x.m.images.length > 0)
+  if (withImages.length <= MAX_IMAGE_MESSAGES) return
+  for (const x of withImages.slice(0, withImages.length - MAX_IMAGE_MESSAGES)) {
+    const count = x.m.images!.length
+    delete x.m.images
+    if ('content' in x.m && typeof x.m.content === 'string') {
+      x.m.content += `\n[${count} image(s) expired from context]`
+    }
+  }
 }
 
 // ---------------- Observation formatting ----------------
@@ -289,6 +381,42 @@ function buildObservationText(tool: string, result: ToolResult, def: ToolDef): s
  * recording, credential tracking, and a hard timeout. Emits events but NOT the
  * batch-level acting/thinking status (the caller manages that). Never throws.
  */
+// End the current turn with the pending clarification/approval card. Used when a
+// work-tool gate (Protection 3) pauses the run — mirrors the request_review exit.
+function finishWithClarification(
+  ctx: ToolContext,
+  onEvent: (event: AgentEvent) => void,
+  counters: { iterations: number; toolCalls: number; tokensUsed: number },
+): AgentRunResult {
+  const question = ctx.clarification!
+  const answer =
+    question.kind === 'review'
+      ? `I need your approval before continuing: ${question.question}`
+      : `Before I continue, I need a bit more detail: ${question.question}`
+  onEvent({ type: 'clarification', question })
+  onEvent({ type: 'status', status: 'done' })
+  onEvent({
+    type: 'final',
+    answer,
+    findings: ctx.findings,
+    attachments: ctx.producedAssets,
+    plan: ctx.plan,
+    clarification: question,
+    credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
+  })
+  return {
+    answer,
+    findings: ctx.findings,
+    attachments: ctx.producedAssets,
+    plan: ctx.plan,
+    clarification: question,
+    credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
+    ...counters,
+  }
+}
+
 async function executeWorkTool(
   call: { tool: string; input: Record<string, unknown> },
   ctx: ToolContext,
@@ -362,6 +490,66 @@ async function executeWorkTool(
         observationText: `Error — ${freezeCheck.error}`,
       }
     }
+  }
+
+  // --- Enforced destructive-action gate (Protection 3) ---
+  // Classify the call and apply the user's approval tier. Runs BEFORE the tool
+  // does anything. 'gate' ends the turn with an approval card; 'deny' blocks.
+  // This does not depend on the model choosing request_review.
+  {
+    // Default tier is 'always' so existing behavior is preserved (routine
+    // 'caution' actions run) while the 'critical' floor still fires. Users opt
+    // into 'ask'/'allowlist' for tighter gating (Protection 1).
+    const gate = evaluateActionGate(tool, input, {
+      tier: ctx.approvalTier ?? 'always',
+      headless: ctx.headless ?? false,
+      cliAllowlist: ctx.cliAllowlist,
+      approvedSignatures: ctx.approvedActionSignatures,
+    })
+    if (gate.outcome === 'deny') {
+      onEvent({ type: 'tool_call', tool, input })
+      onEvent({
+        type: 'observation',
+        tool,
+        ok: false,
+        output: null,
+        error: gate.message,
+        display: { title: `Blocked: ${tool}`, summary: gate.summary || 'not permitted', kind: 'info' },
+      })
+      return {
+        result: { ok: false, output: null, error: gate.message },
+        observationText: `BLOCKED — ${gate.summary} ${gate.message} Do not retry this action; choose a safer, narrower approach or tell the user it needs interactive approval.`,
+      }
+    }
+    if (gate.outcome === 'gate') {
+      // Pause: surface an approval card (reuses the request_review path) and
+      // record the exact action so approving it grants a one-shot token.
+      ctx.pendingApproval = { signature: gate.signature, tool, summary: gate.summary, level: gate.level === 'critical' ? 'critical' : 'caution' }
+      ctx.clarification = {
+        id: `gate-${tool}-${ctx.executionTrace?.length ?? 0}`,
+        kind: 'review',
+        question: `Approve this ${gate.level === 'critical' ? 'critical ' : ''}action? ${gate.summary}`,
+        options: [
+          { key: 'approve', label: 'Approve & run' },
+          { key: 'cancel', label: 'Cancel' },
+        ],
+        multiple: false,
+        approvalSignature: gate.signature,
+      }
+      onEvent({ type: 'tool_call', tool, input })
+      onEvent({
+        type: 'observation',
+        tool,
+        ok: false,
+        output: null,
+        display: { title: `Needs your approval: ${tool}`, summary: gate.summary, kind: 'info' },
+      })
+      return {
+        result: { ok: false, output: null, error: 'awaiting_approval' },
+        observationText: `PAUSED for your approval — ${gate.summary} (${gate.message}). The turn ends here; the action runs only after the user approves.`,
+      }
+    }
+    if (gate.consumedApproval) ctx.approvedActionSignatures?.delete(gate.signature)
   }
 
   onEvent({ type: 'tool_call', tool, input })
@@ -464,6 +652,7 @@ function msgLen(m: GatewayMessage): number {
  * update_plan results) with one-line summaries. In-place, no LLM call.
  */
 function compactMessages(messages: GatewayMessage[]): void {
+  pruneOldImages(messages)
   const total = () => messages.reduce((n, m) => n + msgLen(m), 0)
   if (total() <= COMPACT_LIMIT_CHARS) return
 
@@ -503,6 +692,7 @@ function finalizeRun(
     attachments: ctx.producedAssets,
     workflowSavedToAgentId: failures.length > 0 ? undefined : ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     runFailures: failures.length > 0 ? failures : undefined,
@@ -515,6 +705,7 @@ function finalizeRun(
     attachments: ctx.producedAssets,
     workflowSavedToAgentId: failures.length > 0 ? undefined : ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     plan: ctx.plan,
@@ -548,6 +739,7 @@ function budgetExhausted(
     findings: ctx.findings,
     workflowSavedToAgentId: failures.length > 0 ? undefined : ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     runFailures: failures.length > 0 ? failures : undefined,
@@ -559,6 +751,7 @@ function budgetExhausted(
     findings: ctx.findings,
     workflowSavedToAgentId: ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     plan: ctx.plan,
@@ -580,11 +773,15 @@ async function runNativeLoop(
   const toolSpecs = toolSpecsForLLM(allowCli)
   const systemPrompt = SYSTEM_PROMPT.replace('{{RUNTIME}}', runtimeBlock)
 
-  const messages: GatewayMessage[] = [{ role: 'system', content: systemPrompt }]
+  let messages: GatewayMessage[] = [{ role: 'system', content: systemPrompt }]
   for (const h of state.history) {
     messages.push({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })
   }
-  messages.push({ role: 'user', content: `${state.contextPrefix}${state.goalLine}` })
+  messages.push({
+    role: 'user',
+    content: `${state.contextPrefix}${state.goalLine}`,
+    ...(state.goalImages && state.goalImages.length > 0 ? { images: state.goalImages } : {}),
+  })
 
   let iterations = 0
   let toolCalls = 0
@@ -593,6 +790,45 @@ async function runNativeLoop(
   let answerText = ''
   let lastError: string | null = null
   let failureHonestyNudges = 0
+
+  // Durable resume: continue the persisted transcript instead of starting over.
+  const resume = opts.resumeFrom
+  if (resume && Array.isArray(resume.messages) && resume.messages.length > 0) {
+    messages = resume.messages
+    iterations = resume.iterations || 0
+    toolCalls = resume.toolCalls || 0
+    tokensUsed = resume.tokensUsed || 0
+    answerText = resume.answerText || ''
+    if (resume.ctxState) {
+      if (resume.ctxState.plan) ctx.plan = resume.ctxState.plan
+      if (resume.ctxState.executionTrace) ctx.executionTrace = resume.ctxState.executionTrace
+      if (resume.ctxState.findings) ctx.findings = resume.ctxState.findings
+      if (resume.ctxState.producedAssets) ctx.producedAssets = resume.ctxState.producedAssets
+      if (resume.ctxState.usedCredentialIds) ctx.usedCredentialIds = resume.ctxState.usedCredentialIds
+    }
+  }
+
+  const emitCheckpoint = () => {
+    if (!opts.onCheckpoint) return
+    try {
+      opts.onCheckpoint({
+        messages,
+        iterations,
+        toolCalls,
+        tokensUsed,
+        answerText,
+        ctxState: {
+          plan: ctx.plan,
+          executionTrace: ctx.executionTrace,
+          findings: ctx.findings,
+          producedAssets: ctx.producedAssets,
+          usedCredentialIds: ctx.usedCredentialIds,
+        },
+      })
+    } catch (e) {
+      console.warn('[agent-engine] checkpoint failed:', (e as Error).message)
+    }
+  }
 
   onEvent({ type: 'status', status: 'thinking' })
 
@@ -730,8 +966,17 @@ async function runNativeLoop(
           o.status === 'fulfilled'
             ? o.value.observationText
             : `Error: ${(o.reason as Error)?.message ?? 'tool crashed'}`
-        messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: observationText })
+        const images = o.status === 'fulfilled' ? toolResultImages(o.value.result) : undefined
+        messages.push({
+          role: 'tool',
+          toolCallId: c.id,
+          name: c.name,
+          content: observationText,
+          ...(images ? { images } : {}),
+        })
       })
+      // A destructive-action gate paused the run — end the turn with the card.
+      if (ctx.clarification) return finishWithClarification(ctx, onEvent, { iterations, toolCalls, tokensUsed })
       onEvent({ type: 'status', status: 'thinking' })
     }
 
@@ -797,6 +1042,7 @@ async function runNativeLoop(
         plan: ctx.plan,
         clarification: question,
         credentialRequests: ctx.credentialRequests,
+        connectionRequests: ctx.connectionRequests,
       })
       return {
         answer: clarifyAnswer,
@@ -805,12 +1051,14 @@ async function runNativeLoop(
         plan: ctx.plan,
         clarification: question,
         credentialRequests: ctx.credentialRequests,
+        connectionRequests: ctx.connectionRequests,
         iterations,
         toolCalls,
         tokensUsed,
       }
     }
 
+    emitCheckpoint()
     onEvent({ type: 'status', status: 'thinking' })
   }
 
@@ -823,6 +1071,7 @@ async function runNativeLoop(
     findings: ctx.findings,
     workflowSavedToAgentId: ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     plan: ctx.plan,
@@ -858,6 +1107,7 @@ async function runLegacyLoop(
     {
       role: 'user',
       content: `${state.contextPrefix}${historyBlock}${state.goalLine}\n\nBegin. Respond with JSON only.`,
+      ...(state.goalImages && state.goalImages.length > 0 ? { images: state.goalImages } : {}),
     },
   ]
 
@@ -1032,6 +1282,7 @@ async function runLegacyLoop(
           plan: ctx.plan,
           clarification: question,
           credentialRequests: ctx.credentialRequests,
+          connectionRequests: ctx.connectionRequests,
         })
         return {
           answer: clarifyAnswer,
@@ -1040,6 +1291,7 @@ async function runLegacyLoop(
           plan: ctx.plan,
           clarification: question,
           credentialRequests: ctx.credentialRequests,
+          connectionRequests: ctx.connectionRequests,
           iterations,
           toolCalls,
           tokensUsed,
@@ -1051,6 +1303,8 @@ async function runLegacyLoop(
       const { observationText } = await executeWorkTool({ tool, input }, ctx, opts.signal, onEvent)
       toolCalls += 1
       messages.push({ role: 'user', content: `Observation (${tool}): ${observationText}` })
+      // A destructive-action gate paused the run — end the turn with the card.
+      if (ctx.clarification) return finishWithClarification(ctx, onEvent, { iterations, toolCalls, tokensUsed })
       onEvent({ type: 'status', status: 'thinking' })
       continue
     }
@@ -1071,6 +1325,7 @@ async function runLegacyLoop(
     findings: ctx.findings,
     workflowSavedToAgentId: ctx.workflowSavedToAgentId,
     credentialRequests: ctx.credentialRequests,
+    connectionRequests: ctx.connectionRequests,
     createdAgentId: ctx.createdAgentId,
     createdAgentName: ctx.createdAgentName,
     plan: ctx.plan,
@@ -1099,11 +1354,17 @@ export async function runAgent(
     priorPlan,
     attachments,
     script,
-    maxIterations = 64,
+    maxIterations: rawMaxIterations = 64,
     allowCli = false,
     isDesktop = false,
     source = 'agent',
   } = opts
+
+  // Engine-side clamp (defense in depth behind the API clamp): opts can come
+  // from stored optsJson rows written before the clamp existed.
+  const maxIterations = Number.isFinite(rawMaxIterations)
+    ? Math.max(1, Math.min(128, Math.floor(rawMaxIterations)))
+    : 64
 
   const meterSource = source
 
@@ -1112,8 +1373,17 @@ export async function runAgent(
   // Preflight reads run concurrently (needs connection_limit > 1 to overlap).
   // Each is defensive so one slow/failed read can't stall the whole turn.
   const userContextBlockPromise = loadUserContextBlock(userId).catch(() => '')
+  const skillsBlockPromise = loadSkillsBlock(userId).catch(() => '')
+  const memoryBlockPromise = loadMemoryBlock(userId, opts.agentId).catch(() => '')
+  // Fail CLOSED: if the allowance read errors we refuse the turn rather than
+  // run unmetered (the old fallback allowed:true meant a billing-table outage
+  // made every run free). `failed` distinguishes the outage from a genuine
+  // over-allowance so the user gets an honest retry message.
   const allowancePromise = checkAllowance(userId).catch(
-    () => ({ allowed: true, overrunEnabled: false }) as Awaited<ReturnType<typeof checkAllowance>>,
+    () =>
+      ({ allowed: false, overrunEnabled: false, failed: true }) as Awaited<
+        ReturnType<typeof checkAllowance>
+      > & { failed?: boolean },
   )
   const ownedAgentRowPromise: Promise<{
     name: string
@@ -1147,7 +1417,7 @@ export async function runAgent(
   const { modelId, resolved: resolvedModel } = await modelResolutionPromise
   if (!modelId) {
     onEvent({ type: 'error', message: NO_LLM_PROVIDER_ERROR })
-    return { answer: '', iterations: 0, toolCalls: 0, tokensUsed: 0 }
+    return { answer: '', preflightError: NO_LLM_PROVIDER_ERROR, iterations: 0, toolCalls: 0, tokensUsed: 0 }
   }
 
   const useCloudRelay = resolvedModel?.adapter === 'cloud-relay'
@@ -1155,15 +1425,17 @@ export async function runAgent(
   // Local allowance applies only when we call providers directly — cloud relay
   // bills the linked Apical account on api.apic.al.
   if (!useCloudRelay) {
-    const allowance = await allowancePromise
+    const allowance = (await allowancePromise) as Awaited<ReturnType<typeof checkAllowance>> & {
+      failed?: boolean
+    }
     if (!allowance.allowed) {
-      onEvent({
-        type: 'error',
-        message: allowance.overrunEnabled
+      const message = allowance.failed
+        ? 'Could not verify your token allowance — please try again in a moment.'
+        : allowance.overrunEnabled
           ? 'You have exceeded your token allowance. Add credits or enable overrun billing to continue.'
-          : 'You have exceeded your token allowance for this period.',
-      })
-      return { answer: '', iterations: 0, toolCalls: 0, tokensUsed: 0 }
+          : 'You have exceeded your token allowance for this period.'
+      onEvent({ type: 'error', message })
+      return { answer: '', preflightError: message, iterations: 0, toolCalls: 0, tokensUsed: 0 }
     }
   }
 
@@ -1225,6 +1497,11 @@ export async function runAgent(
     producedAssets: [],
     userGoal: goal,
     signal: opts.signal,
+    isSubagent: opts.isSubagent,
+    approvalTier: opts.approvalTier,
+    cliAllowlist: opts.cliAllowlist,
+    headless: opts.headless,
+    approvedActionSignatures: new Set(opts.approvedActionSignatures ?? []),
   }
 
   // Carry an unfinished checklist forward so the agent resumes it.
@@ -1326,6 +1603,24 @@ export async function runAgent(
           .join('\n')}\n\n`
       : ''
 
+  // Image attachments become vision input on the goal message (best-effort —
+  // a corrupt image degrades to its text line above, never fails the run).
+  let goalImages: ImagePart[] | undefined
+  const imageAttachments = (attachments ?? [])
+    .filter((a) => a.kind === 'image' || a.mimeType.startsWith('image/'))
+    .slice(0, MAX_IMAGES_PER_OBSERVATION)
+  if (imageAttachments.length > 0) {
+    const normalized = await Promise.allSettled(
+      imageAttachments.map((a) =>
+        normalizeImage({ assetId: a.id, userId: opts.userId, label: a.name }),
+      ),
+    )
+    const parts = normalized
+      .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof normalizeImage>>> => r.status === 'fulfilled')
+      .map((r) => ({ mimeType: r.value.mimeType, base64: r.value.base64, label: r.value.label }))
+    if (parts.length > 0) goalImages = parts
+  }
+
   const scriptBlock = script?.code
     ? `User provided script (${script.language}) to run if relevant:\n\`\`\`${script.language}\n${script.code}\n\`\`\`\n\n`
     : ''
@@ -1342,7 +1637,14 @@ export async function runAgent(
 
   const userContextBlock = await userContextBlockPromise
 
-  const contextPrefix = `${userContextBlock}${ownWorkflowBlock}${planBlock}${attachmentBlock}${scriptBlock}`
+  // Spawned subagents with a requested output shape are told to end in JSON.
+  const outputShapeBlock = opts.outputShape
+    ? `IMPORTANT: When you have finished, your FINAL message must be ONLY a JSON object matching this shape (no prose, no code fences):\n${JSON.stringify(opts.outputShape)}\n\n`
+    : ''
+
+  const skillsBlock = await skillsBlockPromise
+  const memoryBlock = await memoryBlockPromise
+  const contextPrefix = `${userContextBlock}${memoryBlock}${skillsBlock}${ownWorkflowBlock}${planBlock}${attachmentBlock}${scriptBlock}${outputShapeBlock}`
   const goalLine = `Goal: ${goal}${context ? `\n\nAdditional context:\n${context}` : ''}`
 
   const state: LoopState = {
@@ -1357,11 +1659,23 @@ export async function runAgent(
     history: history ?? [],
     unfinishedPriorPlan,
     maxIterations,
+    goalImages,
   }
 
   // Branch: native tool calling when the model supports it, else legacy JSON.
   const useNative = resolvedModel ? modelSupportsTools(resolvedModel) : true
-  return useNative ? runNativeLoop(state, onEvent) : runLegacyLoop(state, onEvent)
+  try {
+    return await (useNative ? runNativeLoop(state, onEvent) : runLegacyLoop(state, onEvent))
+  } finally {
+    // Release the run's browser session (if the browser tool opened one).
+    if (ctx.browserSessionId) {
+      const sid = ctx.browserSessionId
+      ctx.browserSessionId = null
+      void import('@/lib/platform/browser-client')
+        .then((m) => m.closeBrowserSession(sid))
+        .catch(() => {})
+    }
+  }
 }
 
 // ---------------- Legacy response parsing (JSON-protocol fallback) ----------------

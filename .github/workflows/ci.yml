@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  # Feature branches are covered by their pull_request (which re-runs on every
+  # new commit), so push only needs to guard main itself — avoids double runs.
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: apical_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # The app + smoke suite read these from the environment (no .env in CI).
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/apical_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/apical_test
+      NEXTAUTH_SECRET: ci-nextauth-secret
+      APICAL_VAULT_KEY: ci-vault-key-for-tests-only
+      APICAL_RELAY_SECRET: ci-relay-secret
+      APICAL_SCHEDULER_SECRET: ci-scheduler-secret
+      APICAL_BRIDGE_SECRET: ci-bridge-secret
+      AGENT_WORKER_SECRET: ci-worker-secret
+      # Headless CI has no Supabase — use the desktop-local auth path so the
+      # config gate does not treat Supabase as required.
+      DESKTOP_LOCAL: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Root install also runs `prisma generate` (postinstall).
+      - name: Install dependencies
+        working-directory: my-project-temp
+        run: bun install
+
+      # Each network mini-service carries only its own non-Prisma deps
+      # (socket.io / playwright); @prisma/client resolves up-tree to the single
+      # root-generated client, so this also exercises that resolution.
+      - name: Install mini-service dependencies
+        working-directory: my-project-temp
+        run: |
+          for d in mini-services/*/; do
+            if [ -f "${d}package.json" ]; then
+              echo "installing ${d}"
+              (cd "$d" && bun install)
+            fi
+          done
+
+      # The browser smoke tests (04-browser, 13-mtier) launch Chromium.
+      - name: Install Playwright Chromium
+        working-directory: my-project-temp/mini-services/agent-worker
+        run: bunx playwright install --with-deps chromium
+
+      - name: Apply database migrations
+        working-directory: my-project-temp
+        run: bunx prisma migrate deploy
+
+      # Full tree (app + smoke scripts + unit tests + mini-services). The app's
+      # own tsconfig.json excludes the harness/services so `next build` works on
+      # hosts without the per-service deps (e.g. Vercel).
+      - name: Typecheck
+        working-directory: my-project-temp
+        run: bunx tsc --noEmit -p tsconfig.ci.json
+
+      - name: Unit tests
+        working-directory: my-project-temp
+        run: bun test tests/
+
+      # `bun run lint` exits non-zero on the known pre-existing baseline. Enforce
+      # "no new problems" by failing only when the count exceeds the baseline.
+      - name: Lint (enforce the 12-problem baseline)
+        working-directory: my-project-temp
+        run: |
+          set +e
+          OUT=$(bun run lint 2>&1)
+          echo "$OUT"
+          COUNT=$(echo "$OUT" | grep -oE '[0-9]+ problems' | grep -oE '[0-9]+' | tail -1)
+          COUNT=${COUNT:-0}
+          if [ "$COUNT" -gt 12 ]; then
+            echo "::error::Lint regressed to ${COUNT} problems (baseline is 12)."
+            exit 1
+          fi
+          echo "Lint at or below the baseline (${COUNT} problems)."
+
+      - name: Smoke suite
+        working-directory: my-project-temp
+        run: bash scripts/smoke/run-all.sh
+
+      # Build the production web app — catches webpack/Edge-runtime resolution
+      # errors that tsc alone misses (e.g. a node: builtin not stubbed for Edge).
+      - name: Build (next build)
+        working-directory: my-project-temp
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: bun run build

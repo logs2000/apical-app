@@ -53,7 +53,7 @@ function tryDecrypt(stored: string): string | null {
 }
 
 export interface ResolvedCredential {
-  /** The decrypted secret value (NEVER returned to the LLM). */
+  /** The decrypted secret value (NEVER returned to the LLM). Empty for kind="pipedream". */
   secret: string
   /** The credential kind — drives how the secret is injected. */
   kind: string
@@ -61,6 +61,13 @@ export interface ResolvedCredential {
   headerName: string
   /** The header value prefix (for bearer/oauth). Default 'Bearer '. */
   headerPrefix: string
+  /**
+   * For kind="pipedream": the Pipedream connected-account id + app slug. No
+   * local secret exists — callers MUST route the request through the Pipedream
+   * proxy (which injects auth upstream) instead of header injection.
+   */
+  pipedreamAccountId?: string
+  pipedreamApp?: string
 }
 
 /**
@@ -76,7 +83,7 @@ export interface ResolvedCredential {
 export async function resolveCredentialForAgent(
   credentialId: string,
   userId: string,
-  opts: { connectedAccountId?: string | null } = {},
+  opts: { connectedAccountId?: string | null; allowPay?: boolean } = {},
 ): Promise<ResolvedCredential | null> {
   if (!credentialId || !userId) return null
   let row = await db.credential.findFirst({
@@ -86,10 +93,13 @@ export async function resolveCredentialForAgent(
       kind: true,
       status: true,
       service: true,
+      canPay: true,
       connectedAccountId: true,
       oauthAccessToken: true,
       oauthProvider: true,
       metaJson: true,
+      pipedreamAccountId: true,
+      pipedreamApp: true,
     },
   })
   if (!row || row.status !== 'active') return null
@@ -109,13 +119,39 @@ export async function resolveCredentialForAgent(
         kind: true,
         status: true,
         service: true,
+        canPay: true,
         connectedAccountId: true,
         oauthAccessToken: true,
         oauthProvider: true,
         metaJson: true,
+        pipedreamAccountId: true,
+        pipedreamApp: true,
       },
     })
     if (accountRow) row = accountRow
+  }
+
+  // Payment-capable credentials (canPay — e.g. a Stripe secret key or a card
+  // reference) are refused unless the caller carries an explicit grant.
+  // Previously the flag was stored but never checked, so any agent turn could
+  // silently spend with a payment credential the user had merely SAVED. The
+  // grant comes from the agent's allowedCredentialsJson (see
+  // buildSecureHeaders) — a human listing the credential on that agent.
+  if (row.canPay && !opts.allowPay) return null
+
+  // Pipedream-managed connection: there is no local secret — the token lives
+  // in Pipedream's vault. Return the account reference; callers branch on
+  // kind === 'pipedream' and use the proxy/MCP path instead of injection.
+  if (row.kind === 'pipedream') {
+    if (!row.pipedreamAccountId) return null
+    return {
+      secret: '',
+      kind: 'pipedream',
+      headerName: '',
+      headerPrefix: '',
+      pipedreamAccountId: row.pipedreamAccountId,
+      pipedreamApp: row.pipedreamApp ?? undefined,
+    }
   }
 
   // Resolve the secret: prefer oauthAccessToken (decrypted); fall back to
@@ -195,8 +231,22 @@ export async function buildSecureHeaders(
   llmHeaders: Record<string, string> | undefined,
   credentialId: string | undefined,
   userId: string,
-  opts: { connectedAccountId?: string | null } = {},
-): Promise<{ headers: Record<string, string>; hadCredential: boolean }> {
+  opts: {
+    connectedAccountId?: string | null
+    agentId?: string | null
+    /** Caller-asserted explicit human grant (e.g. a credential the user wired
+     *  into a frozen integration's config). Skips the agent-allowlist lookup. */
+    allowPay?: boolean
+  } = {},
+): Promise<{
+  headers: Record<string, string>
+  hadCredential: boolean
+  /** Set when the credential is Pipedream-managed — route via the proxy. */
+  pipedream?: ResolvedCredential
+  /** Set when the credential exists but is payment-capable (canPay) and the
+   *  acting agent has no explicit grant for it — tell the user, not a 401. */
+  paymentBlocked?: boolean
+}> {
   // 1. Strip auth-shaped headers the LLM tried to set.
   const headers: Record<string, string> = {}
   if (llmHeaders && typeof llmHeaders === 'object') {
@@ -209,10 +259,42 @@ export async function buildSecureHeaders(
 
   // 2. Resolve credential + inject.
   if (credentialId) {
-    const cred = await resolveCredentialForAgent(credentialId, userId, opts)
+    // canPay grant: the human listed this credential id on the acting agent
+    // (allowedCredentialsJson). Chat turns with no agent get no grant.
+    let allowPay = opts.allowPay === true
+    if (!allowPay && opts.agentId) {
+      const agent = await db.workflow.findFirst({
+        where: { id: opts.agentId, userId },
+        select: { allowedCredentialsJson: true },
+      })
+      try {
+        const allowed = JSON.parse(agent?.allowedCredentialsJson || '[]') as unknown
+        allowPay = Array.isArray(allowed) && allowed.includes(credentialId)
+      } catch {
+        allowPay = false
+      }
+    }
+
+    const cred = await resolveCredentialForAgent(credentialId, userId, { ...opts, allowPay })
     if (cred) {
+      // Pipedream-managed credentials have no local secret to inject — the
+      // caller must take the proxy branch. Returning hadCredential:false here
+      // keeps any caller that skipped that branch safe by construction (no
+      // header is ever forged from an empty secret).
+      if (cred.kind === 'pipedream') {
+        return { headers, hadCredential: false, pipedream: cred }
+      }
       headers[cred.headerName] = `${cred.headerPrefix}${cred.secret}`.trim()
       return { headers, hadCredential: true }
+    }
+    // Distinguish "payment-capable but not granted" from "not found" so the
+    // tools can explain the block instead of reporting a phantom credential.
+    if (!allowPay) {
+      const paymentRow = await db.credential.findFirst({
+        where: { id: credentialId, userId, status: 'active', canPay: true },
+        select: { id: true },
+      })
+      if (paymentRow) return { headers, hadCredential: false, paymentBlocked: true }
     }
     // Credential not found — surface a clear error to the LLM via the headers
     // (the caller will see the 401/403 and report it).
@@ -236,6 +318,8 @@ export async function listCredentialsForAgent(userId: string): Promise<
     kind: string
     service: string
     oauthProvider: string | null
+    /** Pipedream app slug for managed connections (kind="pipedream"). */
+    pipedreamApp: string | null
     status: string
   }>
 > {
@@ -247,6 +331,7 @@ export async function listCredentialsForAgent(userId: string): Promise<
       kind: true,
       service: true,
       oauthProvider: true,
+      pipedreamApp: true,
       status: true,
     },
     orderBy: { createdAt: 'desc' },

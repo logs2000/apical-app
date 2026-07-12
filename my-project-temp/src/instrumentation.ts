@@ -1,6 +1,12 @@
 // Next.js instrumentation hook — runs once per server boot.
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return
+
+  // Validate configuration once, loudly. In production a missing hard-required
+  // var throws here so we fail fast instead of serving a broken app.
+  const { assertEnv } = await import('@/lib/env')
+  assertEnv()
+
   // Watched-folder triggers: poll granted folders and start workflow runs
   // when new files appear. No-ops per tick when the desktop is offline.
   const { ensureFolderWatcher } = await import('@/lib/platform/folder-watch')

@@ -20,7 +20,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { Server, Socket } from 'socket.io'
 import { PrismaClient } from '@prisma/client'
-import { randomUUID } from 'crypto'
+import { randomUUID, timingSafeEqual } from 'crypto'
 
 // The desktop-bridge requires Postgres (same as the main app).
 if (!process.env.DATABASE_URL?.trim()) {
@@ -28,6 +28,25 @@ if (!process.env.DATABASE_URL?.trim()) {
     '[desktop-bridge] DATABASE_URL is not set. Point it at the same Postgres as the Next.js app.',
   )
   process.exit(1)
+}
+
+// POST /invoke is a remote-execution surface (fs/cli on someone's desktop).
+// Only the Next.js proxy may call it — it must present APICAL_BRIDGE_SECRET.
+// Fail closed: without the secret the service refuses to start, same contract
+// as APICAL_RELAY_SECRET on the run-relay.
+const BRIDGE_SECRET = (process.env.APICAL_BRIDGE_SECRET || '').trim()
+if (!BRIDGE_SECRET) {
+  console.error(
+    '[desktop-bridge] APICAL_BRIDGE_SECRET is not set. Set the same random secret ' +
+      'here and on the Next.js app, then restart. Exiting.',
+  )
+  process.exit(1)
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a)
+  const bb = Buffer.from(b)
+  return ab.length === bb.length && timingSafeEqual(ab, bb)
 }
 
 const db = new PrismaClient()
@@ -140,6 +159,14 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 
   // Invoke a tool on a connected desktop.
   if (req.method === 'POST' && req.url === '/invoke') {
+    // Only the Next.js proxy holds the bridge secret. Timing-safe compare;
+    // missing or wrong → 401 before reading the body.
+    const presented = typeof req.headers['x-bridge-secret'] === 'string' ? req.headers['x-bridge-secret'] : ''
+    if (!presented || !safeEqual(presented, BRIDGE_SECRET)) {
+      res.writeHead(401, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ ok: false, error: 'unauthorized' }))
+      return
+    }
     try {
       const body = await readJson(req)
       const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : ''
@@ -233,9 +260,26 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 // — Caddy forwards based on the query param, the path is irrelevant to the
 // gateway, and socket.io-client's default `path` option is `/socket.io/` so
 // the request URLs line up.)
+// CORS: the legitimate socket clients are the Tauri desktop app (webview
+// origins below; the Node-side socket.io-client sends no Origin header, which
+// passes an origin-list check) and, in dev, the web app itself. Production
+// deployments append their public origin via APICAL_BRIDGE_CORS_ORIGINS
+// (comma-separated). Never '*' — /invoke aside, an open origin would let any
+// website drive the socket surface from a logged-in browser.
+const BRIDGE_CORS_ORIGINS = [
+  'tauri://localhost',
+  'http://tauri.localhost',
+  'https://tauri.localhost',
+  'http://localhost:3000',
+  ...(process.env.APICAL_BRIDGE_CORS_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+]
+
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: BRIDGE_CORS_ORIGINS,
     methods: ['GET', 'POST'],
   },
   pingTimeout: 60000,
@@ -326,6 +370,58 @@ io.on('connection', (socket: Socket) => {
     }
   })
 
+  // Desktop → server: UNSOLICITED job progress/completion push. Long-running
+  // desktop jobs (accepted via desktop.job.start) report back here, outside
+  // the request/response invoke cycle. Validated against the socket's session
+  // (a desktop can only update jobs it owns) and written straight to the row.
+  socket.on('desktop:job_update', async (payload: {
+    jobId?: string
+    status?: string
+    progress?: number
+    note?: string
+    error?: string
+    result?: { stdoutTail?: string; exitCode?: number | null }
+  }) => {
+    try {
+      const sessionId = socket.data?.sessionId as string | undefined
+      const userId = socket.data?.userId as string | undefined
+      const jobId = payload?.jobId
+      if (!sessionId || !userId || typeof jobId !== 'string' || !jobId) return
+      const job = await db.job.findFirst({
+        where: { id: jobId, userId, desktopSessionId: sessionId },
+        select: { id: true, status: true },
+      })
+      if (!job) return
+      if (['completed', 'failed', 'cancelled', 'timeout'].includes(job.status)) return // already terminal
+
+      // Validate against the states a desktop may legitimately report — the
+      // raw string went straight into the row before, so a compromised desktop
+      // could write garbage or roll a job back to 'queued' for a re-run.
+      const DESKTOP_REPORTABLE = ['accepted', 'running', 'completed', 'failed', 'timeout', 'cancelled']
+      const status = payload.status
+      if (status !== undefined && !DESKTOP_REPORTABLE.includes(status)) {
+        console.warn(`[desktop-bridge] job_update with invalid status "${String(status)}" ignored (job ${jobId})`)
+        return
+      }
+      const terminal = status && ['completed', 'failed', 'timeout', 'cancelled'].includes(status)
+      await db.job.update({
+        where: { id: jobId },
+        data: {
+          ...(status ? { status } : { status: 'running' }),
+          ...(typeof payload.progress === 'number' ? { progress: Math.max(0, Math.min(1, payload.progress)) } : {}),
+          ...(payload.note ? { progressNote: payload.note.slice(0, 500) } : {}),
+          ...(payload.error ? { error: payload.error.slice(0, 1000) } : {}),
+          ...(payload.result ? { resultJson: JSON.stringify(payload.result) } : {}),
+          ...(terminal ? { finishedAt: new Date() } : {}),
+        },
+      })
+      // Ack so the desktop can stop retrying this update.
+      socket.emit('desktop:job_update_ack', { jobId, status: status ?? 'running' })
+    } catch (err) {
+      console.error('[desktop-bridge] desktop:job_update failed:', err)
+    }
+  })
+
   socket.on('disconnect', async (reason) => {
     console.log(`[desktop-bridge] socket disconnected: ${socket.id} (${reason})`)
     const sessionId = socket.data?.sessionId as string | undefined
@@ -362,14 +458,21 @@ function countOnlineDesktops(): number {
   return n
 }
 
-function readJson(req: IncomingMessage): Promise<unknown> {
+function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', () => {
       try {
         const raw = Buffer.concat(chunks).toString('utf8')
-        resolve(raw ? JSON.parse(raw) : {})
+        const parsed: unknown = raw ? JSON.parse(raw) : {}
+        // Callers expect a JSON object; a non-object body (array, string,
+        // number) is treated as empty and fails their field validation.
+        resolve(
+          parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : {},
+        )
       } catch (err) {
         reject(err)
       }

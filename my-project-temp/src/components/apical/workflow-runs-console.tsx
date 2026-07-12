@@ -27,6 +27,8 @@ import {
   relativeTime,
 } from "@/lib/apical";
 import { useRuns } from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { openPipedreamConnect } from "@/lib/apical/pipedream-connect-client";
 import { useWorkflowRun } from "@/hooks/use-workflow-run";
 import { useRunSocket } from "@/hooks/use-run-socket";
 import type { Run, RunReportItem, RunStep } from "@/lib/types";
@@ -243,10 +245,78 @@ function LiveStepTrace({ runId }: { runId: string }) {
   );
 }
 
+/** Shown on a run paused because a managed connection needs re-auth: one
+ *  click reconnects the account (Pipedream popup) and resumes the run —
+ *  the paused step re-executes with the fresh connection. */
+function ReconnectGatePanel({ run }: { run: Run }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const awaiting = run.steps.find((s) => s.status === "awaiting");
+  const marker =
+    awaiting?.output && typeof awaiting.output === "object"
+      ? (awaiting.output as { needsReconnect?: { app: string; credentialId: string }; message?: string })
+      : null;
+  if (!awaiting || !marker?.needsReconnect) return null;
+  const { app } = marker.needsReconnect;
+
+  async function resume() {
+    const res = await fetch(`/api/runs/${run.id}/gate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approve: true, note: `Reconnected ${app}` }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error || "Failed to resume the run.");
+    }
+    void qc.invalidateQueries({ queryKey: ["runs"] });
+  }
+
+  function reconnect() {
+    setBusy(true);
+    setError(null);
+    void openPipedreamConnect({
+      app,
+      onSuccess: () => {
+        void resume()
+          .catch((err: Error) => setError(err.message))
+          .finally(() => setBusy(false));
+      },
+      onError: (message) => {
+        setBusy(false);
+        setError(message);
+      },
+      onCancel: () => setBusy(false),
+    });
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-gate/40 bg-gate/10 px-3 py-2.5">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-gate">
+        <ShieldCheck className="h-3.5 w-3.5" />
+        {marker.message || `Reconnect your ${app} account to continue.`}
+      </div>
+      {error && <div className="mb-1.5 text-[10px] text-destructive">{error}</div>}
+      <Button size="sm" className="h-7 px-3 text-xs" disabled={busy} onClick={reconnect}>
+        {busy ? (
+          <>
+            <Loader2 className="mr-1 h-3 w-3 animate-spin" /> Waiting for authorization…
+          </>
+        ) : (
+          <>Reconnect {app} & resume</>
+        )}
+      </Button>
+    </div>
+  );
+}
+
 function RunDetail({ run, live }: { run: Run; live?: boolean }) {
   return (
     <div className="border-t border-border px-3 py-2.5">
       <RunAuditMeta run={run} />
+      {run.status === "awaiting_gate" && <ReconnectGatePanel run={run} />}
       <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
         Step trace
       </div>
@@ -580,6 +650,205 @@ export function RunLog({
 
 /** @deprecated Use RunLog */
 export const WorkflowRunsConsole = RunLog;
+
+interface DurableAgentRun {
+  id: string;
+  agentId: string | null;
+  origin: string;
+  status: string;
+  goal: string;
+  iterations: number;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+function agentRunStatusMeta(status: string) {
+  switch (status) {
+    case "running":
+      return { label: "Running", className: "text-primary", icon: Loader2, spin: true };
+    case "queued":
+      return { label: "Queued", className: "text-muted-foreground", icon: Clock, spin: false };
+    case "completed":
+      return { label: "Done", className: "text-emerald-600", icon: CheckCircle2, spin: false };
+    case "failed":
+      return { label: "Failed", className: "text-destructive", icon: AlertTriangle, spin: false };
+    case "cancelling":
+      return { label: "Stopping", className: "text-muted-foreground", icon: Loader2, spin: true };
+    case "cancelled":
+      return { label: "Stopped", className: "text-muted-foreground", icon: Square, spin: false };
+    case "awaiting_input":
+      return { label: "Awaiting input", className: "text-gate", icon: ShieldCheck, spin: false };
+    default:
+      return { label: status, className: "text-muted-foreground", icon: Activity, spin: false };
+  }
+}
+
+interface JobRow {
+  id: string;
+  label: string;
+  backend: string;
+  status: string;
+  progress: number | null;
+  progressNote: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+/** Compute jobs (heavy async work) with live progress bars. */
+export function JobsPanel({ agentId }: { agentId?: string | null }) {
+  const [jobs, setJobs] = React.useState<JobRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const load = React.useCallback(async () => {
+    const qs = agentId ? `?agentId=${agentId}&limit=20` : "?limit=20";
+    const data = await fetch(`/api/jobs${qs}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ jobs?: JobRow[] }>) : null))
+      .catch(() => null);
+    if (data?.jobs) setJobs(data.jobs);
+    setLoading(false);
+  }, [agentId]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const hasActive = jobs.some((j) => ["queued", "accepted", "running"].includes(j.status));
+  React.useEffect(() => {
+    if (!hasActive) return;
+    const t = setInterval(() => void load(), 4000);
+    return () => clearInterval(t);
+  }, [hasActive, load]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-1.5 px-3 py-4 text-[11px] text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading jobs…
+      </div>
+    );
+  }
+  if (jobs.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5">
+      {jobs.map((job) => {
+        const active = ["queued", "accepted", "running"].includes(job.status);
+        const pct = Math.round((job.progress ?? 0) * 100);
+        return (
+          <div key={job.id} className="rounded-lg border border-border bg-card p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-[11px] font-medium">{job.label}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                {job.backend} · {job.status}
+              </span>
+            </div>
+            {active && (
+              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
+                <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+              </div>
+            )}
+            {job.progressNote && <div className="mt-1 text-[10px] text-muted-foreground">{job.progressNote}</div>}
+            {job.error && <div className="mt-1 text-[10px] text-destructive line-clamp-2">{job.error}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Durable agent runs — long-task ("keep going if I close the tab") executions
+ * owned by the agent-worker, distinct from deterministic workflow runs above.
+ * Polls while any run is active; lets the user stop one.
+ */
+export function AgentRunsPanel({ agentId }: { agentId?: string | null }) {
+  const [runs, setRuns] = React.useState<DurableAgentRun[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const load = React.useCallback(async () => {
+    const qs = agentId ? `?agentId=${agentId}&limit=20` : "?limit=20";
+    const data = await fetch(`/api/agent-runs${qs}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ runs?: DurableAgentRun[] }>) : null))
+      .catch(() => null);
+    if (data?.runs) setRuns(data.runs);
+    setLoading(false);
+  }, [agentId]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const hasActive = runs.some((r) => ["running", "queued", "cancelling"].includes(r.status));
+  React.useEffect(() => {
+    if (!hasActive) return;
+    const t = setInterval(() => void load(), 4000);
+    return () => clearInterval(t);
+  }, [hasActive, load]);
+
+  async function cancel(id: string) {
+    await fetch(`/api/agent-runs/${id}/cancel`, { method: "POST" }).catch(() => {});
+    void load();
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-1.5 px-3 py-4 text-[11px] text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading agent runs…
+      </div>
+    );
+  }
+  if (runs.length === 0) {
+    return (
+      <div className="px-3 py-4 text-[11px] text-muted-foreground">
+        No long-task runs yet. Toggle “Long task” in the composer to run work that survives closing the tab.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {runs.map((run) => {
+        const meta = agentRunStatusMeta(run.status);
+        const Icon = meta.icon;
+        const active = ["running", "queued"].includes(run.status);
+        return (
+          <div key={run.id} className="rounded-lg border border-border bg-card p-2.5">
+            <div className="flex items-start gap-2">
+              <Icon className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", meta.className, meta.spin && "animate-spin")} />
+              <div className="min-w-0 flex-1">
+                <div className="line-clamp-2 text-[11px] text-foreground/90">{run.goal}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <span className={meta.className}>{meta.label}</span>
+                  <span>·</span>
+                  <span>{run.iterations} iter</span>
+                  {run.origin !== "chat" && (
+                    <>
+                      <span>·</span>
+                      <span>{run.origin}</span>
+                    </>
+                  )}
+                  <span>·</span>
+                  <span>{relativeTime(run.startedAt ?? run.createdAt)}</span>
+                </div>
+                {run.error && <div className="mt-0.5 text-[10px] text-destructive line-clamp-2">{run.error}</div>}
+              </div>
+              {active && (
+                <button
+                  type="button"
+                  onClick={() => void cancel(run.id)}
+                  className="shrink-0 rounded-md border border-border px-1.5 py-1 text-[10px] text-muted-foreground hover:text-destructive"
+                >
+                  <Square className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function AgentRunSection({ workflowId }: { workflowId: string }) {
   const run = useWorkflowRun(workflowId);

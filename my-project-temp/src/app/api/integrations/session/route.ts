@@ -1,3 +1,7 @@
+// DEPRECATED: superseded by Pipedream Connect (src/lib/pipedream/*, the
+// managed connection path). Kept for existing IntegrationSession rows; do not
+// build new UI on this endpoint.
+
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-helpers';

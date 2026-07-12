@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withAuth } from '@/lib/with-auth'
+import { ok } from '@/lib/api/respond'
 
 // GET /v1/registry/integrations — the connector registry visible to this
 // workspace: curated catalog entries + global registry rows + the
@@ -33,7 +33,7 @@ export const GET = withAuth(
 
     const match = (s: string) => !q || s.toLowerCase().includes(q)
 
-    return NextResponse.json({
+    return ok({
       catalog: catalog
         .filter((c) => match(`${c.slug} ${c.name} ${c.description}`))
         .map((c) => ({
@@ -59,7 +59,7 @@ export const GET = withAuth(
         })),
     })
   },
-  { scope: 'registry:read' },
+  { scope: 'registry:read', rateLimit: { limit: 120, windowMs: 60_000 } },
 )
 
 function safeParse(raw: string): unknown {

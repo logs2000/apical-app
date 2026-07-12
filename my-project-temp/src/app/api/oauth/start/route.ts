@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
 import { setOAuthState } from '@/lib/oauth-state'
 import { buildAuthorizationUrl, getOAuthRedirectUri } from '@/lib/oauth-helpers'
+import { demoOAuthAllowed } from '@/lib/env'
 
 interface StartBody {
   provider?: string
@@ -75,9 +76,12 @@ export async function POST(req: Request) {
       usingByo = true
     }
 
-    // 3. No client id anywhere → demo mode (if available) or error.
+    // 3. No client id anywhere → demo mode (if available + allowed) or error.
     if (!clientId) {
-      if (provider.demoMode) {
+      // Demo connections are dishonest in production (a fake "Connected"), so
+      // they're gated off there — fall through to the real "configure OAuth"
+      // error instead of offering a simulate button that can't do real work.
+      if (provider.demoMode && demoOAuthAllowed()) {
         return NextResponse.json({
           demoMode: true,
           provider: provider.key,
@@ -102,7 +106,7 @@ export async function POST(req: Request) {
 
     // Mint a random state token (16 bytes → 32 hex chars).
     const state = randomBytes(16).toString('hex')
-    setOAuthState(state, {
+    await setOAuthState(state, {
       userId: user.id,
       provider: provider.key,
       providerName: provider.name,

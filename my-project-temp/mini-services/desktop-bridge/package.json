@@ -7,8 +7,8 @@
     "dev": "bun --hot index.ts",
     "start": "bun index.ts"
   },
+  "_note": "@prisma/client is intentionally not a dependency here: bun resolves it up-tree to the single root-generated client, so this service can never drift from the root Prisma schema.",
   "dependencies": {
-    "socket.io": "^4.7.5",
-    "@prisma/client": "^6.11.1"
+    "socket.io": "^4.7.5"
   }
 }

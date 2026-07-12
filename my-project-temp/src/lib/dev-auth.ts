@@ -46,6 +46,23 @@ type DevAuthHandler = (
  * Usage:
  *   export const POST = withDevAuth(async (req, { workspace, apiKey, params }) => { ... })
  */
+// The /api/dev/* surface predates /v1 and is DEPRECATED — /v1 is the one
+// canonical programmatic surface (scope-enforced, enveloped, paginated,
+// rate-limited, documented via /v1/openapi.json). Every /api/dev response
+// carries RFC 8594 Deprecation + Link headers pointing callers there. It
+// stays functional until its capabilities are ported forward and it is
+// removed in a later pass.
+const DEPRECATION_HEADERS: Record<string, string> = {
+  Deprecation: 'true',
+  Link: '</v1>; rel="successor-version", </v1/openapi.json>; rel="describedby"',
+  Warning: '299 - "The /api/dev API is deprecated; migrate to /v1."',
+}
+
+function withDeprecation(res: Response): Response {
+  for (const [k, v] of Object.entries(DEPRECATION_HEADERS)) res.headers.set(k, v)
+  return res
+}
+
 export function withDevAuth(handler: DevAuthHandler) {
   return async (
     req: Request,
@@ -54,19 +71,15 @@ export function withDevAuth(handler: DevAuthHandler) {
     try {
       const auth = await authenticateDev(req)
       if (!auth) {
-        return Response.json(
-          { error: 'Invalid or missing API key' },
-          { status: 401 },
+        return withDeprecation(
+          Response.json({ error: 'Invalid or missing API key' }, { status: 401 }),
         )
       }
       const params = await routeCtx.params
-      return await handler(req, { ...auth, params })
+      return withDeprecation(await handler(req, { ...auth, params }))
     } catch (err) {
       console.error('[dev-auth] handler crashed:', err)
-      return Response.json(
-        { error: 'Internal server error' },
-        { status: 500 },
-      )
+      return withDeprecation(Response.json({ error: 'Internal server error' }, { status: 500 }))
     }
   }
 }

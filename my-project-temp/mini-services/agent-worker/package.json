@@ -1,0 +1,14 @@
+{
+  "name": "apical-agent-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "_note": "No @prisma/client dependency here on purpose: this service imports the root src/lib platform modules, which resolve the single root-generated Prisma client up-tree. A per-service copy would drift from the root schema.",
+  "dependencies": {
+    "playwright": "1.56.0"
+  }
+}

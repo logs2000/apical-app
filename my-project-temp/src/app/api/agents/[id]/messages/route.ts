@@ -106,11 +106,26 @@ export async function POST(req: Request, { params }: RouteCtx) {
           : null,
       },
     })
-    await db.workflow.update({
+    const wf = await db.workflow.update({
       where: { id },
       data: { updatedAt: new Date() },
+      select: { userId: true },
     })
     const saved = mapAgentMessage(created)
+
+    // Learn durable memories from a completed agent turn (inline runs). Pull
+    // the preceding user message for context. Fire-and-forget.
+    if (body.role === 'agent' && wf.userId && body.content.length > 40) {
+      void (async () => {
+        const lastUser = await db.agentMessage.findFirst({
+          where: { agentId: id, role: 'user' },
+          orderBy: { createdAt: 'desc' },
+          select: { content: true },
+        })
+        const { extractMemories } = await import('@/lib/platform/memory')
+        await extractMemories({ userId: wf.userId!, agentId: id, userText: lastUser?.content ?? '', answerText: body.content })
+      })().catch(() => {})
+    }
 
     // Bundled desktop: append to disk cache so restore survives DB issues.
     if (process.env.DESKTOP_LOCAL === 'true') {

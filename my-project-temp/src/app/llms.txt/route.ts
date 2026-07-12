@@ -34,16 +34,20 @@ const BODY = `# Apical
 ## API
 
 Authentication: Bearer API key (Authorization: Bearer <key>). Keys are
-workspace-scoped with per-key scopes and spend limits.
+workspace-scoped with per-key scopes and spend limits. Responses use a
+{ data } / { error: { code, message, details? } } envelope; lists are
+cursor-paginated via { data, page: { nextCursor, hasMore } }.
 
-- POST /api/dev/deploy — deploy an AutomationFile (validates, installs inline
-  integrations, creates the workflow).
-- POST /api/dev/run — trigger a run ({ "agentId": "<workflowId>" }).
-- GET  /api/dev/agents — list workflows in your workspace.
-- GET  /api/dev/schema — the AutomationFile schema with field-by-field docs.
-- GET  /api/dev/docs — full developer documentation.
+- GET  /v1/openapi.json — the authoritative, machine-readable OpenAPI 3.1
+  description of the whole API (every endpoint, scope, and the response
+  envelope). Start here; import it into any client or SDK generator.
+- /v1/* — the canonical REST surface: workflows, runs, credentials,
+  connected-accounts, webhooks, usage, registry. e.g. POST
+  /v1/workflows/{id}/run to trigger a run, GET /v1/runs/{id} for status.
 - MCP server: connect via /api/mcp (Streamable HTTP) to search the registry,
   validate, deploy, and run workflows from an LLM tool loop.
+- The older /api/dev/* endpoints are DEPRECATED (they return Deprecation +
+  Link headers pointing at /v1); use /v1 for new integrations.
 
 ## Rules for generated workflows
 
