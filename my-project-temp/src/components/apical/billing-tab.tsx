@@ -11,9 +11,8 @@ export function BillingTab() {
   const currentPlan = "free";
 
   const plans = [
-    { id: "free", name: "Free", price: 0, yearly: 0, tagline: "For trying it out and small jobs.", features: ["1 agent running at a time", "50 tasks / month", "Local-only model keys", "Community support"] },
-    { id: "pro", name: "Pro", price: 19, yearly: 190, tagline: "For people who actually want work done.", featured: true, features: ["5 agents running at once", "Unlimited tasks", "Bring-your-own model keys", "Scheduled + recurring runs", "Email support"] },
-    { id: "team", name: "Team", price: 49, yearly: 490, tagline: "For a small group handing off together.", features: ["Everything in Pro", "5 seats included", "Shared folders + agents", "Audit log export", "Priority support"] },
+    { id: "free", name: "Free", price: 0, yearly: 0, tagline: "Everything you need to run agents on your own machine.", features: ["Local desktop app", "Bring your own model keys, or run local models", "All connectors", "Unlimited local runs + scheduling", "Community support"] },
+    { id: "personal", name: "Personal", price: 19, yearly: 190, tagline: "Your agents keep working when your computer doesn't.", featured: true, features: ["Everything in Free", "Cloud runs while your computer is off", "Managed connector sign-in", "Cross-device sync", "Email support"] },
   ];
 
   return (
@@ -66,7 +65,7 @@ export function BillingTab() {
       </div>
 
       {/* Plans */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         {plans.map((p) => {
           const isCurrent = p.id === currentPlan;
           const price = interval === "monthly" ? p.price : Math.round(p.yearly / 12);

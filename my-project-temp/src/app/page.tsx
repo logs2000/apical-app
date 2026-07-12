@@ -89,35 +89,31 @@ const PLAN_LIST: Plan[] = [
   {
     id: "free",
     name: "Free",
-    tagline: "For trying it out and small jobs.",
+    tagline: "Everything you need to run agents on your own machine.",
     priceMonthly: 0,
     priceYearly: 0,
-    features: ["1 agent running at a time", "50 tasks / month", "Local-only model keys", "Community support"],
+    features: [
+      "Local desktop app — your files never leave your computer",
+      "Bring your own model keys, or run local models",
+      "All connectors",
+      "Unlimited local runs + scheduling",
+      "Community support",
+    ],
   },
   {
-    id: "pro",
-    name: "Pro",
-    tagline: "For people who actually want work done.",
+    id: "personal",
+    name: "Personal",
+    tagline: "Your agents keep working when your computer doesn't.",
     priceMonthly: 19,
     priceYearly: 190,
     featured: true,
-    features: ["5 agents running at once", "Unlimited tasks", "Bring-your-own model keys", "Scheduled + recurring runs", "Email support"],
-  },
-  {
-    id: "team",
-    name: "Team",
-    tagline: "For a small group handing off together.",
-    priceMonthly: 49,
-    priceYearly: 490,
-    features: ["Everything in Pro", "5 seats included", "Shared folders + agents", "Audit log export", "Priority support"],
-  },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    tagline: "For org-wide deployments.",
-    priceMonthly: 0,
-    priceYearly: 0,
-    features: ["Self-host or cloud", "SSO + SAML", "Custom DPA", "Dedicated success manager", "Volume pricing"],
+    features: [
+      "Everything in Free",
+      "Cloud runs while your computer is off",
+      "Managed connector sign-in — no OAuth app setup",
+      "Cross-device sync",
+      "Email support",
+    ],
   },
 ];
 
@@ -291,12 +287,13 @@ function Hero({
          
 
           <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl md:text-6xl">
-            Consider it <span className="text-brand">Done.</span>
+            The AI agent that runs on <span className="text-brand">your</span> machine.
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground text-pretty md:text-xl">
-            Tell Apical what needs doing. An AI agent figures out the steps,
-            does the busywork, and hands you the result. You decide. It does.
+            Your files, your API keys, your data — nothing leaves your computer
+            unless you say so. Tell Apical what needs doing; a local agent does
+            the busywork and hands you the result.
           </p>
 
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -307,7 +304,7 @@ function Hero({
           </div>
 
           <p className="mt-4 text-xs text-muted-foreground">
-            Free to start. No credit card. Runs on your computer.
+            Free forever to run locally. Bring your own keys. Source available.
           </p>
         </motion.div>
 
@@ -515,18 +512,13 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
           </div>
         </div>
 
-        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mx-auto mt-10 grid max-w-3xl gap-5 sm:grid-cols-2">
           {PLAN_LIST.map((plan, i) => {
             const featured = plan.featured;
             const isFree = plan.id === "free";
-            const isEnterprise = plan.id === "enterprise";
             const price = computePrice(plan, interval);
 
-            const cta = isFree
-              ? "Get started"
-              : isEnterprise
-                ? "Contact sales"
-                : "Choose";
+            const cta = isFree ? "Download free" : "Choose Personal";
 
             return (
               <motion.div
@@ -565,15 +557,7 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
                   <Button
                     variant={featured ? "default" : "outline"}
                     className="w-full"
-                    onClick={() => {
-                      if (isFree) onLaunch();
-                      else if (isEnterprise) {
-                        window.location.href = "mailto:sales@apic.al?subject=Apical%20Enterprise";
-                      } else {
-                        // Demo: just navigate to the web app
-                        onLaunch();
-                      }
-                    }}
+                    onClick={onLaunch}
                   >
                     {cta} <ArrowRight className="ml-1.5 h-4 w-4" />
                   </Button>
@@ -593,6 +577,14 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
             );
           })}
         </div>
+
+        <p className="mt-8 text-center text-xs text-muted-foreground">
+          Teams &amp; self-hosted enterprise: coming later —{" "}
+          <a href="mailto:sales@apic.al?subject=Apical%20Teams" className="underline underline-offset-2 hover:text-foreground">
+            contact us
+          </a>
+          .
+        </p>
       </div>
     </section>
   );
@@ -602,22 +594,16 @@ function computePrice(
   plan: Plan,
   interval: "monthly" | "yearly",
 ): { display: string; suffix?: string; sub?: string } {
-  if (plan.id === "enterprise") return { display: "Custom", sub: "Volume pricing — talk to sales." };
   if (plan.id === "free") return { display: "$0", suffix: "/mo", sub: "Free forever. No credit card." };
-  const perSeat = plan.id === "team" ? " /seat" : "";
   if (interval === "monthly") {
-    return {
-      display: `$${plan.priceMonthly}`,
-      suffix: `/mo${perSeat}`,
-      sub: plan.id === "team" ? "5 seats included." : "Billed monthly.",
-    };
+    return { display: `$${plan.priceMonthly}`, suffix: "/mo", sub: "Billed monthly." };
   }
   const perMonth = plan.priceYearly / 12;
   const monthsFree = 12 - Math.round(plan.priceYearly / plan.priceMonthly);
   return {
     display: `$${perMonth % 1 === 0 ? perMonth : perMonth.toFixed(2)}`,
-    suffix: `/mo${perSeat}`,
-    sub: `$${plan.priceYearly}/yr${perSeat} — ${monthsFree} months free`,
+    suffix: "/mo",
+    sub: `$${plan.priceYearly}/yr — ${monthsFree} months free`,
   };
 }
 
