@@ -165,6 +165,7 @@ export async function listUserAssets(
   const rows = await db.userAsset.findMany({
     where: {
       userId,
+      deletedAt: null, // hide soft-deleted assets (recoverable via restore)
       ...(opts?.agentId ? { agentId: opts.agentId } : {}),
       ...(opts?.kind ? { kind: opts.kind } : {}),
     },
@@ -175,7 +176,7 @@ export async function listUserAssets(
 }
 
 export async function getUserAsset(userId: string, assetId: string) {
-  return db.userAsset.findFirst({ where: { id: assetId, userId } })
+  return db.userAsset.findFirst({ where: { id: assetId, userId, deletedAt: null } })
 }
 
 export async function readAssetBytes(userId: string, assetId: string): Promise<Buffer | null> {
@@ -184,13 +185,15 @@ export async function readAssetBytes(userId: string, assetId: string): Promise<B
   return getObject(row.storageKey)
 }
 
+/**
+ * Soft-delete an asset (Protection 2): the row + bytes are kept so a restore can
+ * recover it; it's just hidden from listings. A prune job hard-deletes the bytes
+ * once the recovery window has passed.
+ */
 export async function deleteUserAsset(userId: string, assetId: string): Promise<boolean> {
   const row = await getUserAsset(userId, assetId)
   if (!row) return false
-  if (row.kind !== 'folder' && !row.storageKey.startsWith('ref/')) {
-    await deleteObject(row.storageKey)
-  }
-  await db.userAsset.delete({ where: { id: assetId } })
+  await db.userAsset.update({ where: { id: assetId }, data: { deletedAt: new Date() } })
   return true
 }
 

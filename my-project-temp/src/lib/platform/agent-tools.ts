@@ -230,6 +230,11 @@ export interface ToolContext {
   /** Set by the engine when a destructive action is gated — the exact action to
    *  persist so approving it grants a one-shot token. */
   pendingApproval?: { signature: string; tool: string; summary: string; level: 'caution' | 'critical' }
+  /** The durable run id, when this turn runs as an AgentRun (undo anchor). */
+  runId?: string | null
+  /** The restore checkpoint for this turn (Protection 2). When set, desktop
+   *  fs writes/moves capture a before-image for undo. */
+  restoreCheckpointId?: string | null
   /** True when this run is itself a spawned subagent — blocks further spawning
    *  (no recursive subagent forests in v1). */
   isSubagent?: boolean
@@ -338,6 +343,33 @@ async function invokeDesktopTool(
         output: null,
         error: rootViolation,
         display: { ...opts.display, summary: 'blocked: folder not granted' },
+      }
+    }
+
+    // Capture a before-image for undo (Protection 2). Best-effort; never blocks
+    // the op. Direct-fs capture only applies where the file is on this box
+    // (desktop-local); the bridge path captures via a read round-trip (follow-up).
+    // The checkpoint opens lazily on the first file mutation, so runs that never
+    // touch files create no empty checkpoints.
+    if (isLocalDesktopRuntime() && (tool === 'desktop.fs.write' || tool === 'desktop.fs.move')) {
+      try {
+        const { openCheckpoint, captureBeforeWrite, captureBeforeMove } = await import('./restore')
+        if (!ctx.restoreCheckpointId) {
+          ctx.restoreCheckpointId = await openCheckpoint({
+            userId: ctx.userId,
+            agentId: ctx.agentId,
+            runId: ctx.runId ?? null,
+            label: ctx.userGoal?.slice(0, 120) ?? '',
+            now: Date.now(),
+          })
+        }
+        if (tool === 'desktop.fs.write' && typeof args.path === 'string') {
+          await captureBeforeWrite(ctx.restoreCheckpointId, args.path)
+        } else if (tool === 'desktop.fs.move' && typeof args.from === 'string' && typeof args.to === 'string') {
+          await captureBeforeMove(ctx.restoreCheckpointId, args.from, args.to)
+        }
+      } catch {
+        /* capture failure must not stop the user's work */
       }
     }
 

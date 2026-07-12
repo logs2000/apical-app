@@ -260,11 +260,55 @@ model UserAsset {
   localPath      String?
   metaJson       String?
   createdAt      DateTime  @default(now())
+  // Soft-delete: an agent-deleted asset is hidden but recoverable via the
+  // restore/undo system (Protection 2). Null = live.
+  deletedAt      DateTime?
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   agent          Workflow? @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([agentId])
+  @@index([deletedAt])
+}
+
+// A restore point (Protection 2). Anchored to an AgentMessage turn; groups the
+// before-images the agent captured as it wrote/moved/deleted files, so the user
+// can "revert to this message" and undo them. Mirrors the WorkflowRevision
+// snapshot pattern. Pruned after `expiresAt` or a per-user size cap.
+model RestoreCheckpoint {
+  id        String         @id @default(cuid())
+  userId    String
+  agentId   String?
+  runId     String?
+  messageId String? // AgentMessage anchor
+  label     String         @default("")
+  createdAt DateTime       @default(now())
+  expiresAt DateTime
+  status    String         @default("active") // active | restored | expired | pruned
+  snapshots FileSnapshot[]
+
+  @@index([userId, createdAt])
+  @@index([agentId, createdAt])
+  @@index([messageId])
+  @@index([expiresAt])
+}
+
+// One captured before-image: the state of a path just before the agent mutated
+// it. Restore replays these in reverse: write back prior bytes, or remove a file
+// that did not exist before.
+model FileSnapshot {
+  id              String            @id @default(cuid())
+  checkpointId    String
+  op              String // write | move | delete | root
+  path            String // the destination path affected
+  fromPath        String? // for move: the original source path
+  existedBefore   Boolean           @default(true)
+  priorStorageKey String? // snapshot of prior bytes; null when the path did not exist
+  sizeBytes       Int               @default(0)
+  createdAt       DateTime          @default(now())
+  checkpoint      RestoreCheckpoint @relation(fields: [checkpointId], references: [id], onDelete: Cascade)
+
+  @@index([checkpointId])
 }
 
 model Run {
