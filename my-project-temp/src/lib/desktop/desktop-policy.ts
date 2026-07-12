@@ -18,6 +18,7 @@ import path from 'path'
 import os from 'os'
 import { readDesktopSettingsFromDisk } from './desktop-paths'
 import {
+  approvalTierFromCli,
   checkRemoteToolAllowed,
   effectiveRemoteCapabilities,
   toolCapability,
@@ -114,4 +115,16 @@ export function currentRemoteCapabilities(): string[] {
 /** Current deployment mode (hybrid vs local_only) from the settings file. */
 export function currentDeploymentMode(): 'hybrid' | 'local_only' {
   return readDesktopSettingsFromDisk().deploymentMode
+}
+
+/** The destructive-action approval policy for the agent engine, sourced from the
+ *  desktop CLI mode. Used when the run touches this machine (desktop-local /
+ *  bridge). Hosted runs with no desktop settings default to 'always' (the
+ *  engine's 'critical' floor still applies) — callers pass that default. */
+export function currentApprovalPolicy(): { approvalTier: 'ask' | 'allowlist' | 'always'; cliAllowlist: string[] } {
+  const settings = readDesktopSettingsFromDisk()
+  return {
+    approvalTier: approvalTierFromCli(settings.remote.cli.mode),
+    cliAllowlist: settings.remote.cli.allow,
+  }
 }

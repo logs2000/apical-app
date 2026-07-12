@@ -1,6 +1,8 @@
 import { withUser } from '@/lib/auth-helpers'
 import { db } from '@/lib/db'
 import { deriveDesktopContext } from '@/lib/desktop/device-auth'
+import { currentApprovalPolicy } from '@/lib/desktop/desktop-policy'
+import { isLocalDesktopRuntime } from '@/lib/platform/desktop-local-runtime'
 import { rateLimit } from '@/lib/rate-limit'
 import { runAgent, type AgentEvent } from '@/lib/platform/agent-engine'
 import { captureClientContext } from '@/lib/platform/client-context'
@@ -65,6 +67,14 @@ export const POST = withUser(async (req, { user }) => {
 
   const desktop = await deriveDesktopContext(req, user.id)
 
+  // Destructive-action approval policy (Protection 1/3). On a desktop-local
+  // machine, source the tier from the user's CLI mode; hosted runs default to
+  // 'always' (the engine's 'critical' floor still gates catastrophic actions).
+  // Interactive chat is never headless.
+  const approval = isLocalDesktopRuntime()
+    ? currentApprovalPolicy()
+    : { approvalTier: 'always' as const, cliAllowlist: [] as string[] }
+
   // Capture the caller's timezone/locale + approximate IP geo BEFORE the loop
   // so this turn's context block already reflects it. Best-effort, never throws.
   await captureClientContext(req, user.id, body.clientContext)
@@ -85,6 +95,9 @@ export const POST = withUser(async (req, { user }) => {
       allowCli: desktop.allowCli,
       isDesktop: desktop.isDesktop,
       source: 'agent',
+      approvalTier: approval.approvalTier,
+      cliAllowlist: approval.cliAllowlist,
+      headless: false,
     }
     const run = await db.agentRun.create({
       data: {
@@ -132,6 +145,9 @@ export const POST = withUser(async (req, { user }) => {
             allowCli: desktop.allowCli,
             isDesktop: desktop.isDesktop,
             source: 'agent',
+            approvalTier: approval.approvalTier,
+            cliAllowlist: approval.cliAllowlist,
+            headless: false,
             // When the client disconnects, stop the loop instead of letting
             // the LLM keep burning tokens against a dead stream.
             signal: req.signal,

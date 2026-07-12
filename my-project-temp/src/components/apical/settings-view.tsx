@@ -487,7 +487,7 @@ function RemoteAccessSettings() {
       <div className="mt-3">
         <p className="text-[11px] font-medium text-foreground">Allow cloud workflows to run commands</p>
         <div className="mt-1.5 flex gap-1.5">
-          {(["off", "allowlist", "always"] as const).map((mode) => (
+          {(["off", "ask", "allowlist", "always"] as const).map((mode) => (
             <button
               key={mode}
               type="button"
@@ -499,13 +499,15 @@ function RemoteAccessSettings() {
                   : "border-border text-muted-foreground hover:bg-accent",
               )}
             >
-              {mode === "off" ? "Off" : mode === "allowlist" ? "Allowed commands only" : "Always"}
+              {mode === "off" ? "Off" : mode === "ask" ? "Ask every time" : mode === "allowlist" ? "Allowed commands only" : "Always"}
             </button>
           ))}
         </div>
         <p className="mt-1 text-[10px] text-muted-foreground">
           {settings.remote.cli.mode === "off"
             ? "Scheduled/web-triggered runs cannot execute anything on this machine."
+            : settings.remote.cli.mode === "ask"
+              ? "Commands run, but the agent pauses for your approval before any destructive action (deleting, overwriting, moving files, or anything risky)."
             : settings.remote.cli.mode === "allowlist"
               ? "Only the programs listed below can run. Script jobs (arbitrary code) stay blocked — they need Always."
               : "Any command or script job can run here. Only enable if you trust your workflows."}

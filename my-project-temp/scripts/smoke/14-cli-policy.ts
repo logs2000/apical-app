@@ -58,6 +58,17 @@ assert(checkRemoteToolAllowed('desktop.cli.run', allowlist, {}) === 'remote_acce
 assert(checkRemoteToolAllowed('desktop.secrets.get', always, {}) === 'remote_access_denied:secrets', 'secrets must never be allowed remotely')
 console.log('policy: off/always/allowlist matrix + script-job denial + secrets hard-deny')
 
+// 3b) 'ask' tier: the bridge lets the invoke through (the engine's enforced
+// destructive-action gate secures approval upstream), and it coerces + maps
+// to the engine's 'ask' approval tier.
+const ask = mergeDesktopSettings({ remote: { cli: { mode: 'ask', allow: [] } } })
+assert(ask.remote.cli.mode === 'ask', "'ask' mode must coerce")
+const askPolicy: RemoteAccessPolicy = { fs: 'off', cli: { mode: 'ask', allow: [] }, net: false, notify: true }
+assert(checkRemoteToolAllowed('desktop.cli.run', askPolicy, { cmd: 'rm -rf /' }) === null, "'ask' lets the invoke reach the desktop (engine already gated)")
+const { approvalTierFromCli } = await import('../../src/lib/desktop/desktop-settings')
+assert(approvalTierFromCli('ask') === 'ask' && approvalTierFromCli('allowlist') === 'allowlist' && approvalTierFromCli('always') === 'always' && approvalTierFromCli('off') === 'ask', 'cli mode maps to the engine approval tier')
+console.log("policy: 'ask' tier coerces, passes the bridge, and maps to the engine approval tier")
+
 // 4) End-to-end through the on-disk chokepoint the bridge-client uses.
 const dir = mkdtempSync(join(tmpdir(), 'apical-cli-policy-'))
 writeFileSync(

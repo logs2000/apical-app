@@ -46,6 +46,11 @@ export interface StoredAgentRunOpts {
   allowCli?: boolean
   isDesktop?: boolean
   source?: 'chat' | 'agent' | 'workflow' | 'reason' | 'research'
+  /** Destructive-action gate (Protection 1/3). */
+  approvalTier?: 'ask' | 'allowlist' | 'always'
+  cliAllowlist?: string[]
+  headless?: boolean
+  approvedActionSignatures?: string[]
   /** Spawn runs: the JSON shape the final answer must match. */
   outputShape?: Record<string, string>
   /** Subagent runs may be given a restricted tool set. */
@@ -194,6 +199,12 @@ export async function executeAgentRun(agentRunId: string, workerId: string): Pro
         allowCli: opts.allowCli,
         isDesktop: opts.isDesktop,
         source: opts.source ?? 'agent',
+        // Destructive-action gate. A durable run driven by the worker with no
+        // interactive client is headless UNLESS it originated from live chat.
+        approvalTier: opts.approvalTier ?? 'always',
+        cliAllowlist: opts.cliAllowlist,
+        headless: opts.headless ?? row.origin !== 'chat',
+        approvedActionSignatures: opts.approvedActionSignatures,
         signal: abort.signal,
         onCheckpoint,
         resumeFrom: checkpoint ?? undefined,

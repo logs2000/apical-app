@@ -17,20 +17,22 @@
 export type RemoteFsMode = 'off' | 'read_only' | 'read_write'
 
 /**
- * CLI access for REMOTE invokes — Cursor-style three-way policy instead of
- * the old all-or-nothing boolean:
+ * CLI access for REMOTE invokes — Cursor-style policy instead of the old
+ * all-or-nothing boolean:
  *   'off'       — no remote command execution at all (default).
+ *   'ask'       — command execution is allowed, but every destructive action is
+ *                 gated for the user's explicit approval by the agent engine's
+ *                 enforced destructive-action gate (see action-policy.ts). The
+ *                 bridge allows the invoke through (like 'always') because the
+ *                 approval already happened upstream at the engine.
  *   'allowlist' — only the listed programs may run, matched against the
  *                 basename of the first token of the command line. Script
  *                 jobs (arbitrary source via desktop.job.start) have no
  *                 command to match, so they are DENIED in this mode.
- *   'always'    — any command or script job (the old `cli: true`).
- *
- * A fourth mode — 'ask' (per-invoke interactive approval) — is designed but
- * deliberately NOT shipped: it needs a desktop prompt channel with a pending
- * queue, timeout semantics for headless runs, and an audit trail. Roadmap.
+ *   'always'    — any command or script job (the old `cli: true`). Note the
+ *                 engine's 'critical' floor still gates catastrophic actions.
  */
-export type RemoteCliMode = 'off' | 'allowlist' | 'always'
+export type RemoteCliMode = 'off' | 'ask' | 'allowlist' | 'always'
 
 export interface RemoteCliPolicy {
   mode: RemoteCliMode
@@ -91,7 +93,7 @@ function mergeCliPolicy(raw: unknown): RemoteCliPolicy {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const o = raw as Record<string, unknown>
     const mode: RemoteCliMode =
-      o.mode === 'allowlist' || o.mode === 'always' ? o.mode : 'off'
+      o.mode === 'ask' || o.mode === 'allowlist' || o.mode === 'always' ? o.mode : 'off'
     const allow = Array.isArray(o.allow)
       ? o.allow.filter((v): v is string => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim())
       : []
@@ -148,6 +150,13 @@ export function effectiveRemoteCapabilities(remote: RemoteAccessPolicy): string[
   if (remote.net) caps.push('net')
   if (remote.notify) caps.push('notify')
   return caps
+}
+
+/** Map the CLI mode to the agent engine's destructive-action approval tier
+ *  (action-policy.ts). 'off' never reaches the engine gate (cli is blocked
+ *  upstream), so it maps to the safest tier as a fallback. */
+export function approvalTierFromCli(mode: RemoteCliMode): 'ask' | 'allowlist' | 'always' {
+  return mode === 'always' ? 'always' : mode === 'allowlist' ? 'allowlist' : 'ask'
 }
 
 /** Which capability a desktop tool requires (for policy checks). */
@@ -215,7 +224,9 @@ export function checkRemoteToolAllowed(
     case 'fs_write':
       return remote.fs === 'read_write' ? null : 'remote_access_denied:fs'
     case 'cli': {
-      if (remote.cli.mode === 'always') return null
+      // 'always' and 'ask' both let the invoke reach the desktop — for 'ask'
+      // the engine's destructive-action gate has already secured approval.
+      if (remote.cli.mode === 'always' || remote.cli.mode === 'ask') return null
       if (remote.cli.mode === 'off') return 'remote_access_denied:cli'
       const program = invokedProgram(args)
       if (!program) return 'remote_access_denied:cli_allowlist'
