@@ -19,13 +19,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   ArrowRight,
   Check,
   ChevronDown,
-  Copy,
   Download,
   FileText,
   FolderClosed,
@@ -35,7 +33,6 @@ import {
   Receipt,
   Menu,
   Sparkles,
-  Terminal,
   Users,
   Zap,
   ShieldCheck,
@@ -58,12 +55,7 @@ import {
   type MacArch,
   type PlatformChoice,
 } from "@/lib/detect-platform";
-function installCommandFor(os: DetectedOS): string {
-  if (os === "mac") return "brew install --cask apical";
-  if (os === "windows") return "winget install apical.apical";
-  if (os === "linux") return "curl -fsSL https://apic.al/install.sh | sh";
-  return "curl -fsSL https://apic.al/install.sh | sh";
-}
+const RELEASES_URL = "https://github.com/logs2000/apical-app/releases/latest";
 function markLandingSeen() {
   if (typeof window === "undefined") return;
   try {
@@ -484,6 +476,9 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
           <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
             Start free. Upgrade when it&apos;s doing real work for you.
           </p>
+          <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground">
+            While we&apos;re in beta, everything is free — paid plans launch later at the prices below.
+          </p>
         </div>
 
         {/* Interval toggle */}
@@ -520,13 +515,16 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
             const featured = plan.featured;
             const isFree = plan.id === "free";
             const isEnterprise = plan.id === "enterprise";
+            const isPaid = !isFree && !isEnterprise;
             const price = computePrice(plan, interval);
 
+            // Paid checkout isn't live yet — say so instead of a "Choose"
+            // button that quietly drops people into the free app.
             const cta = isFree
               ? "Get started"
               : isEnterprise
                 ? "Contact sales"
-                : "Choose";
+                : "Start free for now";
 
             return (
               <motion.div
@@ -542,9 +540,15 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
                     : "border-border hover:border-border/80",
                 )}
               >
-                {featured && (
-                  <Badge className="absolute -top-2.5 left-6 gap-1 bg-primary text-primary-foreground">
-                    <Sparkles className="h-3 w-3" /> Most popular
+                {isPaid && (
+                  <Badge
+                    variant={featured ? "default" : "secondary"}
+                    className={cn(
+                      "absolute -top-2.5 left-6 gap-1",
+                      featured && "bg-primary text-primary-foreground",
+                    )}
+                  >
+                    <Sparkles className="h-3 w-3" /> Coming soon
                   </Badge>
                 )}
 
@@ -566,11 +570,11 @@ function Pricing({ os, onLaunch }: { os: DetectedOS; onLaunch: () => void }) {
                     variant={featured ? "default" : "outline"}
                     className="w-full"
                     onClick={() => {
-                      if (isFree) onLaunch();
-                      else if (isEnterprise) {
+                      if (isEnterprise) {
                         window.location.href = "mailto:sales@apic.al?subject=Apical%20Enterprise";
                       } else {
-                        // Demo: just navigate to the web app
+                        // Checkout isn't live; every plan starts in the free
+                        // web app (the paid CTA says exactly that).
                         onLaunch();
                       }
                     }}
@@ -711,8 +715,8 @@ function Footer() {
             <div>
               <div className="mb-3 font-medium text-foreground">Legal</div>
               <ul className="space-y-2 text-muted-foreground">
-                <li><a href="#" className="hover:text-foreground">Privacy</a></li>
-                <li><a href="#" className="hover:text-foreground">Terms</a></li>
+                <li><a href="/privacy" className="hover:text-foreground">Privacy</a></li>
+                <li><a href="/terms" className="hover:text-foreground">Terms</a></li>
               </ul>
             </div>
           </div>
@@ -753,7 +757,6 @@ function DownloadButton({
 
   const [selected, setSelected] = React.useState<PlatformChoice>(initialChoice);
   const [open, setOpen] = React.useState(false);
-  const { toast } = useToast();
 
   React.useEffect(() => {
     setSelected(initialChoice);
@@ -799,7 +802,6 @@ function DownloadButton({
       open={open}
       onOpenChange={setOpen}
       choice={withPlatformPicker ? selected : activeChoice}
-      onCopied={() => toast({ title: "Copied" })}
     />
   );
 
@@ -864,60 +866,69 @@ function DownloadDialog({
   open,
   onOpenChange,
   choice,
-  onCopied,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   choice: PlatformChoice;
-  onCopied: () => void;
 }) {
-  const cmd = installCommandFor(choice.os);
-  const [copied, setCopied] = React.useState(false);
+  const { launch } = useAuth();
   const url = downloadUrlFor(choice.os, choice.macArch ?? "apple-silicon");
+  // The dialog only opens when a direct download didn't start, so verify what
+  // actually exists for this platform before promising anything.
+  const [available, setAvailable] = React.useState<boolean | null>(null);
 
-  const copy = () => {
-    navigator.clipboard?.writeText(cmd).then(() => {
-      setCopied(true);
-      onCopied();
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setAvailable(null);
+    fetch(url, { method: "HEAD" })
+      .then((res) => !cancelled && setAvailable(res.ok || res.redirected))
+      .catch(() => !cancelled && setAvailable(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [open, url]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Install Apical for {choice.label}</DialogTitle>
+          <DialogTitle>
+            {available === false ? `Apical for ${choice.label} isn't out yet` : `Get Apical for ${choice.label}`}
+          </DialogTitle>
           <DialogDescription>
-            The desktop app is the fastest way to get started. If the download above didn&apos;t start, use the command below.
+            {available === false
+              ? "The desktop app for this platform hasn't shipped. Everything works in the web app today — the desktop app adds local file and command access when it lands."
+              : "The desktop app is the fastest way to get started."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          <a
-            href={url}
-            className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          {available && (
+            <a
+              href={url}
+              className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              <Download className="h-4 w-4" /> Download {choice.label} app
+            </a>
+          )}
+          <Button
+            variant={available ? "outline" : "default"}
+            className="w-full"
+            onClick={() => {
+              onOpenChange(false);
+              launch();
+            }}
           >
-            <Download className="h-4 w-4" /> Download {choice.label} app
-          </a>
-
-          <div className="relative">
-            <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-2.5 pl-3">
-              <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <code className="flex-1 truncate font-mono text-xs">{cmd}</code>
-              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={copy}>
-                {copied ? <Check className="h-3.5 w-3.5 text-brand" /> : <Copy className="h-3.5 w-3.5" />}
-              </Button>
-            </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Or install from the command line.
-            </p>
-          </div>
+            Open the web app <ArrowRight className="ml-1.5 h-4 w-4" />
+          </Button>
         </div>
 
         <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
-          <Button variant="outline" className="w-full" asChild>
-            <a href="#developers">Build from source</a>
+          <Button variant="ghost" size="sm" className="w-full text-muted-foreground" asChild>
+            <a href={RELEASES_URL} target="_blank" rel="noreferrer">
+              All releases on GitHub
+            </a>
           </Button>
         </DialogFooter>
       </DialogContent>

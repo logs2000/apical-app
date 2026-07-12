@@ -31,6 +31,12 @@ function gateRedirect(req: NextRequest): NextResponse | null {
     pathname.startsWith('/auth/callback') ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/downloads') ||
+    // Health must stay reachable for uptime monitors and the compose
+    // healthcheck even while the pre-launch gate is up.
+    pathname === '/api/health' ||
+    // Legal pages stay public even behind the pre-launch gate.
+    pathname === '/privacy' ||
+    pathname === '/terms' ||
     // Public developer contract: schemas, examples, llms.txt.
     pathname.startsWith('/schemas') ||
     pathname === '/llms.txt' ||

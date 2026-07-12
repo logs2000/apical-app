@@ -208,6 +208,27 @@ export async function executeAgentRun(agentRunId: string, workerId: string): Pro
     const latest = await db.agentRun.findUnique({ where: { id: agentRunId }, select: { status: true } })
     const wasCancelling = latest?.status === 'cancelling'
     const awaitingInput = !!(result.clarification || result.credentialRequests?.length || result.connectionRequests?.length)
+
+    // A preflight abort (no model configured, allowance exhausted) returns
+    // normally with an empty answer. Recording that as 'completed' shows the
+    // user a successful run that said nothing — persist it as a failure.
+    if (result.preflightError && !cancelled && !wasCancelling && !awaitingInput) {
+      await db.agentRun.updateMany({
+        where: { id: agentRunId, claimedBy: workerId },
+        data: {
+          status: 'failed',
+          error: result.preflightError,
+          iterations: result.iterations,
+          checkpointJson: null,
+          claimedBy: null,
+          leaseUntil: null,
+          finishedAt: new Date(),
+        },
+      })
+      broadcastAgentRun(agentRunId, 'agentrun:completed', { status: 'failed', error: result.preflightError })
+      return
+    }
+
     const status = cancelled || wasCancelling ? 'cancelled' : awaitingInput ? 'awaiting_input' : 'completed'
 
     // Spawn runs with a requested output shape: parse the JSON answer so the

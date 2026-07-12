@@ -177,6 +177,10 @@ export interface EngineCheckpoint {
 
 export interface AgentRunResult {
   answer: string
+  /** Set when the run never started (no model, allowance exhausted). Streaming
+   *  clients see the error event; durable callers must mark the run FAILED —
+   *  otherwise it records as 'completed' with an empty answer. */
+  preflightError?: string
   proposedWorkflow?: WorkflowJSON
   findings?: ToolContext['findings']
   attachments?: ToolContext['producedAssets']
@@ -1303,7 +1307,7 @@ export async function runAgent(
   const { modelId, resolved: resolvedModel } = await modelResolutionPromise
   if (!modelId) {
     onEvent({ type: 'error', message: NO_LLM_PROVIDER_ERROR })
-    return { answer: '', iterations: 0, toolCalls: 0, tokensUsed: 0 }
+    return { answer: '', preflightError: NO_LLM_PROVIDER_ERROR, iterations: 0, toolCalls: 0, tokensUsed: 0 }
   }
 
   const useCloudRelay = resolvedModel?.adapter === 'cloud-relay'
@@ -1315,15 +1319,13 @@ export async function runAgent(
       failed?: boolean
     }
     if (!allowance.allowed) {
-      onEvent({
-        type: 'error',
-        message: allowance.failed
-          ? 'Could not verify your token allowance — please try again in a moment.'
-          : allowance.overrunEnabled
-            ? 'You have exceeded your token allowance. Add credits or enable overrun billing to continue.'
-            : 'You have exceeded your token allowance for this period.',
-      })
-      return { answer: '', iterations: 0, toolCalls: 0, tokensUsed: 0 }
+      const message = allowance.failed
+        ? 'Could not verify your token allowance — please try again in a moment.'
+        : allowance.overrunEnabled
+          ? 'You have exceeded your token allowance. Add credits or enable overrun billing to continue.'
+          : 'You have exceeded your token allowance for this period.'
+      onEvent({ type: 'error', message })
+      return { answer: '', preflightError: message, iterations: 0, toolCalls: 0, tokensUsed: 0 }
     }
   }
 
