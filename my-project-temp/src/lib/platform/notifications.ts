@@ -1046,7 +1046,13 @@ export async function renderDailyBrief(userId: string): Promise<DailyBrief> {
 
   const html = htmlParts.join('')
 
-  const subject = `Your Apical daily brief — ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`
+  // The brand promise as a subject line — but only when something actually
+  // happened. Quiet days say so; never fake activity.
+  const dateShort = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  const subject =
+    totalItems > 0
+      ? `While you slept: ${totalItems.toLocaleString()} handled, ${totalFlagged.toLocaleString()} need you — ${dateShort}`
+      : `All quiet — your Apical brief, ${dateShort}`
 
   return { subject, body, html }
 }

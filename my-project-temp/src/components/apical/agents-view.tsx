@@ -461,7 +461,7 @@ function AgentNavigator({
             <p className="px-1.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
               {search
                 ? "No agents match your search."
-                : "No agents yet. Describe a job in the chat and Apical builds the agent for you."}
+                : "No agents on staff yet. Describe a job in the chat — Apical hires it out and the agent takes it from there."}
             </p>
           )}
         </div>
