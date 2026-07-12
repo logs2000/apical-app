@@ -150,6 +150,10 @@ export interface ClarificationRequest {
   freeTextPlaceholder?: string
   /** 'clarification' = disambiguate; 'review' = approval gate (default 'clarification'). */
   kind?: 'clarification' | 'review'
+  /** For an enforced destructive-action gate (Protection 3): the one-shot action
+   *  signature. On "Approve & run" the client re-sends the ask with this value in
+   *  `approvedActionSignatures`, letting the re-issued action through once. */
+  approvalSignature?: string
 }
 
 export interface ToolContext {

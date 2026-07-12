@@ -534,6 +534,7 @@ async function executeWorkTool(
           { key: 'cancel', label: 'Cancel' },
         ],
         multiple: false,
+        approvalSignature: gate.signature,
       }
       onEvent({ type: 'tool_call', tool, input })
       onEvent({

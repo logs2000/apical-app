@@ -36,6 +36,10 @@ interface ThinkBody {
    * { agentRunId, relayToken }. The run survives disconnects and is resumable.
    */
   durable?: boolean
+  /** One-shot approvals the user granted for gated destructive actions
+   *  (Protection 3): the client echoes the clarification's approvalSignature
+   *  here on "Approve & run" so the re-issued action runs once. */
+  approvedActionSignatures?: string[]
 }
 
 // POST /api/agent/think — run the autonomous agent loop.
@@ -74,6 +78,9 @@ export const POST = withUser(async (req, { user }) => {
   const approval = isLocalDesktopRuntime()
     ? currentApprovalPolicy()
     : { approvalTier: 'always' as const, cliAllowlist: [] as string[] }
+  const approvedActionSignatures = Array.isArray(body.approvedActionSignatures)
+    ? body.approvedActionSignatures.filter((s): s is string => typeof s === 'string')
+    : undefined
 
   // Capture the caller's timezone/locale + approximate IP geo BEFORE the loop
   // so this turn's context block already reflects it. Best-effort, never throws.
@@ -98,6 +105,7 @@ export const POST = withUser(async (req, { user }) => {
       approvalTier: approval.approvalTier,
       cliAllowlist: approval.cliAllowlist,
       headless: false,
+      approvedActionSignatures,
     }
     const run = await db.agentRun.create({
       data: {
@@ -148,6 +156,7 @@ export const POST = withUser(async (req, { user }) => {
             approvalTier: approval.approvalTier,
             cliAllowlist: approval.cliAllowlist,
             headless: false,
+            approvedActionSignatures,
             // When the client disconnects, stop the loop instead of letting
             // the LLM keep burning tokens against a dead stream.
             signal: req.signal,
