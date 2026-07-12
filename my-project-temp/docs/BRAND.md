@@ -219,7 +219,110 @@ everything else stays focused on being what it already is.
   "While you slept: …" — make it the product's signature artifact.
 - **Launch post title:** "Zapier repeats. Chatbots chat. Apical works."
 
-## 11. What we don't say (anti-positioning)
+## 11. The promise architecture (how the lines fit together)
+
+Three lines, three altitudes — they don't compete, they stack:
+
+| Line | Role | Where |
+|---|---|---|
+| **Consider it done.** | The **promise** — what the customer feels | Hero, packaging, the "Done" moment in-product |
+| **Where agents go to work.** | The **category story** — what we are | About, press, investor deck, masterbrand lockup |
+| **Put an agent on it.** | The **behavior** — what people say at the moment of drudgery | Campaigns, social, word of mouth |
+
+"Consider it done." is the load-bearing line for people who know nothing
+about agents, automation, or AI — it describes the *end state*, not the
+mechanism. The rest of this section is about earning it.
+
+## 12. Teaching the product: jobs, not features
+
+Nobody recognizes a category. Everybody recognizes their own chores. So the
+primary teaching device is never a feature list — it's **a wall of small,
+concrete, already-filled job postings** written in the customer's words:
+
+> **The Collector** — chases overdue invoices, politely, until they're paid.
+> *Runs: Mondays 9am · Checks with you before sending anything.*
+> [ Hire ]
+
+> **The Sorter** — files everything that lands in the shared inbox and flags
+> the three things that actually need a human.
+> *Runs: every morning before you're up.*
+> [ Hire ]
+
+> **The Watchdog** — notices when a competitor changes pricing or ships
+> something, and tells you in one paragraph.
+> *Runs: weekly · Never emails you noise.*
+> [ Hire ]
+
+Rules for the roster device:
+
+- **Named agents with job titles**, not template categories. "The Collector"
+  teaches in two words what "AR automation workflow" never will.
+- Every card is **outcome + schedule + guardrail** — the guardrail line
+  ("checks with you before sending") is what makes owners trust it, and it's
+  true (gates).
+- SMB and enterprise read the same cards in different dialects: an owner
+  sees "the invoice chasing I hate"; an ops lead sees "a prebuilt, governed,
+  auditable agent." Don't write separate pages — write concrete cards and
+  let each audience project.
+- The wall is the pricing page's real anchor too: tiers = how many agents
+  on staff.
+
+## 13. Zero learning curve — and what backs it up
+
+The brand claims "nothing to set up, nothing to learn." These are the
+product mechanisms that make that sentence honest, and the work list where
+it isn't yet:
+
+**1. The ask is the interface.** *(true today)*
+There is no builder, no canvas, no onboarding tour to survive. Typing one
+sentence — or pressing ⌘K — IS using the product. First-run examples prefill
+real asks. Never add a step between "arrived" and "asked."
+
+**2. Setup is the agent's job.** *(true today — brand it loudly)*
+The killer inversion: users don't configure integrations up front. The agent
+starts working and **asks for what it needs when it needs it** — "I need
+access to your inbox to sort it — connect?" — one tap, mid-job, then it
+continues. Onboarding is pull, not push: you never fill out a settings page;
+you answer a colleague's question. This is shipped (connection/credential
+requests + gates + awaiting_input) and almost nobody else works this way.
+Copy line: **"It sets itself up. It'll ask if it needs anything."**
+
+**3. Day one is pre-hired.** *(the gap — this is the back-it-up work)*
+The old Templates tab was demo-only, so we hid it. The roster brings it back
+as the centerpiece **only when real**: 5–8 starter agents that genuinely run
+end-to-end on a fresh account (Collector, Sorter, Watchdog, Archivist,
+Greeter…). Each must survive the test: *a new user hires it and gets a real
+result the same day with zero configuration beyond what the agent asks for
+itself.* Until an agent passes, it stays off the wall. This is the single
+highest-leverage piece of product-marketing work before launch.
+
+**4. The proof artifact is the brief.** *(true today — make it the signature)*
+"Consider it done" is only believable when something arrives that you didn't
+ask for in the moment: the morning brief. Subject line format is the brand
+promise executed — **"While you slept: 32 filed, 2 need you."** Put a real
+brief screenshot in the hero. It teaches durability, supervision, and
+outcome in one image no explanation can match.
+
+**5. One number to rule the funnel: TTFD — time to first Done.**
+The shared brand+product metric: minutes from landing on the page to the
+first completed job. Target: **under three minutes.** Every landing change,
+onboarding idea, and roster agent is judged against TTFD. If a feature
+explains itself in copy but adds a minute to TTFD, cut it.
+
+**6. The Done moment.** *(small build, big brand)*
+When a job finishes, the product should say so in one stampable line —
+"Done. 32 invoices filed, 2 flagged." — with a shareable receipt. The DONE
+stamp is the visual identity's mark: rubber-stamp aesthetic, ties the whole
+system back to the promise. It's also the viral loop: receipts are the
+screenshots people post.
+
+**The comprehension test for everything above:** show the landing page to
+someone's parent for five seconds and ask what the product does. The passing
+answer is some version of *"you tell it a chore and it just… does it, on a
+schedule."* If the answer mentions AI, agents, or workflows, the page has
+drifted back into category-speak.
+
+## 14. What we don't say (anti-positioning)
 
 - We don't out-chat ChatGPT. Never lead with the chat experience; it's the
   on-ramp, not the product.
