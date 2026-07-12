@@ -1,3 +1,5 @@
+// CLOUD PLANE (proprietary — not part of the ELv2 open core; see LICENSING.md).
+//
 // Apical billing — Stripe Checkout + Customer Portal + webhook handler +
 // overrun toggle. Plug-and-play: works with zero Stripe config (demo mode)
 // or with a real STRIPE_SECRET_KEY.
