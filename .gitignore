@@ -17,3 +17,8 @@ db/
 
 # OS
 .DS_Store
+
+# agent scratch / stale artifacts (removed 2026-07; keep out)
+/upload/
+/tool-results/
+/download/

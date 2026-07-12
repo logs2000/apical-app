@@ -262,7 +262,6 @@ jobs:
             }
           }
           EOF
-          cp my-project-temp/download/manifest.json download/manifest.json
           cat my-project-temp/download/manifest.json
 
       - name: Verify Windows installer changed
@@ -289,7 +288,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add my-project-temp/download/manifest.json download/manifest.json
+          git add my-project-temp/download/manifest.json
           if ! git diff --staged --quiet; then
             git commit -m "Update desktop download manifest for ${{ steps.tag.outputs.name }}"
             git pull --rebase origin main
