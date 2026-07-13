@@ -12,7 +12,7 @@
 
 import { db } from '@/lib/db'
 import { simpleComplete, resolveModelPreferenceForUser } from '@/lib/platform/llm-gateway'
-import { broadcastRun } from '@/lib/relay-client'
+import { broadcastRun } from '@/lib/platform/run-events'
 import { saveWorkflowSteps, patchWorkflowStep } from '@/lib/platform/workflow-revisions'
 import { normalizeSteps } from '@/lib/deploy'
 import type { RunSupervision, SupervisionAttempt, WorkflowStep } from '@/lib/types'

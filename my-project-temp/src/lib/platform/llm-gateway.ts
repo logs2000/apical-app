@@ -28,10 +28,8 @@ import {
   type ModelDefinition,
   type ProviderId,
 } from '@/lib/platform/models'
-import { cloudChat, cloudChatStream, cloudListModels } from '@/lib/platform/cloud-llm'
-import { isCloudRelayAvailable } from '@/lib/platform/cloud-pat'
-import { getPlan, isOverAllowance } from '@/lib/platform/pricing'
-import { resolveEffectiveAllowance } from '@/lib/platform/token-allowance-config'
+import { cloudAdapter } from '@/lib/platform/cloud-adapter'
+import { entitlements } from '@/lib/platform/entitlements'
 import { decrypt, looksLikeKey } from '@/lib/platform/vault'
 
 export const NO_LLM_PROVIDER_ERROR =
@@ -205,7 +203,6 @@ interface AdapterStreamChunk {
 async function getOrCreateSubscription(userId: string) {
   let sub = await db.subscription.findUnique({ where: { userId } })
   if (!sub) {
-    const plan = getPlan('free')
     const periodEnd = new Date()
     periodEnd.setDate(periodEnd.getDate() + 30)
     sub = await db.subscription.create({
@@ -213,7 +210,7 @@ async function getOrCreateSubscription(userId: string) {
         userId,
         plan: 'free',
         status: 'active',
-        tokenAllowanceMonthly: plan.tokenAllowanceMonthly,
+        tokenAllowanceMonthly: entitlements().defaultTokenAllowance,
         currentPeriodEnd: periodEnd,
       },
     })
@@ -279,7 +276,7 @@ export async function resolveModel(
         apiKey = env.apiKey
         baseUrl = env.baseUrl
         adapter = env.adapter
-      } else if (await isCloudRelayAvailable(userId)) {
+      } else if (await cloudAdapter()?.isAvailable(userId)) {
         adapter = 'cloud-relay'
       } else {
         return null
@@ -315,7 +312,7 @@ export async function resolveModel(
     if (env) {
       return { model, adapter: env.adapter, apiKey: env.apiKey, baseUrl: env.baseUrl }
     }
-    if (await isCloudRelayAvailable(userId)) {
+    if (await cloudAdapter()?.isAvailable(userId)) {
       return { model, adapter: 'cloud-relay' }
     }
     return null
@@ -432,7 +429,7 @@ export function configuredHostedProviders(): ProviderId[] {
 export async function hostedProvidersForUser(userId: string): Promise<ProviderId[]> {
   const local = configuredHostedProviders()
   if (local.length > 0) return local
-  if (await isCloudRelayAvailable(userId)) return [...HOSTED_PROVIDERS]
+  if (await cloudAdapter()?.isAvailable(userId)) return [...HOSTED_PROVIDERS]
   return []
 }
 
@@ -1310,7 +1307,9 @@ async function callAdapter(
 ): Promise<AdapterResult> {
   if (resolved.adapter === 'cloud-relay') {
     if (!userId) throw new Error('Cloud relay requires userId')
-    const res = await cloudChat(userId, {
+    const cloud = cloudAdapter()
+    if (!cloud) throw new Error('Cloud relay is not available in this build')
+    const res = await cloud.chat(userId, {
       modelId: resolved.model.id,
       messages,
       maxTokens: opts.maxTokens,
@@ -1378,12 +1377,14 @@ async function* streamAdapter(
 ): AsyncGenerator<AdapterStreamChunk> {
   if (resolved.adapter === 'cloud-relay') {
     if (!userId) throw new Error('Cloud relay requires userId')
+    const cloud = cloudAdapter()
+    if (!cloud) throw new Error('Cloud relay is not available in this build')
     let usage: ChatUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     let content = ''
     const toolCalls: AssistantToolCall[] = []
     let thinkingBlocks: unknown[] | undefined
     let stopReason: StopReason | undefined
-    for await (const ev of cloudChatStream(userId, {
+    for await (const ev of cloud.chatStream(userId, {
       modelId: resolved.model.id,
       messages,
       maxTokens: opts.maxTokens,
@@ -1479,17 +1480,18 @@ async function* streamAdapter(
 // ---------------- Allowance + usage recording ----------------
 
 export async function checkAllowance(userId: string): Promise<AllowanceStatus> {
+  const ent = entitlements()
   const sub = await getOrCreateSubscription(userId)
-  const plan = getPlan(sub.plan)
-  const allowance = await resolveEffectiveAllowance(sub)
+  const features = ent.planFeatures(sub.plan)
+  const allowance = await ent.effectiveAllowance(sub)
   const used = sub.tokenUsedMonthly
   const overage = Math.max(0, used - allowance)
-  const overrunEnabled = sub.overrunEnabled && plan.overrunAvailable
+  const overrunEnabled = sub.overrunEnabled && features.overrunAvailable
   // Dev mode never enforces the token allowance, so local development is
   // never blocked by usage limits.
   const allowed =
     process.env.NODE_ENV !== 'production' ||
-    !isOverAllowance(used, allowance) ||
+    !ent.isOverAllowance(used, allowance) ||
     overrunEnabled
   return {
     allowed,
@@ -1502,14 +1504,15 @@ export async function checkAllowance(userId: string): Promise<AllowanceStatus> {
 }
 
 export async function recordUsage(p: RecordUsageParams): Promise<void> {
+  const ent = entitlements()
   const sub = await getOrCreateSubscription(p.userId)
-  const plan = getPlan(sub.plan)
-  const allowance = await resolveEffectiveAllowance(sub)
+  const features = ent.planFeatures(sub.plan)
+  const allowance = await ent.effectiveAllowance(sub)
 
   // Increment the period totals.
   const newUsed = sub.tokenUsedMonthly + p.promptTokens + p.completionTokens
-  const nowOver = isOverAllowance(newUsed, allowance)
-  const overrunEnabled = sub.overrunEnabled && plan.overrunAvailable
+  const nowOver = ent.isOverAllowance(newUsed, allowance)
+  const overrunEnabled = sub.overrunEnabled && features.overrunAvailable
 
   const update: {
     tokenUsedMonthly: number
@@ -1553,7 +1556,9 @@ export async function chat(req: ChatRequest): Promise<ChatResponse> {
   }
 
   if (resolved.adapter === 'cloud-relay') {
-    return cloudChat(req.userId, {
+    const cloud = cloudAdapter()
+    if (!cloud) throw new Error('Cloud relay is not available in this build')
+    return cloud.chat(req.userId, {
       modelId: req.modelId,
       messages: req.messages,
       maxTokens: req.maxTokens,
@@ -1608,7 +1613,9 @@ export async function* chatStream(
   }
 
   if (resolved.adapter === 'cloud-relay') {
-    yield* cloudChatStream(req.userId, {
+    const cloud = cloudAdapter()
+    if (!cloud) throw new Error('Cloud relay is not available in this build')
+    yield* cloud.chatStream(req.userId, {
       modelId: req.modelId,
       messages: req.messages,
       maxTokens: req.maxTokens,
@@ -1685,7 +1692,7 @@ export async function listAvailableModels(userId: string): Promise<{
   models: Array<ModelDefinition & { configured: boolean; custom?: boolean }>
 }> {
   const sub = await getOrCreateSubscription(userId)
-  const plan = getPlan(sub.plan)
+  const features = entitlements().planFeatures(sub.plan)
 
   // User's BYOK providers (used only for CustomModel rows now).
   const byokKeys = await db.byokKey.findMany({
@@ -1698,15 +1705,16 @@ export async function listAvailableModels(userId: string): Promise<{
 
   // Filter the registry: hosted only if we have the provider key; local if the
   // plan allows.
-  const registry = registryAvailableModels(hostedProviders, plan.localModelsAllowed)
+  const registry = registryAvailableModels(hostedProviders, features.localModelsAllowed)
 
   const models: Array<ModelDefinition & { configured: boolean; custom?: boolean }> =
     registry.map((m) => ({ ...m, configured: true }))
 
   // When relaying through cloud, merge the cloud catalog (may include models
   // not in our local registry snapshot).
-  if (hostedProviders.length > 0 && configuredHostedProviders().length === 0) {
-    const cloudModels = await cloudListModels(userId)
+  const cloud = cloudAdapter()
+  if (cloud && hostedProviders.length > 0 && configuredHostedProviders().length === 0) {
+    const cloudModels = await cloud.listModels(userId)
     for (const cm of cloudModels) {
       if (cm.tier !== 'hosted' || models.some((m) => m.id === cm.id)) continue
       const reg = getModel(cm.id)

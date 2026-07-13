@@ -33,7 +33,7 @@ import { notifyGate, notifyFlagged } from '@/lib/platform/notifications'
 import { emitWebhookEvent } from '@/lib/platform/webhooks'
 import { resolveActiveRevision } from '@/lib/platform/workflow-revisions'
 import { db } from './db'
-import { broadcastRun } from './relay-client'
+import { broadcastRun } from '@/lib/platform/run-events'
 import { parseWorkflowJSON } from './apical-server'
 import type {
   RunReport,

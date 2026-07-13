@@ -17,10 +17,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Apical — Consider it Done.",
+  title: "Apical — The AI agent that runs on your machine.",
   description:
-    "Tell Apical what needs doing. An AI agent figures out the steps, does the busywork, and hands you the result. You decide. It does.",
-  keywords: ["Apical", "AI agents", "automation", "MCP", "task runner"],
+    "Your files, your API keys, your data — nothing leaves your computer unless you say so. Tell Apical what needs doing; a local agent does the busywork and hands you the result.",
+  keywords: ["Apical", "AI agents", "local-first", "BYOK", "automation", "MCP", "task runner"],
   authors: [{ name: "Apical" }],
   icons: {
     icon: [
@@ -34,15 +34,15 @@ export const metadata: Metadata = {
     ],
   },
   openGraph: {
-    title: "Apical — Consider it Done.",
-    description: "AI agents that actually do the work.",
+    title: "Apical — The AI agent that runs on your machine.",
+    description: "Local-first AI agents. Your files, your keys, your data.",
     siteName: "Apical",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Apical — Consider it Done.",
-    description: "AI agents that actually do the work.",
+    title: "Apical — The AI agent that runs on your machine.",
+    description: "Local-first AI agents. Your files, your keys, your data.",
   },
 };
 

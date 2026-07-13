@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth-helpers'
-import { broadcastRun } from '@/lib/relay-client'
+import { broadcastRun } from '@/lib/platform/run-events'
 
 interface RouteCtx {
   params: Promise<{ id: string }>

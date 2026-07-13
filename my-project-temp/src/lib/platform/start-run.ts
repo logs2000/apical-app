@@ -4,7 +4,7 @@
 
 import { db } from '@/lib/db'
 import { executeRun, parseSteps } from '@/lib/runtime'
-import { broadcastRun } from '@/lib/relay-client'
+import { broadcastRun } from '@/lib/platform/run-events'
 import { resolveActiveRevision } from '@/lib/platform/workflow-revisions'
 import type { Workflow } from '@prisma/client'
 

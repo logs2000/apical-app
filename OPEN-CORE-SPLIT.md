@@ -30,7 +30,7 @@ code. The seam is controlled by the `APICAL_EDITION` env var
 
 | Area | Paths |
 |---|---|
-| Billing & plans | `src/lib/platform/billing.ts`, `run-billing.ts`, `pricing.ts`, `token-allowance-config.ts`, `src/app/api/billing/**`, `src/app/api/admin/token-limits/` |
+| Billing & plans | `src/lib/platform/billing.ts`, `run-billing.ts`, `pricing.ts`, `token-allowance-config.ts`, `src/app/api/billing/**`, `src/app/api/usage/`, `src/app/api/admin/token-limits/` |
 | Cloud LLM relay | `src/lib/platform/cloud-llm.ts`, `cloud-pat.ts`, `cloud-entitlements.ts`, `src/app/api/settings/cloud-pat/` |
 | Run event relay | `src/lib/relay-client.ts`, `src/lib/relay-token.ts`, `src/app/api/runs/[id]/relay-token/`, `mini-services/run-relay/` |
 | Hosted↔desktop bridge | `mini-services/desktop-bridge/` |

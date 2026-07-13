@@ -1,6 +1,15 @@
 // Next.js instrumentation hook — runs once per server boot.
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return
+
+  // Cloud plane: plans/allowances, hosted LLM relay, run-event fan-out.
+  // APICAL_EDITION=core skips this, leaving the open-core defaults
+  // (unlimited local use, BYOK, no relay). See OPEN-CORE-SPLIT.md.
+  if (process.env.APICAL_EDITION !== 'core') {
+    const { registerCloudServices } = await import('@/lib/platform/cloud-registration')
+    registerCloudServices()
+  }
+
   // Watched-folder triggers: poll granted folders and start workflow runs
   // when new files appear. No-ops per tick when the desktop is offline.
   const { ensureFolderWatcher } = await import('@/lib/platform/folder-watch')
