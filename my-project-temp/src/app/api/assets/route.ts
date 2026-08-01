@@ -3,6 +3,24 @@ import { getCurrentUser } from '@/lib/auth-helpers'
 import { listUserAssets, saveAsset, saveFileRef, saveFolderRef, toAssetRecord } from '@/lib/platform/assets'
 import { checkPathsGranted } from '@/lib/platform/granted-folders'
 
+/**
+ * Upload ceiling.
+ *
+ * Serverless platforms cap the request body well below what a scanned
+ * multi-page PDF can reach (Vercel is ~4.5MB), and the platform's own error
+ * for that is opaque. Rejecting a little under the cap lets us say what
+ * actually happened and what to do instead.
+ */
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+
+function uploadTooLarge(name: string, size: number): string {
+  return (
+    `"${name}" is ${(size / 1024 / 1024).toFixed(1)}MB — over the ${MAX_UPLOAD_BYTES / 1024 / 1024}MB upload limit. ` +
+    'In the desktop app, point the agent at the file path instead (no size limit); ' +
+    'on the web, split the PDF or downscale the scan first.'
+  )
+}
+
 // GET /api/assets — list user assets
 export async function GET(req: Request) {
   const user = await getCurrentUser(req)
@@ -32,6 +50,9 @@ export async function POST(req: Request) {
     const assets: Awaited<ReturnType<typeof saveAsset>>[] = []
     for (const file of files) {
       const bytes = Buffer.from(await file.arrayBuffer())
+      if (bytes.length > MAX_UPLOAD_BYTES) {
+        return NextResponse.json({ error: uploadTooLarge(file.name, bytes.length) }, { status: 413 })
+      }
       assets.push(
         await saveAsset({
           userId: user.id,
@@ -89,6 +110,9 @@ export async function POST(req: Request) {
       body.encoding === 'base64'
         ? Buffer.from(body.content, 'base64')
         : Buffer.from(body.content, 'utf8')
+    if (bytes.length > MAX_UPLOAD_BYTES) {
+      return NextResponse.json({ error: uploadTooLarge(body.name, bytes.length) }, { status: 413 })
+    }
     const asset = await saveAsset({
       userId: user.id,
       agentId: body.agentId ?? null,

@@ -1,9 +1,7 @@
 import { createHash, randomBytes } from 'crypto'
-import { mkdir, writeFile, readFile, unlink } from 'fs/promises'
 import path from 'path'
 import { db } from '@/lib/db'
-
-const UPLOAD_ROOT = path.join(process.cwd(), 'uploads')
+import { putObject, getObject, deleteObject } from '@/lib/platform/storage'
 
 export type AssetKind = 'image' | 'file' | 'folder' | 'code'
 export type AssetSource = 'upload' | 'agent' | 'script'
@@ -43,9 +41,14 @@ function inferKind(mimeType: string, name: string): AssetKind {
   return 'file'
 }
 
-function storagePath(userId: string, assetId: string, name: string): string {
+/**
+ * The relative key bytes are stored under. `putObject` turns this into either
+ * a Supabase key ("sb:...") or a path under <cwd>/uploads and returns whichever
+ * it used, so nothing else in this file branches on the backend.
+ */
+function storageKeyFor(userId: string, assetId: string, name: string): string {
   const safe = name.replace(/[^\w.\-()+ ]/g, '_').slice(0, 120)
-  return path.join(UPLOAD_ROOT, userId, assetId, safe)
+  return path.posix.join(userId, assetId, safe)
 }
 
 export function assetDownloadUrl(assetId: string): string {
@@ -85,9 +88,13 @@ export async function saveAsset(input: SaveAssetInput): Promise<AssetRecord> {
   const id = `asset_${randomBytes(8).toString('hex')}`
   const mimeType = input.mimeType || 'application/octet-stream'
   const kind = input.kind || inferKind(mimeType, input.name)
-  const absPath = storagePath(input.userId, id, input.name)
-  await mkdir(path.dirname(absPath), { recursive: true })
-  await writeFile(absPath, input.bytes)
+  // Store the bytes first: a row pointing at an object that failed to write is
+  // worse than no row, because the asset then reads as present but empty.
+  const storageKey = await putObject(
+    storageKeyFor(input.userId, id, input.name),
+    input.bytes,
+    mimeType,
+  )
 
   const row = await db.userAsset.create({
     data: {
@@ -99,7 +106,7 @@ export async function saveAsset(input: SaveAssetInput): Promise<AssetRecord> {
       name: input.name,
       mimeType,
       sizeBytes: input.bytes.length,
-      storageKey: path.relative(UPLOAD_ROOT, absPath),
+      storageKey,
       kind,
       source: input.source ?? 'upload',
       localPath: input.localPath ?? null,
@@ -186,23 +193,16 @@ export async function getUserAsset(userId: string, assetId: string) {
 export async function readAssetBytes(userId: string, assetId: string): Promise<Buffer | null> {
   const row = await getUserAsset(userId, assetId)
   if (!row || row.kind === 'folder') return null
-  const absPath = path.join(UPLOAD_ROOT, row.storageKey)
-  try {
-    return await readFile(absPath)
-  } catch {
-    return null
-  }
+  return getObject(row.storageKey)
 }
 
 export async function deleteUserAsset(userId: string, assetId: string): Promise<boolean> {
   const row = await getUserAsset(userId, assetId)
   if (!row) return false
-  if (row.kind !== 'folder') {
-    try {
-      await unlink(path.join(UPLOAD_ROOT, row.storageKey))
-    } catch {
-      // file may already be gone
-    }
+  // 'ref/...' keys are desktop path references — there are no bytes of ours to
+  // remove, and the user's own file must not be touched.
+  if (row.kind !== 'folder' && !row.storageKey.startsWith('ref/')) {
+    await deleteObject(row.storageKey).catch(() => {})
   }
   await db.userAsset.delete({ where: { id: assetId } })
   return true
