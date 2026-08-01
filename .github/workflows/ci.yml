@@ -1,0 +1,78 @@
+name: CI
+
+# Typecheck, tests, and a production build on every push. Before this, the only
+# workflow was the desktop release build, which runs on tag pushes — so nothing
+# checked a branch until it was already being cut into a release.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: my-project-temp
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # --frozen-lockfile is the point: it fails loudly when package.json and
+      # bun.lock drift apart, which is exactly how pdf-lib and exceljs shipped
+      # in package.json while the deploy's lockfile knew nothing about them.
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun run test
+
+      # The freeze path — an agent's chat trace surviving into a runnable
+      # workflow. Cheap to run, and the failure it guards is silent.
+      - name: Verify golden path
+        run: bun run verify:golden-path
+
+      # NOTE: the lint baseline has ~33 pre-existing errors (react-hooks rules
+      # in components, plus a few in auth). They predate this workflow and are
+      # unrelated to any current change. Lint reports them without failing the
+      # build; flip this to a hard gate once the baseline is burned down.
+      - name: Lint (non-blocking until baseline is clean)
+        continue-on-error: true
+        run: bun run lint
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Mirrors the Vercel build (minus the DB push) so a broken production
+      # build is caught here rather than on deploy.
+      - name: Build
+        run: bunx prisma generate && bunx next build --webpack
+        env:
+          NEXTAUTH_SECRET: ci-build-secret
+          NEXTAUTH_URL: http://127.0.0.1:3000
+          DATABASE_URL: postgresql://user:pass@127.0.0.1:5432/db
+          DIRECT_URL: postgresql://user:pass@127.0.0.1:5432/db

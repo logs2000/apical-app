@@ -12,6 +12,7 @@ import { chat, resolveModelPreferenceForUser } from '@/lib/platform/llm-gateway'
 import { validateWorkflowJSON } from '@/lib/workflow-schema'
 import {
   agentToolName,
+  humanWorkflowLabel,
   isSubstantiveTraceStep,
   traceStepHasExecutableParams,
   type EngineTraceStep,
@@ -143,7 +144,7 @@ function traceEvidence(trace: EngineTraceStep[]): {
     if (command) commands.push(command)
     const mcpTool = str(input.tool, 200)
     if (mcpTool) mcpTools.push(mcpTool)
-    for (const key of ['path', 'from', 'to'] as const) {
+    for (const key of ['path', 'from', 'to', 'outputPath'] as const) {
       const p = str(input[key], 2000)
       if (p) paths.push(p)
     }
@@ -208,6 +209,90 @@ export function stepsGroundedInTrace(
     }
   }
   return { ok: ungrounded.length === 0, ungrounded }
+}
+
+// ---------------- Document primitives ----------------
+
+/**
+ * Tools that cannot be rewritten as a script and must survive distillation
+ * intact. Reading a scan needs a vision model; filling an AcroForm needs the
+ * PDF object graph; appending to .xlsx needs the workbook. A distiller that
+ * "simplifies" these into a code node deletes the capability, so they are
+ * carried through as tool nodes with their inputs.
+ */
+const DOCUMENT_TOOLS = new Set([
+  'doc_extract',
+  'pdf_form_fields',
+  'pdf_fill',
+  'sheet_read',
+  'sheet_append',
+  'notify',
+])
+
+/** The inputs a document step needs to replay, dropping per-run noise. */
+function documentStepInputs(tool: string, input: Record<string, unknown>): Record<string, unknown> {
+  const source: Record<string, unknown> = {}
+  for (const key of ['path', 'assetId', 'url'] as const) {
+    const v = str(input[key], 2000)
+    if (v) source[key] = v
+  }
+  switch (tool) {
+    case 'doc_extract':
+      return {
+        ...source,
+        ...(Array.isArray(input.fields) ? { fields: input.fields } : {}),
+        ...(str(input.instructions, 4000) ? { instructions: str(input.instructions, 4000) } : {}),
+      }
+    case 'pdf_fill':
+      return {
+        ...source,
+        values: input.values ?? {},
+        ...(str(input.outputPath, 2000) ? { outputPath: str(input.outputPath, 2000) } : {}),
+        ...(input.flatten != null ? { flatten: input.flatten } : {}),
+      }
+    case 'sheet_append':
+      return {
+        ...source,
+        rows: input.rows ?? [],
+        ...(str(input.sheetName, 200) ? { sheetName: str(input.sheetName, 200) } : {}),
+        ...(str(input.outputPath, 2000) ? { outputPath: str(input.outputPath, 2000) } : {}),
+      }
+    case 'sheet_read':
+      return {
+        ...source,
+        ...(str(input.sheetName, 200) ? { sheetName: str(input.sheetName, 200) } : {}),
+      }
+    case 'notify':
+      return {
+        title: str(input.title, 200),
+        body: str(input.body, 4000),
+        ...(str(input.channel, 20) ? { channel: str(input.channel, 20) } : {}),
+      }
+    default:
+      return source
+  }
+}
+
+/**
+ * Dedupe key for a document step. Keyed on the OPERATION and its destination
+ * rather than the source file, so "read each of 20 scans" becomes one node
+ * while genuinely distinct operations (two different output sheets) stay
+ * separate.
+ */
+function docDedupeKey(tool: string, input: Record<string, unknown>): string {
+  switch (tool) {
+    case 'pdf_fill':
+      return str(input.outputPath, 2000) || str(input.path, 2000) || 'fill'
+    case 'sheet_append':
+    case 'sheet_read':
+      return str(input.outputPath, 2000) || str(input.path, 2000) || str(input.assetId, 200) || 'sheet'
+    case 'notify':
+      return str(input.title, 200) || 'notify'
+    default:
+      // doc_extract / pdf_form_fields: one node per requested field set, since
+      // reading IDs and reading pay stubs are different steps.
+      return Array.isArray(input.fields) ? input.fields.map(String).sort().join(',') : 'doc'
+  }
 }
 
 // ---------------- Heuristic distill (generic, no job assumptions) ----------------
@@ -334,6 +419,22 @@ export function heuristicDistillTrace(
         },
         `write:${str(input.path)}`,
       )
+    } else if (DOCUMENT_TOOLS.has(t) && traceStepHasExecutableParams(s)) {
+      // Document primitives are irreducible: no script can OCR a scan or fill
+      // an AcroForm, so they survive distillation as tool nodes with their
+      // inputs intact. Dedupe on the source document, so a batch loop over
+      // twenty files collapses to one node per operation rather than twenty.
+      push(
+        {
+          id: `s${idx++}`,
+          kind: 'tool',
+          label: humanWorkflowLabel(t, input),
+          tool: t,
+          inputs: documentStepInputs(t, input),
+          hardened: true,
+        },
+        `${t}:${docDedupeKey(t, input)}`,
+      )
     } else if (t === 'fs_list' && str(input.path) && !listedOnce) {
       // Keep at most ONE listing step (the first) — repeated listings are
       // exploration, not automation.
@@ -382,6 +483,12 @@ Output 2-${MAX_DISTILLED_STEPS} automation nodes using ONLY:
 - "mcp": { "integrationId", "tool", "args" } for MCP integrations
 - "integrationId" + "tool" + "inputs" for frozen OpenAPI integrations
 - "tool" + "inputs" for fs_list/fs_move/cli_run ONLY when script is not possible (max 1 list + 1 verify)
+- "tool" + "inputs" for the DOCUMENT tools — keep these as tool nodes, never rewrite them as scripts:
+  - doc_extract: { path|assetId|url, fields, instructions } — reads a scan/PDF into structured fields via a vision model. No script can do this.
+  - pdf_form_fields: { path|assetId|url } — lists a PDF form's real field names.
+  - pdf_fill: { path|assetId|url, values, outputPath, flatten } — fills an AcroForm.
+  - sheet_read / sheet_append: { path|assetId|url, rows, sheetName, outputPath } — reads/appends .xlsx or .csv.
+  - notify: { title, body, channel } — desktop toast with email fallback.
 - "kind": "gate" for human approval before destructive actions (optional)
 
 Rules:
@@ -389,8 +496,9 @@ Rules:
 2. Keep the working LOGIC from the trace (script structure, real endpoint URLs, real fixed paths, commands, MCP tools) — do NOT invent APIs or rewrite proven logic. The distinctive parts of every payload must trace back to a real observed tool call, or the step is REJECTED.
 3. PARAMETERIZE what varies per run instead of hardcoding one run's values. Replace values that came from the user's request or that change each run (names, IDs, search terms, dates, recipients) with references: "{{trigger.field}}" for webhook/watch-triggered jobs, or "{{sN.field}}" to use an earlier step's output. Bake in ONLY truly-fixed values (your own file paths, endpoint URLs, credential refs). A workflow that hardcodes a single run's input is NOT reusable.
 4. GENERATE output at runtime — never freeze a large one-run literal. If a run produced a document (asset_save/fs_write with a big inline content blob), do NOT paste that content; instead keep the code/script node that BUILDS it and have the save step reference the builder's result ("{{sN.output}}"). Drop steps that only store a finished snapshot of one run.
-5. NEVER include web_search, web_read, credential_list, or repeated fs_list exploration.
-6. Prefer ONE code/script node over many file operations. Set "hardened": true on deterministic nodes.
+5. NEVER include web_search, web_read, credential_list, or repeated fs_list exploration. This rule is about DISCOVERY tools only — the document tools above are production steps and must be kept.
+6. Prefer ONE code/script node over many file operations — but NOT for the document tools. Reading a scan, filling a PDF form, and appending to a spreadsheet are single tool nodes; collapsing them into a script silently drops the capability. Set "hardened": true on deterministic nodes.
+7. A trace that repeats doc_extract / pdf_fill / sheet_append once per file is a BATCH: emit ONE node whose per-run value is a "{{trigger.*}}" or "{{sN.*}}" ref, not one node per observed file.
 
 Respond JSON only:
 {"steps":[{"id":"s1","kind":"tool","label":"...","code":{"language":"shell","source":"..."},"hardened":true},...]}`
