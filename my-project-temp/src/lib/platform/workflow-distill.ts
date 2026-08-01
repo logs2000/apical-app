@@ -499,6 +499,7 @@ Rules:
 5. NEVER include web_search, web_read, credential_list, or repeated fs_list exploration. This rule is about DISCOVERY tools only — the document tools above are production steps and must be kept.
 6. Prefer ONE code/script node over many file operations — but NOT for the document tools. Reading a scan, filling a PDF form, and appending to a spreadsheet are single tool nodes; collapsing them into a script silently drops the capability. Set "hardened": true on deterministic nodes.
 7. A trace that repeats doc_extract / pdf_fill / sheet_append once per file is a BATCH: emit ONE node whose per-run value is a "{{trigger.*}}" or "{{sN.*}}" ref, not one node per observed file.
+8. Values read off a document are NEVER literals in a frozen step. A pdf_fill "values" entry or a sheet_append "rows" cell that came from doc_extract must reference that step — {"applicant.dob": "{{s2.fields.date_of_birth}}"} — using the field names the doc_extract step requested. Those values appear as "${'{{redacted}}'}" in the trace because one run's personal data is not stored in a workflow; a step left holding them will refuse to run.
 
 Respond JSON only:
 {"steps":[{"id":"s1","kind":"tool","label":"...","code":{"language":"shell","source":"..."},"hardened":true},...]}`

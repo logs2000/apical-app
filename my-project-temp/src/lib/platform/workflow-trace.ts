@@ -65,12 +65,53 @@ export interface EngineTraceStep {
 
 const SECRET_KEYS = /^(authorization|api[_-]?key|token|secret|password|credential)$/i
 
-/** Strip auth-shaped keys and truncate large strings before persisting in workflows. */
+/**
+ * Placeholder left where a per-run value used to be. It is deliberately a
+ * template ref, not a redaction marker: the value has to be supplied at run
+ * time anyway (see distill rule 3 — parameterize what varies per run), so the
+ * frozen step reads as the reusable workflow it should have been.
+ */
+export const REDACTED_VALUE = '{{redacted}}'
+
+/**
+ * Document-tool inputs that carry values read off someone's paperwork.
+ *
+ * `pdf_fill.values` and `sheet_append.rows` are populated from doc_extract —
+ * a date of birth, a member ID, an address. Those are one run's data, they
+ * make the frozen workflow non-reusable, and persisting them writes personal
+ * information into the workflow row and the message log in plaintext. The
+ * shape is kept (keys, and whether a value was present) so the workflow tab
+ * still shows what the step fills and the executor still validates.
+ */
+const PER_RUN_VALUE_KEYS = new Set(['values', 'rows', 'fields_values'])
+
+/** Replace leaf values while preserving object/array structure. */
+function redactLeaves(v: unknown, depth = 0): unknown {
+  if (depth > 6) return REDACTED_VALUE
+  if (Array.isArray(v)) return v.slice(0, 20).map((x) => redactLeaves(x, depth + 1))
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      out[k] = redactLeaves(val, depth + 1)
+    }
+    return out
+  }
+  // Null stays null — "this field was not present" is signal the workflow
+  // needs, and it is not itself personal information.
+  return v === null || v === undefined ? v : REDACTED_VALUE
+}
+
+/**
+ * Strip auth-shaped keys, redact per-run document values, and truncate large
+ * strings before persisting in workflows.
+ */
 export function sanitizeTraceInput(input: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(input)) {
     if (SECRET_KEYS.test(k)) continue
-    if (typeof v === 'string') {
+    if (PER_RUN_VALUE_KEYS.has(k) && v != null && typeof v === 'object') {
+      out[k] = redactLeaves(v)
+    } else if (typeof v === 'string') {
       out[k] = v.length > 4000 ? `${v.slice(0, 4000)}…` : v
     } else if (v != null && typeof v === 'object' && !Array.isArray(v)) {
       out[k] = sanitizeTraceInput(v as Record<string, unknown>)

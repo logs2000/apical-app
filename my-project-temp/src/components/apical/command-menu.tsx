@@ -25,7 +25,6 @@ import {
   Database,
   CreditCard,
   Settings,
-  LayoutTemplate,
   Activity,
   Brain,
   PanelRight,
@@ -56,7 +55,6 @@ export const PRIMARY_NAV: NavItem[] = [
 export const SECONDARY_NAV: NavItem[] = [
   { key: "settings", label: "Settings", icon: Settings, shortcut: "," },
   { key: "billing", label: "Billing", icon: CreditCard },
-  { key: "templates", label: "Templates", icon: LayoutTemplate },
   { key: "activity", label: "Activity", icon: Activity },
   { key: "memory", label: "Memory", icon: Brain },
 ];

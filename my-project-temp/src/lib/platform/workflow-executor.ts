@@ -8,7 +8,7 @@ import { db } from '@/lib/db'
 import { buildSecureHeaders } from '@/lib/platform/agent-credentials'
 import { getAgentTool, type ToolContext } from '@/lib/platform/agent-tools'
 import { isLocalDesktopRuntime } from '@/lib/platform/desktop-local-runtime'
-import { agentToolName, EXPLORATION_ONLY_TOOLS } from '@/lib/platform/workflow-trace'
+import { agentToolName, EXPLORATION_ONLY_TOOLS, REDACTED_VALUE } from '@/lib/platform/workflow-trace'
 import type { AgentRuntime, WorkflowStep } from '@/lib/types'
 import type { FrozenArtifact } from '@/lib/auth/freeze-artifact'
 
@@ -149,6 +149,93 @@ export function workflowStepToToolCall(
   }
 }
 
+/**
+ * Find inputs still holding the redaction placeholder.
+ *
+ * Values read off a document (a date of birth, a member ID) are stripped
+ * before a workflow is persisted — they are one run's personal data and have
+ * no business living in a saved workflow. The consequence is that a step which
+ * hardcoded them cannot run later; it has to reference the step that reads the
+ * document instead. Returns the paths that still need wiring.
+ */
+function findRedactedInputs(value: unknown, at = '', depth = 0): string[] {
+  if (depth > 6) return []
+  if (typeof value === 'string') {
+    return value.includes(REDACTED_VALUE) ? [at || 'value'] : []
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((v, i) => findRedactedInputs(v, `${at}[${i}]`, depth + 1))
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([k, v]) =>
+      findRedactedInputs(v, at ? `${at}.${k}` : k, depth + 1),
+    )
+  }
+  return []
+}
+
+/** Which input carries the destination a step writes to, per tool. */
+const WRITE_DESTINATION_ARGS: Record<string, string[]> = {
+  fs_write: ['path'],
+  fs_move: ['to'],
+  pdf_fill: ['outputPath'],
+  sheet_append: ['outputPath', 'path'],
+}
+
+/**
+ * Guard the write destination of a frozen, agent-free step.
+ *
+ * The interactive fs guard (`enforceGrantedRoots`) deliberately waives the
+ * sandbox on the desktop, because there a human is watching and it is their
+ * own machine. A scheduled run is a different situation: nobody is watching,
+ * and a step whose destination was mis-parameterized at freeze time rewrites
+ * files quietly, every hour, until someone notices. So unattended writes are
+ * checked against the granted roots and the workflow's own watched folders
+ * even on desktop.
+ *
+ * Returns null when allowed, or a message explaining the block.
+ */
+async function checkProductionWriteDestination(
+  tool: string,
+  input: Record<string, unknown>,
+  ctx: WorkflowExecContext,
+): Promise<string | null> {
+  const args = WRITE_DESTINATION_ARGS[tool]
+  if (!args) return null
+  const destinations = args
+    .map((k) => input[k])
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+  // sheet_append writes back to `path` only when no outputPath was given.
+  const targets = tool === 'sheet_append' ? destinations.slice(0, 1) : destinations
+  if (targets.length === 0) return null
+
+  const { listGrantedRoots, isPathInsideRoot } = await import('./granted-folders')
+  const [granted, watched] = await Promise.all([
+    listGrantedRoots(ctx.userId),
+    db.watchedFolder.findMany({
+      where: { userId: ctx.userId, workflowId: ctx.workflowId },
+      select: { path: true },
+    }),
+  ])
+  const roots = [...granted.map((g) => g.path), ...watched.map((w) => w.path)].filter(Boolean)
+
+  if (roots.length === 0) {
+    return (
+      `${tool} would write to "${targets[0]}", but this workflow has no granted folder or watched folder to write into. ` +
+      'Grant the destination folder before scheduling this workflow.'
+    )
+  }
+  for (const target of targets) {
+    if (!roots.some((r) => isPathInsideRoot(target, r))) {
+      return (
+        `${tool} would write to "${target}", which is outside this workflow's folders (${roots.join(', ')}). ` +
+        'A scheduled run will not write outside them. Grant that folder, or fix the step\'s destination.'
+      )
+    }
+  }
+  return null
+}
+
 async function executeFrozenIntegrationTool(
   integrationId: string,
   toolId: string,
@@ -231,6 +318,24 @@ export async function executeProductionStep(
     if (frozen) return frozen
   }
 
+  // Checked on the RAW step, before resolveRefs runs: an unresolvable ref
+  // becomes '', so after resolution a redacted value is indistinguishable from
+  // an intentionally blank one — and a frozen pdf_fill would write empty
+  // fields into a real form and report success.
+  const unresolved = findRedactedInputs(step.inputs)
+  if (unresolved.length > 0) {
+    return {
+      ok: false,
+      output: null,
+      error:
+        `${step.tool ?? 'step'} still has per-run placeholders for: ${unresolved.join(', ')}. ` +
+        "Those values were read off one run's document and are not stored in the workflow. " +
+        'Wire them to an earlier step (e.g. "{{s2.fields.date_of_birth}}" from a doc_extract step) and re-freeze.',
+      aiTokens: 0,
+      aiCostCents: 0,
+    }
+  }
+
   const call = workflowStepToToolCall(step, ctx.outputs)
   if (!call) return null
   if (EXPLORATION_ONLY_TOOLS.has(call.tool)) {
@@ -245,6 +350,11 @@ export async function executeProductionStep(
 
   const def = getAgentTool(call.tool)
   if (!def) return null
+
+  const blocked = await checkProductionWriteDestination(call.tool, call.input, ctx)
+  if (blocked) {
+    return { ok: false, output: null, error: blocked, aiTokens: 0, aiCostCents: 0 }
+  }
 
   const toolCtx: ToolContext = {
     userId: ctx.userId,

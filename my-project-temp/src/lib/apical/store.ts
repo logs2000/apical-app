@@ -31,7 +31,6 @@ export type Mode =
   | "data"
   | "billing"
   | "settings"
-  | "templates"
   | "activity"
   | "memory";
 

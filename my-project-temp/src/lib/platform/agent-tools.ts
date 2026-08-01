@@ -1125,7 +1125,7 @@ const pdfFormFields: ToolDef = {
 const pdfFill: ToolDef = {
   name: 'pdf_fill',
   description:
-    'Fill a PDF form\'s fields and save the result. Pass `values` as a map of exact field name → value (get the names from pdf_form_fields first). Checkboxes accept true/false/yes/no; dropdowns and radio groups must match one of the allowed options. Set `flatten` to bake the values in so the recipient cannot edit them. Writes to `outputPath` on the desktop, or returns a downloadable asset when no path is given. Fields it could not fill are reported in `skipped` — check it.',
+    'Fill a PDF form\'s fields and save the result. Pass `values` as a map of exact field name → value (get the names from pdf_form_fields first). Checkboxes accept true/false/yes/no; dropdowns and radio groups must match one of the allowed options. Set `flatten` to bake the values in so the recipient cannot edit them. Writes to `outputPath` on the desktop, or returns a downloadable asset when no path is given. Fields it could not fill are reported in `skipped` — check it. When this step is going into a saved workflow, values that came from a document must reference the doc_extract step ("{{s2.fields.date_of_birth}}") rather than being pasted in: one run\'s personal data is not stored in a workflow, so a hardcoded value will not be there next run.',
   inputSchema: {
     ...DOC_SOURCE_SCHEMA,
     values: { type: 'object', description: 'Map of exact PDF field name → value.' },

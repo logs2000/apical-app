@@ -294,6 +294,34 @@ function buildObservationText(tool: string, result: ToolResult, def: ToolDef): s
   )
 }
 
+/**
+ * The short result string kept on a trace step (persisted with the message and
+ * reloaded on later turns).
+ *
+ * doc_extract is special-cased: its output is the contents of someone's
+ * paperwork — name, date of birth, member ID — and a trace preview is not
+ * worth writing that to the database in plaintext. The agent still receives
+ * the full values in its observation this turn; only the durable copy is
+ * reduced to which fields were found. Everything else is unchanged.
+ */
+function summarizeTraceResult(tool: string, output: unknown): string | undefined {
+  if (tool === 'doc_extract' && output && typeof output === 'object') {
+    const o = output as { documentType?: unknown; fields?: Record<string, unknown>; confidence?: unknown }
+    const fields = o.fields && typeof o.fields === 'object' ? o.fields : {}
+    const keys = Object.keys(fields)
+    const found = keys.filter((k) => fields[k] !== null && fields[k] !== undefined && fields[k] !== '')
+    return JSON.stringify({
+      documentType: o.documentType ?? 'unknown',
+      confidence: o.confidence ?? 0,
+      fieldsFound: found.length,
+      fieldsRequested: keys.length,
+      missing: keys.filter((k) => !found.includes(k)).slice(0, 10),
+    }).slice(0, 200)
+  }
+  if (typeof output === 'string') return output.slice(0, 200)
+  return JSON.stringify(output).slice(0, 200)
+}
+
 // ---------------- Tool execution (shared by both loops) ----------------
 
 /**
@@ -442,11 +470,7 @@ async function executeWorkTool(
   if (traceStep) {
     traceStep.status = result.ok ? 'done' : 'error'
     traceStep.durationMs = Date.now() - traceStart
-    traceStep.result = result.ok
-      ? typeof result.output === 'string'
-        ? result.output.slice(0, 200)
-        : JSON.stringify(result.output).slice(0, 200)
-      : undefined
+    traceStep.result = result.ok ? summarizeTraceResult(tool, result.output) : undefined
     traceStep.error = result.error
   }
 
