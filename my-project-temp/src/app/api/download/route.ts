@@ -1,21 +1,18 @@
-// GET /api/download — desktop app download endpoint.
+// GET /api/download — desktop app availability + download links.
 //
-// The desktop binaries aren't shipped yet (the build pipeline is WIP — see
-// download/README.md). Instead of returning a 404 for every request, this
-// endpoint gracefully reports the desktop app is "coming soon" and includes
-// the CLI install commands so users can get started immediately.
+// The desktop app ships. The release workflow writes download/manifest.json on
+// every tag push, and /downloads/:filename serves (or redirects to) the binary.
+// This endpoint is the JSON view of the same data — what version is out, which
+// platforms have a build, and where to get each one.
 //
-//   GET /api/download              → top-level "coming soon" payload.
-//   GET /api/download/manifest     → manifest describing each OS/arch
-//                                     (availability=false everywhere for now).
-//   GET /api/download?os=mac&arch=arm64
-//                                  → per-platform "coming soon" payload with
-//                                     install commands for that OS.
-//   GET /api/download/file?os=...  → alias for the per-platform payload.
+//   GET /api/download                 → every platform, with links.
+//   GET /api/download?action=manifest → same, explicitly.
+//   GET /api/download?os=windows      → just that platform.
+//   GET /api/download?os=mac&arch=intel
+//                                     → the Intel build rather than arm64.
 //
-// When binaries DO get shipped (place them in /download/ with a manifest.json),
-// the manifest endpoint will report availability=true and the file endpoint
-// will stream the actual binary. Until then: 200 + coming_soon, never 404.
+// A platform with no build in the manifest reports available:false with a
+// reason, rather than a link that 404s at click time.
 
 import { NextResponse } from 'next/server'
 import { readFile } from 'node:fs/promises'
@@ -25,145 +22,165 @@ import path from 'node:path'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const DOWNLOAD_DIR = path.join(process.cwd(), 'download')
-
+/** Matches download/manifest.json as written by .github/workflows (flat map). */
 interface Manifest {
   version: string
   releasedAt: string
-  files: Record<string, Record<string, string>>
-  fallback: Record<string, string>
+  files: Record<string, string>
+}
+
+/** The app runs from the repo root in dev and from my-project-temp on Vercel. */
+function manifestCandidates(): string[] {
+  const cwd = process.cwd()
+  return [
+    path.join(cwd, 'download', 'manifest.json'),
+    path.join(cwd, 'my-project-temp', 'download', 'manifest.json'),
+    path.join(cwd, '..', 'download', 'manifest.json'),
+  ]
 }
 
 async function readManifest(): Promise<Manifest | null> {
-  const p = path.join(DOWNLOAD_DIR, 'manifest.json')
-  if (!existsSync(p)) return null
-  try {
-    return JSON.parse(await readFile(p, 'utf8')) as Manifest
-  } catch {
-    return null
+  for (const p of manifestCandidates()) {
+    if (!existsSync(p)) continue
+    try {
+      return JSON.parse(await readFile(p, 'utf8')) as Manifest
+    } catch {
+      // A corrupt manifest shouldn't take the endpoint down.
+    }
+  }
+  return null
+}
+
+interface Build {
+  os: string
+  arch: string
+  label: string
+  filename: string
+  /** Path on this site — redirects to the release asset. */
+  url: string
+}
+
+const BUILDS: Build[] = [
+  {
+    os: 'mac',
+    arch: 'arm64',
+    label: 'macOS (Apple Silicon)',
+    filename: 'apical-mac.dmg',
+    url: '/downloads/apical-mac.dmg',
+  },
+  {
+    os: 'mac',
+    arch: 'x64',
+    label: 'macOS (Intel)',
+    filename: 'apical-mac-intel.dmg',
+    url: '/downloads/apical-mac-intel.dmg',
+  },
+  {
+    os: 'windows',
+    arch: 'x64',
+    label: 'Windows',
+    filename: 'apical-windows.exe',
+    url: '/downloads/apical-windows.exe',
+  },
+  {
+    os: 'linux',
+    arch: 'x64',
+    label: 'Linux',
+    filename: 'apical-linux.AppImage',
+    url: '/downloads/apical-linux.AppImage',
+  },
+]
+
+/** Arch aliases the landing page and curl users actually send. */
+function normalizeArch(arch: string | null): string | null {
+  if (!arch) return null
+  const a = arch.toLowerCase()
+  if (a === 'arm64' || a === 'aarch64' || a === 'apple-silicon' || a === 'arm') return 'arm64'
+  if (a === 'x64' || a === 'x86_64' || a === 'amd64' || a === 'intel') return 'x64'
+  return a
+}
+
+function isPublished(build: Build, manifest: Manifest | null): boolean {
+  // Either bundled into the deploy, or present in the release manifest.
+  if (existsSync(path.join(process.cwd(), 'public', 'downloads', build.filename))) return true
+  return Boolean(manifest?.files?.[build.filename])
+}
+
+function describe(build: Build, manifest: Manifest | null) {
+  const available = isPublished(build, manifest)
+  return {
+    os: build.os,
+    arch: build.arch,
+    label: build.label,
+    filename: build.filename,
+    available,
+    ...(available
+      ? { url: build.url, releaseUrl: manifest?.files?.[build.filename] ?? null }
+      : { reason: `No ${build.label} build in release ${manifest?.version ?? '(none)'} yet.` }),
   }
 }
 
-// CLI install commands per OS — always available even without binaries.
-const INSTALL_COMMANDS: Record<string, { label: string; command: string }> = {
-  mac: {
-    label: 'macOS',
-    command: 'curl -fsSL https://apic.al/install.sh | sh',
-  },
-  windows: {
-    label: 'Windows (PowerShell)',
-    command: 'irm https://apic.al/install.ps1 | iex',
-  },
-  linux: {
-    label: 'Linux',
-    command: 'curl -fsSL https://apic.al/install.sh | sh',
-  },
-}
-
-const COMING_SOON_MESSAGE =
-  'The Apical desktop app is coming soon. You can install the Apical CLI today — it provides the same agent runtime and local tool access.'
-
-const DESKTOP_PREVIEW_FEATURES = [
-  'Native macOS / Windows / Linux app with auto-update',
+const DESKTOP_FEATURES = [
   'Local filesystem, CLI, and network access for your agents',
-  'System tray + global hotkey to summon Apical',
+  'Watch a folder and run an automation on every new file',
+  'Read scanned documents, fill PDF forms, and update spreadsheets in place',
+  'Native OS notifications and a system tray',
   'Encrypted local vault for credentials',
 ]
-
-function comingSoonResponse(os?: string | null) {
-  const targetOs = os && INSTALL_COMMANDS[os] ? os : null
-  const installCommands = targetOs
-    ? { [targetOs]: INSTALL_COMMANDS[targetOs] }
-    : INSTALL_COMMANDS
-
-  return NextResponse.json({
-    status: 'coming_soon',
-    message: COMING_SOON_MESSAGE,
-    desktop: {
-      available: false,
-      features: DESKTOP_PREVIEW_FEATURES,
-      eta: 'soon',
-    },
-    installCommands,
-    ...(targetOs ? { requestedOs: targetOs } : {}),
-  })
-}
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const os = url.searchParams.get('os')
-  const arch = url.searchParams.get('arch')
-  const action = url.searchParams.get('action') ?? 'file'
+  const arch = normalizeArch(url.searchParams.get('arch'))
+  const action = url.searchParams.get('action')
 
   const manifest = await readManifest()
+  const builds = BUILDS.map((b) => describe(b, manifest))
+  const anyAvailable = builds.some((b) => b.available)
 
-  // --- manifest endpoint ---
-  // Always 200 — reports availability per os/arch. For now every entry is
-  // availability=false because no binaries have been uploaded.
-  if (action === 'manifest' || (!os && !arch)) {
-    const availability: Record<string, Record<string, boolean>> = {}
-    if (manifest?.files) {
-      for (const [o, archs] of Object.entries(manifest.files)) {
-        availability[o] = {}
-        for (const [a, filename] of Object.entries(archs)) {
-          availability[o][a] = existsSync(path.join(DOWNLOAD_DIR, filename))
-        }
-      }
-    }
-    // Include the "coming soon" notice alongside the manifest so the caller
-    // gets a graceful answer even when no manifest.json exists.
+  const base = {
+    status: anyAvailable ? 'available' : 'unavailable',
+    version: manifest?.version ?? null,
+    releasedAt: manifest?.releasedAt ?? null,
+  }
+
+  // --- all platforms ---
+  if (action === 'manifest' || !os) {
     return NextResponse.json({
-      status: 'coming_soon',
-      message: COMING_SOON_MESSAGE,
-      version: manifest?.version ?? null,
-      releasedAt: manifest?.releasedAt ?? null,
-      availability,
-      installCommands: INSTALL_COMMANDS,
+      ...base,
+      desktop: { available: anyAvailable, features: DESKTOP_FEATURES },
+      builds,
     })
   }
 
-  // --- file endpoint ---
-  // If a real binary exists for this os/arch, stream it. Otherwise return
-  // a graceful "coming soon" 200 (NOT a 404).
-  if (!os || !arch) {
-    // Missing params — still 200, with all-platforms info.
-    return comingSoonResponse(null)
+  // --- one platform ---
+  const forOs = builds.filter((b) => b.os === os)
+  if (forOs.length === 0) {
+    return NextResponse.json(
+      {
+        ...base,
+        error: `Unknown os "${os}". Expected one of: ${[...new Set(BUILDS.map((b) => b.os))].join(', ')}.`,
+        builds,
+      },
+      { status: 400 },
+    )
   }
 
-  const filename = manifest?.files?.[os]?.[arch]
-  if (filename) {
-    const filePath = path.join(DOWNLOAD_DIR, filename)
-    if (existsSync(filePath)) {
-      const data = await readFile(filePath)
-      const ext = path.extname(filename).toLowerCase()
-      const contentType =
-        ext === '.dmg'
-          ? 'application/x-apple-diskimage'
-          : ext === '.exe'
-            ? 'application/vnd.microsoft.portable-executable'
-            : ext === '.appimage'
-              ? 'application/vnd.appimage'
-              : ext === '.deb'
-                ? 'application/vnd.debian.binary-package'
-                : ext === '.rpm'
-                  ? 'application/x-rpm'
-                  : ext === '.zip'
-                    ? 'application/zip'
-                    : 'application/octet-stream'
+  // Default to the arm64 Mac build, matching the landing page's detection.
+  const match = arch
+    ? forOs.find((b) => b.arch === arch)
+    : (forOs.find((b) => b.arch === 'arm64') ?? forOs[0])
 
-      return new NextResponse(data, {
-        status: 200,
-        headers: {
-          'Content-Type': contentType,
-          'Content-Length': String(data.byteLength),
-          'Content-Disposition': `attachment; filename="${filename}"`,
-          'Cache-Control': 'public, max-age=3600',
-        },
-      })
-    }
+  if (!match) {
+    return NextResponse.json(
+      {
+        ...base,
+        error: `No ${os} build for arch "${arch}". Available: ${forOs.map((b) => b.arch).join(', ')}.`,
+        builds: forOs,
+      },
+      { status: 404 },
+    )
   }
 
-  // No binary yet — graceful "coming soon" with the CLI install command for
-  // the requested OS (so the user can still get started).
-  return comingSoonResponse(os)
+  return NextResponse.json({ ...base, build: match, builds: forOs })
 }

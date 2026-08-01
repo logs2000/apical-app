@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   AlertCircle,
+  Bell,
   Boxes,
   ChevronDown,
   ChevronRight,
@@ -12,6 +13,7 @@ import {
   KeyRound,
   Loader2,
   Save,
+  Table,
   Terminal,
   Wrench,
 } from "lucide-react";
@@ -36,7 +38,15 @@ function ToolIcon({ tool, className }: { tool?: string; className?: string }) {
     case "fs_write":
     case "fs_move":
     case "asset_save":
+    case "doc_extract":
+    case "pdf_form_fields":
+    case "pdf_fill":
       return <FileText className={className} />;
+    case "sheet_read":
+    case "sheet_append":
+      return <Table className={className} />;
+    case "notify":
+      return <Bell className={className} />;
     case "code_eval":
     case "script_run":
     case "cli_run":

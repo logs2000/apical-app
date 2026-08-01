@@ -28,7 +28,9 @@ import {
   type GatewayMessage,
   type AssistantToolCall,
   type StopReason,
+  type MediaPart,
 } from '@/lib/platform/llm-gateway'
+import { mediaPartsForAttachments } from '@/lib/platform/media'
 import {
   AGENT_TOOLS,
   getAgentTool,
@@ -264,6 +266,8 @@ interface LoopState {
   contextPrefix: string
   /** `Goal: ...` (+ optional additional context). */
   goalLine: string
+  /** Images/PDFs the user attached this turn, sent with the opening message. */
+  turnMedia: MediaPart[]
   history: Array<{ role: 'user' | 'agent'; content: string }>
   unfinishedPriorPlan?: PlanItem[]
   maxIterations: number
@@ -597,7 +601,11 @@ async function runNativeLoop(
   for (const h of state.history) {
     messages.push({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })
   }
-  messages.push({ role: 'user', content: `${state.contextPrefix}${state.goalLine}` })
+  messages.push({
+    role: 'user',
+    content: `${state.contextPrefix}${state.goalLine}`,
+    ...(state.turnMedia.length ? { media: state.turnMedia } : {}),
+  })
 
   let iterations = 0
   let toolCalls = 0
@@ -874,6 +882,7 @@ async function runLegacyLoop(
     {
       role: 'user',
       content: `${state.contextPrefix}${historyBlock}${state.goalLine}\n\nBegin. Respond with JSON only.`,
+      ...(state.turnMedia.length ? { media: state.turnMedia } : {}),
     },
   ]
 
@@ -1335,12 +1344,17 @@ export async function runAgent(
     }
   }
 
+  // Images and PDFs go to the model as real content blocks; the text block
+  // still lists everything so the agent knows the paths it can act on.
+  const turnMedia = await mediaPartsForAttachments(opts.userId, attachments).catch(() => [])
+  const sentAsMedia = new Set(turnMedia.map((p) => p.name))
   const attachmentBlock =
     attachments && attachments.length > 0
       ? `Attached files/folders:\n${attachments
           .map((a) => {
             const loc = a.localPath ? ` path=${a.localPath}` : ` url=${a.url}`
-            return `- ${a.name} (${a.kind}, ${a.mimeType})${loc}`
+            const seen = sentAsMedia.has(a.name) ? ' — attached below, you can read it directly' : ''
+            return `- ${a.name} (${a.kind}, ${a.mimeType})${loc}${seen}`
           })
           .join('\n')}\n\n`
       : ''
@@ -1373,6 +1387,7 @@ export async function runAgent(
     allowCli,
     contextPrefix,
     goalLine,
+    turnMedia,
     history: history ?? [],
     unfinishedPriorPlan,
     maxIterations,

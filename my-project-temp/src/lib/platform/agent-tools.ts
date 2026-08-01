@@ -24,7 +24,22 @@ import { callMcpTool, connectMcpServer } from '@/lib/mcp-client'
 import { buildSecureHeaders, listCredentialsForAgent } from '@/lib/platform/agent-credentials'
 import { ingestOpenApiSpec } from '@/lib/openapi-parser'
 import { searchWeb } from '@/lib/platform/web-search'
-import { saveAsset, assetDownloadUrl } from '@/lib/platform/assets'
+import { assertPublicUrl, fetchPublicUrl } from '@/lib/platform/net-guard'
+import { saveAsset, assetDownloadUrl, getUserAsset, readAssetBytes } from '@/lib/platform/assets'
+import {
+  appendCsv,
+  appendXlsx,
+  basename,
+  extractDocument,
+  fillPdfForm,
+  isCsvName,
+  loadDoc,
+  MAX_URL_BYTES,
+  readPdfFormFields,
+  readSheet,
+  type DocFileIO,
+  type DocSource,
+} from '@/lib/platform/document-tools'
 import { normalizeSteps } from '@/lib/deploy'
 import { inferRuntimeFromSteps } from '@/lib/workflow-schema'
 import { buildStepsForFreeze } from '@/lib/platform/workflow-distill'
@@ -444,7 +459,8 @@ const webRead: ToolDef = {
     const usedMethod = 'fetch'
 
     try {
-      const r = await fetch(url, {
+      // SSRF guard: public hosts only, re-checked on every redirect hop.
+      const r = await fetchPublicUrl(url, {
         signal: toolAbortSignal(ctx, 12_000),
         headers,
       })
@@ -513,6 +529,13 @@ const httpRequest: ToolDef = {
     const url = asString(input.url, 2000)
     if (!url || !/^https?:\/\//.test(url))
       return { ok: false, output: null, error: 'valid http(s) url is required' }
+    // SSRF guard: applies to the direct path AND the Pipedream proxy path —
+    // no reason to let an agent aim either one at internal addresses.
+    try {
+      await assertPublicUrl(url)
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
     const method = (asString(input.method, 10) || 'GET').toUpperCase()
     const body = asString(input.body, 100_000)
     const credentialId = asString(input.credentialId, 100)
@@ -576,7 +599,8 @@ const httpRequest: ToolDef = {
     }
 
     try {
-      const r = await fetch(url, {
+      // SSRF guard again at fetch time: re-validates every redirect hop.
+      const r = await fetchPublicUrl(url, {
         method,
         headers,
         body: ['GET', 'HEAD'].includes(method) ? undefined : body,
@@ -813,8 +837,17 @@ const scriptRun: ToolDef = {
       // back to the desktop CLI when the server has no python3.
       const { runPythonScript } = await import('./script-runner')
       const res = await runPythonScript(code, packages, { data })
-      if (!res.ok && /python3|ENOENT/i.test(res.error ?? '') && (ctx.allowCli || isLocalDesktopRuntime()) && packages.length === 0) {
-        return cliRun.run({ command: 'python3', args: ['-c', code], timeoutMs: 30_000 }, ctx)
+      // The server may have no Python at all (slim container). When the user's
+      // desktop is reachable, run it there instead — `python` on Windows,
+      // `python3` everywhere else.
+      if (
+        !res.ok &&
+        /python|ENOENT|not installed|not on PATH/i.test(res.error ?? '') &&
+        (ctx.allowCli || isLocalDesktopRuntime()) &&
+        packages.length === 0
+      ) {
+        const cmd = process.platform === 'win32' ? 'python' : 'python3'
+        return cliRun.run({ command: cmd, args: ['-c', code], timeoutMs: 30_000 }, ctx)
       }
       return {
         ok: res.ok,
@@ -896,7 +929,17 @@ const fsWrite: ToolDef = {
       return { ok: false, output: null, error: 'Desktop access is disabled. The user must enable it in Settings → Desktop.' }
     const path = asString(input.path, 2000)
     if (!path) return { ok: false, output: null, error: 'path is required' }
-    const content = asString(input.content, 500_000)
+    // Never silently truncate: a clipped base64 payload writes a corrupt file
+    // that only surfaces when someone opens the PDF weeks later.
+    const raw = typeof input.content === 'string' ? input.content : ''
+    if (raw.length > MAX_FS_WRITE_CHARS) {
+      return {
+        ok: false,
+        output: null,
+        error: `content is ${raw.length} chars — over the ${MAX_FS_WRITE_CHARS} limit. Write it in parts or use a script.`,
+      }
+    }
+    const content = raw
     const encoding = asString(input.encoding, 10) === 'base64' ? 'base64' : 'utf8'
     return invokeDesktopTool(ctx, 'desktop.fs.write', { path, content, encoding }, {
       display: { title: `Wrote ${path}`, summary: `${content.length} bytes`, kind: 'data' },
@@ -921,6 +964,405 @@ const fsMove: ToolDef = {
     return invokeDesktopTool(ctx, 'desktop.fs.move', { from, to }, {
       display: { title: `Moved ${from} → ${to}`, summary: 'moved', kind: 'data' },
     })
+  },
+}
+
+// 5e. Document primitives — doc_extract / pdf_form_fields / pdf_fill /
+//     sheet_read / sheet_append. These are the vertical tool surface: read a
+//     scan into fields, fill a form, append a row. Executors live in
+//     document-tools.ts; this layer is argument handling + file I/O binding.
+
+/** ~6MB of binary once base64-decoded — comfortably above a scanned form. */
+const MAX_FS_WRITE_CHARS = 8_000_000
+
+/** Bind the document executors to this user's desktop + asset storage. */
+function docFileIO(ctx: ToolContext): DocFileIO {
+  return {
+    async readDesktopFile(p: string) {
+      const r = await fsRead.run({ path: p, encoding: 'base64' }, ctx)
+      if (!r.ok) throw new Error(r.error ?? `Could not read ${p}`)
+      const content = (r.output as { content?: string } | null)?.content
+      if (typeof content !== 'string') throw new Error(`Empty response reading ${p}`)
+      return Buffer.from(content, 'base64')
+    },
+    async writeDesktopFile(p: string, bytes: Buffer) {
+      const b64 = bytes.toString('base64')
+      const r = await fsWrite.run({ path: p, content: b64, encoding: 'base64' }, ctx)
+      if (!r.ok) throw new Error(r.error ?? `Could not write ${p}`)
+    },
+    async readAsset(assetId: string) {
+      const [row, bytes] = await Promise.all([
+        getUserAsset(ctx.userId, assetId),
+        readAssetBytes(ctx.userId, assetId),
+      ])
+      if (!row || !bytes) return null
+      return { bytes, name: row.name }
+    },
+    async writeAsset(name: string, bytes: Buffer, mimeType: string) {
+      const asset = await saveAsset({
+        userId: ctx.userId,
+        agentId: ctx.agentId ?? null,
+        name,
+        bytes,
+        mimeType,
+        source: 'agent',
+      })
+      ctx.producedAssets?.push({
+        id: asset.id,
+        name: asset.name,
+        mimeType: asset.mimeType,
+        kind: asset.kind,
+        url: asset.url,
+        sizeBytes: asset.sizeBytes,
+      })
+      return { id: asset.id, url: asset.url }
+    },
+    async fetchUrl(url: string) {
+      // SSRF guard — the agent chooses this URL, so it must not be able to
+      // aim a document read at cloud metadata or an internal service.
+      const r = await fetchPublicUrl(url)
+      if (!r.ok) throw new Error(`GET ${url} → HTTP ${r.status}`)
+      const buf = Buffer.from(await r.arrayBuffer())
+      if (buf.length > MAX_URL_BYTES) {
+        throw new Error(`${url} is ${(buf.length / 1024 / 1024).toFixed(1)}MB — too large to load.`)
+      }
+      const name = basename(new URL(url).pathname) || 'download'
+      return { bytes: buf, name }
+    },
+  }
+}
+
+/** Pull the shared path/assetId/url triple off a tool input. */
+function docSourceFrom(input: Record<string, unknown>): DocSource {
+  return {
+    path: asString(input.path, 2000) || undefined,
+    assetId: asString(input.assetId, 200) || undefined,
+    url: asString(input.url, 2000) || undefined,
+  }
+}
+
+const DOC_SOURCE_SCHEMA = {
+  path: { type: 'string', description: "Absolute path to the file on the user's desktop." },
+  assetId: { type: 'string', description: 'Id of an uploaded/produced asset instead of a path.' },
+  url: { type: 'string', description: 'URL to fetch the file from instead of a path.' },
+} as const
+
+const docExtract: ToolDef = {
+  name: 'doc_extract',
+  description:
+    'Read a scanned or digital document (PDF, PNG, JPEG) and return structured fields. This is real extraction — the page is sent to a vision model, so handwriting, scans, photos of IDs, and image-only PDFs all work. Pass `fields` to pull specific values (missing ones come back null, never guessed) and check `confidence` before acting on the result. Use this before renaming/filing a document, or to turn an ID or form into data you can put in a spreadsheet or another PDF.',
+  inputSchema: {
+    ...DOC_SOURCE_SCHEMA,
+    fields: {
+      type: 'array',
+      description: 'Field names to extract, e.g. ["full_name","date_of_birth","member_id"]. Omit to extract everything labelled.',
+      items: { type: 'string' },
+    },
+    instructions: { type: 'string', description: 'What the document is and how to read it — formats, disambiguation rules.' },
+    includeText: { type: 'boolean', description: 'Also return the full readable text (default true).' },
+  },
+  async run(input, ctx) {
+    try {
+      const result = await extractDocument(
+        ctx.userId,
+        {
+          ...docSourceFrom(input),
+          fields: Array.isArray(input.fields) ? input.fields.map(String).slice(0, 60) : undefined,
+          instructions: asString(input.instructions, 4000) || undefined,
+          includeText: input.includeText !== false,
+        },
+        docFileIO(ctx),
+        { refId: ctx.agentId ?? undefined },
+      )
+      const found = Object.values(result.fields).filter((v) => v !== null).length
+      const total = Object.keys(result.fields).length
+      return {
+        ok: true,
+        output: result,
+        display: {
+          title: `Read ${result.documentType}`,
+          summary: `${found}/${total} fields · confidence ${(result.confidence * 100).toFixed(0)}%`,
+          kind: 'data',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const pdfFormFields: ToolDef = {
+  name: 'pdf_form_fields',
+  description:
+    'List the fillable fields on a PDF form (AcroForm): each field\'s exact name, type, current value, and — for dropdowns and radio groups — the allowed options. Always call this before pdf_fill so you use the real field names rather than guessing from the visible labels.',
+  inputSchema: { ...DOC_SOURCE_SCHEMA },
+  async run(input, ctx) {
+    try {
+      const doc = await loadDoc(docSourceFrom(input), docFileIO(ctx))
+      const fields = await readPdfFormFields(doc.bytes)
+      return {
+        ok: true,
+        output: {
+          name: doc.name,
+          fieldCount: fields.length,
+          fields,
+          ...(fields.length === 0
+            ? { note: 'This PDF has no AcroForm fields — it is a flat document. It cannot be filled programmatically; it would need to be re-created or annotated.' }
+            : {}),
+        },
+        display: {
+          title: `${doc.name} form fields`,
+          summary: `${fields.length} fillable field${fields.length === 1 ? '' : 's'}`,
+          kind: 'data',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const pdfFill: ToolDef = {
+  name: 'pdf_fill',
+  description:
+    'Fill a PDF form\'s fields and save the result. Pass `values` as a map of exact field name → value (get the names from pdf_form_fields first). Checkboxes accept true/false/yes/no; dropdowns and radio groups must match one of the allowed options. Set `flatten` to bake the values in so the recipient cannot edit them. Writes to `outputPath` on the desktop, or returns a downloadable asset when no path is given. Fields it could not fill are reported in `skipped` — check it.',
+  inputSchema: {
+    ...DOC_SOURCE_SCHEMA,
+    values: { type: 'object', description: 'Map of exact PDF field name → value.' },
+    outputPath: { type: 'string', description: "Absolute desktop path to write the filled PDF to. Omit to get a downloadable asset instead." },
+    outputName: { type: 'string', description: 'Filename for the saved asset when outputPath is omitted.' },
+    flatten: { type: 'boolean', description: 'Flatten the form so values are baked into the page (default false).' },
+  },
+  async run(input, ctx) {
+    try {
+      const values = input.values
+      if (!values || typeof values !== 'object' || Array.isArray(values)) {
+        return { ok: false, output: null, error: 'values must be an object of field name → value' }
+      }
+      const io = docFileIO(ctx)
+      const doc = await loadDoc(docSourceFrom(input), io)
+      const outcome = await fillPdfForm(doc.bytes, values as Record<string, unknown>, {
+        flatten: input.flatten === true,
+      })
+
+      const outputPath = asString(input.outputPath, 2000)
+      let where: Record<string, unknown>
+      if (outputPath) {
+        await io.writeDesktopFile(outputPath, outcome.bytes)
+        where = { outputPath }
+      } else {
+        const name = asString(input.outputName, 200) || `filled-${doc.name.replace(/\.pdf$/i, '')}.pdf`
+        const asset = await io.writeAsset(name, outcome.bytes, 'application/pdf')
+        where = { assetId: asset.id, url: asset.url, name }
+      }
+
+      // A partial fill is a real failure mode — surface it rather than
+      // reporting success and letting a half-filled form get submitted.
+      return {
+        ok: outcome.skipped.length === 0,
+        output: {
+          ...where,
+          filled: outcome.filled,
+          filledCount: outcome.filled.length,
+          skipped: outcome.skipped,
+          flattened: input.flatten === true,
+        },
+        error: outcome.skipped.length
+          ? `${outcome.skipped.length} field(s) not filled: ${outcome.skipped.map((s) => `${s.name} (${s.reason})`).join('; ')}`
+          : undefined,
+        display: {
+          title: `Filled ${doc.name}`,
+          summary: `${outcome.filled.length} field${outcome.filled.length === 1 ? '' : 's'}${outcome.skipped.length ? `, ${outcome.skipped.length} skipped` : ''}`,
+          kind: 'file',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const sheetRead: ToolDef = {
+  name: 'sheet_read',
+  description:
+    'Read rows out of an Excel workbook (.xlsx) or CSV as objects keyed by the header row. Use this to check what columns a tracking sheet already has, or to look up an existing record before appending a duplicate.',
+  inputSchema: {
+    ...DOC_SOURCE_SCHEMA,
+    sheetName: { type: 'string', description: 'Worksheet name (.xlsx only). Defaults to the first sheet.' },
+    limit: { type: 'number', description: 'Max rows to return (default 200, max 2000).' },
+  },
+  async run(input, ctx) {
+    try {
+      const doc = await loadDoc(docSourceFrom(input), docFileIO(ctx))
+      const result = await readSheet(doc.bytes, doc.name, {
+        sheetName: asString(input.sheetName, 200) || undefined,
+        limit: input.limit != null ? asNumber(input.limit, 200) : undefined,
+      })
+      return {
+        ok: true,
+        output: result,
+        display: {
+          title: `Read ${doc.name}`,
+          summary: `${result.rows.length} of ${result.totalRows} rows`,
+          kind: 'data',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+const sheetAppend: ToolDef = {
+  name: 'sheet_append',
+  description:
+    'Append rows to an Excel workbook (.xlsx) or CSV, creating the file, the worksheet, and the header row if they do not exist yet. Pass `rows` as an array of objects — the keys become columns, and new keys widen the header instead of being dropped. This is how a workflow records what it processed: one row per document, per application, per run.',
+  inputSchema: {
+    ...DOC_SOURCE_SCHEMA,
+    rows: { type: 'array', description: 'Rows to append, each an object of column name → value.', items: { type: 'object' } },
+    sheetName: { type: 'string', description: 'Worksheet to append to (.xlsx only). Defaults to the first sheet.' },
+    outputPath: { type: 'string', description: 'Where to write the result. Defaults to `path` (append in place).' },
+    outputName: { type: 'string', description: 'Filename for the saved asset when there is no path to write back to.' },
+  },
+  async run(input, ctx) {
+    try {
+      const io = docFileIO(ctx)
+      const src = docSourceFrom(input)
+      const rows = input.rows
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return { ok: false, output: null, error: 'rows must be a non-empty array of objects' }
+      }
+
+      const outputPath = asString(input.outputPath, 2000) || src.path
+      const targetName = outputPath
+        ? basename(outputPath)
+        : asString(input.outputName, 200) || (src.assetId ? '' : 'sheet.xlsx')
+
+      // Appending to a file that isn't there yet is the normal first run —
+      // create it rather than making the agent branch on existence.
+      let existing: Buffer | null = null
+      let name = targetName
+      try {
+        const doc = await loadDoc(src, io)
+        existing = doc.bytes
+        name = outputPath ? basename(outputPath) : doc.name
+      } catch (e) {
+        if (src.assetId || src.url) throw e
+        existing = null
+      }
+      if (!name) name = 'sheet.xlsx'
+
+      const outcome = isCsvName(name)
+        ? appendCsv(existing, rows)
+        : await appendXlsx(existing, rows, { sheetName: asString(input.sheetName, 200) || undefined })
+
+      const mimeType = isCsvName(name)
+        ? 'text/csv'
+        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+      let where: Record<string, unknown>
+      if (outputPath) {
+        await io.writeDesktopFile(outputPath, outcome.bytes)
+        where = { outputPath }
+      } else {
+        const asset = await io.writeAsset(name, outcome.bytes, mimeType)
+        where = { assetId: asset.id, url: asset.url, name }
+      }
+
+      return {
+        ok: true,
+        output: {
+          ...where,
+          appended: outcome.appended,
+          totalRows: outcome.totalRows,
+          headers: outcome.headers,
+          createdFile: outcome.createdFile,
+          createdSheet: outcome.createdSheet,
+        },
+        display: {
+          title: `${outcome.createdFile ? 'Created' : 'Appended to'} ${name}`,
+          summary: `+${outcome.appended} row${outcome.appended === 1 ? '' : 's'} (${outcome.totalRows} total)`,
+          kind: 'data',
+        },
+      }
+    } catch (e) {
+      return { ok: false, output: null, error: (e as Error).message }
+    }
+  },
+}
+
+// 5f. notify — tell the user something happened, without stopping the run.
+//     Wraps the desktop's native OS toast and falls back to email so a
+//     scheduled run on a sleeping machine still reaches someone.
+const notifyTool: ToolDef = {
+  name: 'notify',
+  description:
+    "Tell the user something. Shows a native desktop notification when their machine is connected, and emails them otherwise (or as well, with channel:'both'). Use this for 'finished the batch', 'filed 12 documents', or 'flagged 2 for review'. This does NOT pause the run — use request_review when you need a decision before continuing.",
+  inputSchema: {
+    title: { type: 'string', description: 'Short headline, e.g. "Intake batch done".', required: true },
+    body: { type: 'string', description: 'One or two sentences of detail.', required: true },
+    channel: { type: 'string', description: "'desktop' (default), 'email', or 'both'." },
+  },
+  async run(input, ctx) {
+    const title = asString(input.title, 200)
+    const body = asString(input.body, 4000)
+    if (!title || !body) return { ok: false, output: null, error: 'title and body are required' }
+    const channel = asString(input.channel, 20).toLowerCase() || 'desktop'
+    const wantDesktop = channel === 'desktop' || channel === 'both'
+    const wantEmail = channel === 'email' || channel === 'both'
+
+    const delivered: string[] = []
+    const failures: string[] = []
+
+    if (wantDesktop) {
+      const r = await invokeDesktopTool(ctx, 'desktop.notify', { title, body }, {
+        display: { title: `Notified: ${title}`, summary: 'desktop', kind: 'info' },
+      })
+      if (r.ok) delivered.push('desktop')
+      else failures.push(`desktop: ${r.error ?? 'failed'}`)
+    }
+
+    // Email is the fallback as well as an explicit channel: a scheduled run
+    // whose desktop is asleep should still reach the person.
+    if (wantEmail || (wantDesktop && delivered.length === 0)) {
+      try {
+        const user = await db.user.findUnique({
+          where: { id: ctx.userId },
+          select: { email: true },
+        })
+        if (!user?.email) {
+          failures.push('email: no address on the account')
+        } else {
+          const { sendEmail } = await import('./notifications')
+          const log = await sendEmail({
+            userId: ctx.userId,
+            to: user.email,
+            subject: title,
+            body,
+            kind: 'system',
+            refId: ctx.agentId ?? null,
+          })
+          // 'skipped' means the user turned this notification kind off —
+          // that's their choice honored, not a delivery failure.
+          if (log.status === 'sent' || log.status === 'skipped') {
+            delivered.push(log.status === 'skipped' ? 'email (muted by preference)' : 'email')
+          } else failures.push(`email: ${log.errorMessage ?? log.status}`)
+        }
+      } catch (e) {
+        failures.push(`email: ${(e as Error).message}`)
+      }
+    }
+
+    return {
+      ok: delivered.length > 0,
+      output: { delivered, failures: failures.length ? failures : undefined },
+      error: delivered.length === 0 ? failures.join('; ') || 'could not deliver' : undefined,
+      display: {
+        title: `Notified: ${title}`,
+        summary: delivered.length ? delivered.join(' + ') : 'not delivered',
+        kind: 'info',
+      },
+    }
   },
 }
 
@@ -2785,6 +3227,12 @@ export const AGENT_TOOLS: ToolDef[] = [
   fsRead,
   fsWrite,
   fsMove,
+  docExtract,
+  pdfFormFields,
+  pdfFill,
+  sheetRead,
+  sheetAppend,
+  notifyTool,
   credentialList,
   integrationList,
   mcpListServers,

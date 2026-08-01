@@ -25,7 +25,9 @@ const nextConfig: NextConfig = {
   // Server-only Node packages. Keeping them external stops webpack from pulling
   // their Node built-ins (child_process, node:process/stream, etc.) into the
   // client bundle via the instrumentation → folder-watch → runtime graph.
-  serverExternalPackages: ["@modelcontextprotocol/sdk"],
+  // exceljs/pdf-lib/sharp back the document tools and are server-only; bundling
+  // them drags Node built-ins (and, for sharp, native bindings) into the graph.
+  serverExternalPackages: ["@modelcontextprotocol/sdk", "exceljs", "pdf-lib", "sharp"],
   typescript: {
     // Do NOT silently swallow type errors at build time.
     // Surface them so production builds fail loudly when types drift.
@@ -59,6 +61,9 @@ const nextConfig: NextConfig = {
         "path",
         "os",
         "crypto",
+        "dns",
+        // net-guard resolves + pins addresses through node:dns/promises.
+        "dns/promises",
         "net",
         "tls",
         "child_process",

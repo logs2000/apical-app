@@ -111,6 +111,51 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
+// ---------------- Platform differences ----------------
+//
+// The desktop app ships to Windows, where none of the POSIX assumptions hold:
+// the venv interpreter lives in Scripts\python.exe, there is no `python3` on
+// PATH, and npm is a .cmd shim that spawn() cannot exec directly.
+
+const IS_WINDOWS = process.platform === 'win32'
+
+/** The npm executable to spawn. On Windows the shim needs its .cmd extension. */
+const NPM_BIN = IS_WINDOWS ? 'npm.cmd' : 'npm'
+
+/** Where a venv puts its interpreter — bin/python on POSIX, Scripts\python.exe on Windows. */
+function venvPython(venvDir: string): string {
+  return IS_WINDOWS
+    ? path.join(venvDir, 'Scripts', 'python.exe')
+    : path.join(venvDir, 'bin', 'python')
+}
+
+/**
+ * Find a usable Python interpreter.
+ *
+ * Windows installs expose `python` and the `py` launcher but generally not
+ * `python3`, so probing in order (and caching the winner) is the only reliable
+ * way to work on both a Mac laptop and a Windows desktop.
+ */
+let cachedPython: string | null = null
+
+async function findPython(): Promise<string | null> {
+  if (cachedPython) return cachedPython
+  const candidates = IS_WINDOWS ? ['python', 'py', 'python3'] : ['python3', 'python']
+  for (const cmd of candidates) {
+    const probe = await run(cmd, ['--version'], { timeoutMs: 10_000 })
+    if (probe.ok) {
+      cachedPython = cmd
+      return cmd
+    }
+  }
+  return null
+}
+
+/** Reset the cached interpreter — for tests and for retrying after an install. */
+export function resetPythonCache(): void {
+  cachedPython = null
+}
+
 /** Run a Node.js script, optionally with npm packages (require() works). */
 export async function runNodeScript(
   code: string,
@@ -129,7 +174,7 @@ export async function runNodeScript(
       JSON.stringify({ name: 'apical-script', private: true }, null, 2),
     )
     const install = await run(
-      'npm',
+      NPM_BIN,
       ['install', '--no-audit', '--no-fund', '--loglevel=error', ...packages],
       { cwd: dir, timeoutMs: INSTALL_TIMEOUT_MS },
     )
@@ -168,32 +213,44 @@ export async function runPythonScript(
   const bad = validatePackages(packages, PIP_PKG_RE, 'PyPI')
   if (bad) return { ok: false, stdout: '', stderr: '', exitCode: null, error: bad }
 
-  let python = 'python3'
+  const systemPython = await findPython()
+  if (!systemPython) {
+    return {
+      ok: false,
+      stdout: '',
+      stderr: '',
+      exitCode: null,
+      error: IS_WINDOWS
+        ? 'Python is not installed or not on PATH. Install it from python.org (tick "Add python.exe to PATH") or from the Microsoft Store, then retry.'
+        : 'Python 3 is not installed or not on PATH.',
+    }
+  }
+
+  let python = systemPython
   if (packages.length > 0) {
     const dir = envDirFor('py', packages)
-    const venvPython = path.join(dir, 'venv', 'bin', 'python')
-    if (!(await exists(venvPython))) {
+    const venvDir = path.join(dir, 'venv')
+    const interpreter = venvPython(venvDir)
+    if (!(await exists(interpreter))) {
       await mkdir(dir, { recursive: true })
-      const venv = await run('python3', ['-m', 'venv', path.join(dir, 'venv')], {
-        timeoutMs: 60_000,
-      })
+      const venv = await run(systemPython, ['-m', 'venv', venvDir], { timeoutMs: 60_000 })
       if (!venv.ok) {
         return {
           ...venv,
-          error: `Could not create Python env (is python3 installed on the server?): ${venv.error}`,
+          error: `Could not create Python env with ${systemPython}: ${venv.error}`,
         }
       }
       const install = await run(
-        venvPython,
+        interpreter,
         ['-m', 'pip', 'install', '--quiet', '--disable-pip-version-check', ...packages],
         { timeoutMs: INSTALL_TIMEOUT_MS },
       )
       if (!install.ok) {
-        await rm(path.join(dir, 'venv'), { recursive: true, force: true }).catch(() => {})
+        await rm(venvDir, { recursive: true, force: true }).catch(() => {})
         return { ...install, error: `pip install failed: ${install.error}` }
       }
     }
-    python = venvPython
+    python = interpreter
   }
 
   return run(python, ['-c', code], {

@@ -34,6 +34,43 @@ export interface WorkflowStepExecResult {
   needsReconnect?: { app: string; credentialId: string }
 }
 
+/**
+ * Tools a frozen workflow may execute without an agent in the loop.
+ *
+ * The bar is determinism: given the same inputs, the step does the same thing
+ * and needs no judgement call. Discovery and design tools (searching the web,
+ * creating agents, freezing workflows) stay out — those belong to the design
+ * conversation, and EXPLORATION_ONLY_TOOLS rejects them separately.
+ *
+ * doc_extract is the one entry that calls a model. It earns its place because
+ * it is a fixed transform — bytes in, fields out, temperature 0 — and without
+ * it a frozen intake workflow cannot read the document it was built to read.
+ */
+export const PRODUCTION_TOOLS = new Set([
+  // Filesystem + execution
+  'fs_list',
+  'fs_read',
+  'fs_write',
+  'fs_move',
+  'cli_run',
+  'script_run',
+  'code_eval',
+  'http_request',
+  'mcp_call_tool',
+  // Document primitives
+  'doc_extract',
+  'pdf_form_fields',
+  'pdf_fill',
+  'sheet_read',
+  'sheet_append',
+  // Persistence + output
+  'data_table_create',
+  'data_table_insert',
+  'data_table_query',
+  'asset_save',
+  'notify',
+])
+
 /** Map a saved workflow step to an agent-tool invocation (reuse proven executors). */
 export function workflowStepToToolCall(
   step: WorkflowStep,
@@ -104,18 +141,7 @@ export function workflowStepToToolCall(
 
   if (EXPLORATION_ONLY_TOOLS.has(tool)) return null
 
-  const productionTools = new Set([
-    'fs_list',
-    'fs_read',
-    'fs_write',
-    'fs_move',
-    'cli_run',
-    'script_run',
-    'code_eval',
-    'http_request',
-    'mcp_call_tool',
-  ])
-  if (!productionTools.has(tool)) return null
+  if (!PRODUCTION_TOOLS.has(tool)) return null
 
   return {
     tool,

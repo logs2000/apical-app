@@ -123,9 +123,42 @@ export function humanWorkflowLabel(tool: string, input: Record<string, unknown>)
       return `Call ${str(input.tool) || 'MCP tool'} via connected integration`
     case 'code_eval':
       return 'Transform data with script logic'
+    case 'doc_extract': {
+      const what = docSourceLabel(input)
+      const fields = Array.isArray(input.fields) ? input.fields.length : 0
+      return fields
+        ? `Read ${fields} field${fields === 1 ? '' : 's'} from ${what}`
+        : `Read document ${what}`
+    }
+    case 'pdf_form_fields':
+      return `Inspect form fields on ${docSourceLabel(input)}`
+    case 'pdf_fill': {
+      const count = input.values && typeof input.values === 'object'
+        ? Object.keys(input.values as Record<string, unknown>).length
+        : 0
+      return `Fill ${count || ''} field${count === 1 ? '' : 's'} on ${docSourceLabel(input)}`.replace('  ', ' ')
+    }
+    case 'sheet_read':
+      return `Read rows from ${docSourceLabel(input)}`
+    case 'sheet_append': {
+      const rows = Array.isArray(input.rows) ? input.rows.length : 0
+      const target = str(input.outputPath) ? shortPath(str(input.outputPath)) : docSourceLabel(input)
+      return `Append ${rows || ''} row${rows === 1 ? '' : 's'} to ${target}`.replace('  ', ' ')
+    }
+    case 'notify':
+      return `Notify: ${str(input.title, 60) || 'the user'}`
     default:
       return traceStepLabel(tool, input)
   }
+}
+
+/** The path/asset/url a document step points at, shortened for a node title. */
+function docSourceLabel(input: Record<string, unknown>): string {
+  const p = str(input.path)
+  if (p) return shortPath(p)
+  if (str(input.url)) return str(input.url, 60)
+  if (str(input.assetId)) return 'uploaded file'
+  return 'document'
 }
 
 function shortPath(p: string): string {
@@ -223,6 +256,26 @@ export function traceStepHasExecutableParams(step: EngineTraceStep): boolean {
       return Boolean((str(input.serverId) || str(input.server)) && (str(input.toolName) || str(input.name)))
     case 'code_eval':
       return Boolean(str(input.code))
+    // Document primitives all address their input the same way: one of
+    // path / assetId / url. A step missing all three cannot be replayed.
+    case 'doc_extract':
+    case 'pdf_form_fields':
+    case 'sheet_read':
+      return Boolean(str(input.path) || str(input.assetId) || str(input.url))
+    case 'pdf_fill':
+      return Boolean(
+        (str(input.path) || str(input.assetId) || str(input.url)) &&
+          input.values != null &&
+          typeof input.values === 'object',
+      )
+    case 'sheet_append':
+      return Boolean(
+        (str(input.path) || str(input.assetId) || str(input.url) || str(input.outputPath)) &&
+          Array.isArray(input.rows) &&
+          input.rows.length > 0,
+      )
+    case 'notify':
+      return Boolean(str(input.title) && str(input.body))
     default:
       return Object.keys(input).some((k) => {
         const v = input[k]

@@ -98,6 +98,28 @@ export function friendlyActionLabel(
       const t = clip(i.toolName ?? i.tool ?? i.name) || 'a connected tool'
       return pick(`Using ${t}`, `Used ${t}`, `Couldn't use ${t}`)
     }
+    case 'doc_extract': {
+      const f = fileName(i.path) || clip(i.url) || 'the document'
+      return pick(`Reading ${f}`, `Read ${f}`, `Couldn't read ${f}`)
+    }
+    case 'pdf_form_fields': {
+      const f = fileName(i.path) || 'the form'
+      return pick(`Checking fields on ${f}`, `Checked fields on ${f}`, `Couldn't check ${f}`)
+    }
+    case 'pdf_fill': {
+      const f = fileName(i.outputPath) || fileName(i.path) || 'the form'
+      return pick(`Filling ${f}`, `Filled ${f}`, `Couldn't fill ${f}`)
+    }
+    case 'sheet_read': {
+      const f = fileName(i.path) || 'the spreadsheet'
+      return pick(`Reading ${f}`, `Read ${f}`, `Couldn't read ${f}`)
+    }
+    case 'sheet_append': {
+      const f = fileName(i.outputPath) || fileName(i.path) || 'the spreadsheet'
+      return pick(`Adding rows to ${f}`, `Added rows to ${f}`, `Couldn't update ${f}`)
+    }
+    case 'notify':
+      return pick('Sending a notification', 'Sent a notification', "Couldn't send the notification")
     case 'data_table_create':
       return pick('Creating a data table', 'Created a data table', "Couldn't create the data table")
     case 'data_table_insert':

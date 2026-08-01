@@ -39,9 +39,35 @@ export const NO_LLM_PROVIDER_ERROR =
 
 // ---------------- Public types ----------------
 
+/**
+ * A binary part attached to a user turn — an image or a document (PDF).
+ * The gateway expands these into each provider's native content blocks so a
+ * scanned ID or a PDF form reaches the model as pixels/pages, not as a
+ * filename in the prompt text.
+ */
+export interface MediaPart {
+  kind: 'image' | 'document'
+  /** e.g. image/png, image/jpeg, application/pdf */
+  mimeType: string
+  /** base64-encoded bytes (no data: prefix). */
+  data: string
+  /** Optional display name, used in error messages and text fallbacks. */
+  name?: string
+}
+
+/** Image MIME types every vision-capable provider accepts. */
+export const SUPPORTED_IMAGE_MIME = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+])
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  /** User turns only: images/PDFs sent alongside the text. */
+  media?: MediaPart[]
 }
 
 /** A tool the model may call, described in JSON Schema form. */
@@ -165,6 +191,22 @@ export function modelSupportsTools(resolved: ResolvedModel): boolean {
   if (resolved.adapter === 'llamacpp') return false
   if (resolved.adapter === 'cloud-relay') return true
   return resolved.model.supportsTools !== false
+}
+
+/**
+ * Whether a resolved model can be sent images/PDFs. llama.cpp's OpenAI shim
+ * has no image support; every other adapter defers to the registry's
+ * supportsVision flag.
+ */
+export function modelSupportsMedia(resolved: ResolvedModel): boolean {
+  if (resolved.adapter === 'llamacpp') return false
+  return resolved.model.supportsVision === true
+}
+
+/** Whether a resolved model accepts PDFs as a native document block. */
+export function modelSupportsDocuments(resolved: ResolvedModel): boolean {
+  if (!modelSupportsMedia(resolved)) return false
+  return resolved.adapter === 'anthropic' || resolved.adapter === 'google'
 }
 
 interface ChatOpts {
@@ -482,6 +524,36 @@ function assistantToolCalls(m: GatewayMessage): AssistantToolCall[] | undefined 
   return m.role === 'assistant' ? (m as GatewayAssistant).toolCalls : undefined
 }
 
+/** Media attached to a user turn (empty for every other role). */
+function mediaOf(m: GatewayMessage): MediaPart[] {
+  if (m.role !== 'user') return []
+  const parts = (m as ChatMessage).media
+  return Array.isArray(parts) && parts.length > 0 ? parts : []
+}
+
+/** True when any message in the conversation carries an image or document. */
+export function messagesHaveMedia(messages: GatewayMessage[]): boolean {
+  return messages.some((m) => mediaOf(m).length > 0)
+}
+
+/**
+ * Drop media from a conversation, leaving a text note in its place. Used as a
+ * graceful fallback when the resolved model has no vision support — the turn
+ * still runs, and the model is told plainly what it could not see.
+ */
+function stripMedia(messages: GatewayMessage[]): GatewayMessage[] {
+  return messages.map((m) => {
+    const parts = mediaOf(m)
+    if (parts.length === 0) return m
+    const note = parts
+      .map((p) => `[attachment not readable by this model: ${p.name ?? p.mimeType}]`)
+      .join('\n')
+    const { media: _media, ...rest } = m as ChatMessage
+    void _media
+    return { ...rest, content: [rest.content, note].filter(Boolean).join('\n\n') }
+  })
+}
+
 /** Strip the `__raw` sentinel we attach when argument JSON fails to parse. */
 function cleanArgs(args: Record<string, unknown>): Record<string, unknown> {
   if (args && typeof args === 'object' && '__raw' in args) {
@@ -510,6 +582,33 @@ function toOpenAIMessages(messages: GatewayMessage[]): Record<string, unknown>[]
           function: { name: c.name, arguments: JSON.stringify(cleanArgs(c.arguments)) },
         })),
       }
+    }
+    const media = mediaOf(m)
+    if (media.length > 0) {
+      // OpenAI chat-completions takes images as data URLs. PDFs are not
+      // accepted here, so they are named in the text rather than dropped
+      // silently — doc_extract steers the caller to a PDF-capable model.
+      const blocks: Record<string, unknown>[] = []
+      const unreadable: string[] = []
+      for (const part of media) {
+        if (part.kind === 'image' && SUPPORTED_IMAGE_MIME.has(part.mimeType)) {
+          blocks.push({
+            type: 'image_url',
+            image_url: { url: `data:${part.mimeType};base64,${part.data}` },
+          })
+        } else {
+          unreadable.push(part.name ?? part.mimeType)
+        }
+      }
+      const text = [
+        (m as ChatMessage).content,
+        unreadable.length
+          ? `[not readable by this model — convert to an image first: ${unreadable.join(', ')}]`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+      return { role: m.role, content: [{ type: 'text', text }, ...blocks] }
     }
     return { role: m.role, content: (m as ChatMessage).content }
   })
@@ -563,6 +662,24 @@ function toAnthropicMessages(messages: GatewayMessage[]): Record<string, unknown
       continue
     }
     // user
+    const media = mediaOf(m)
+    if (media.length > 0) {
+      // Anthropic reads both images and PDFs natively — a scanned PDF goes in
+      // as a `document` block and comes back as text + layout understanding.
+      const blocks: Record<string, unknown>[] = []
+      if ((m as ChatMessage).content) {
+        blocks.push({ type: 'text', text: (m as ChatMessage).content })
+      }
+      for (const part of media) {
+        blocks.push({
+          type: part.kind === 'document' ? 'document' : 'image',
+          source: { type: 'base64', media_type: part.mimeType, data: part.data },
+        })
+      }
+      out.push({ role: 'user', content: blocks })
+      i++
+      continue
+    }
     out.push({ role: 'user', content: (m as ChatMessage).content })
     i++
   }
@@ -615,7 +732,13 @@ function toGoogleContents(messages: GatewayMessage[]): Record<string, unknown>[]
       out.push({ role: 'model', parts: parts.length ? parts : [{ text: '' }] })
       continue
     }
-    out.push({ role: 'user', parts: [{ text: (m as ChatMessage).content }] })
+    // Gemini takes images and PDFs as inlineData parts on a user turn.
+    const media = mediaOf(m)
+    const parts: Record<string, unknown>[] = [{ text: (m as ChatMessage).content }]
+    for (const part of media) {
+      parts.push({ inlineData: { mimeType: part.mimeType, data: part.data } })
+    }
+    out.push({ role: 'user', parts })
   }
   return out
 }
@@ -647,6 +770,13 @@ function toOllamaMessages(messages: GatewayMessage[]): Record<string, unknown>[]
           function: { name: c.name, arguments: cleanArgs(c.arguments) },
         })),
       }
+    }
+    // Ollama vision models take base64 images in a sibling `images` array.
+    const images = mediaOf(m)
+      .filter((p) => p.kind === 'image')
+      .map((p) => p.data)
+    if (images.length > 0) {
+      return { role: m.role, content: (m as ChatMessage).content, images }
     }
     return { role: m.role, content: (m as ChatMessage).content }
   })
@@ -1331,6 +1461,12 @@ async function callAdapter(
   opts: ChatOpts,
   userId?: string,
 ): Promise<AdapterResult> {
+  // A text-only model must never receive image/document blocks — the provider
+  // would 400 the whole turn. Degrade to a named placeholder instead.
+  if (messagesHaveMedia(messages) && !modelSupportsMedia(resolved)) {
+    messages = stripMedia(messages)
+  }
+
   if (resolved.adapter === 'cloud-relay') {
     if (!userId) throw new Error('Cloud relay requires userId')
     const res = await cloudChat(userId, {
@@ -1399,6 +1535,10 @@ async function* streamAdapter(
   opts: ChatOpts,
   userId?: string,
 ): AsyncGenerator<AdapterStreamChunk> {
+  if (messagesHaveMedia(messages) && !modelSupportsMedia(resolved)) {
+    messages = stripMedia(messages)
+  }
+
   if (resolved.adapter === 'cloud-relay') {
     if (!userId) throw new Error('Cloud relay requires userId')
     let usage: ChatUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
@@ -1940,6 +2080,44 @@ export async function resolveModelPreferenceForUser(
   }
 
   return available[0]?.id ?? null
+}
+
+/**
+ * Pick a model that can actually read the attached media for this user.
+ *
+ * Honors an explicit hint when that model is vision-capable (and, for PDFs,
+ * document-capable); otherwise falls back to the cheapest capable hosted model
+ * so document extraction stays affordable at intake volume.
+ */
+export async function resolveMediaModelForUser(
+  userId: string,
+  opts: { needsDocuments?: boolean; hint?: string | null } = {},
+): Promise<{ modelId: string; supportsDocuments: boolean } | null> {
+  const configured = await hostedProvidersForUser(userId)
+  if (configured.length === 0) return null
+
+  // Anthropic and Google read PDF pages natively; OpenAI chat-completions
+  // only takes images, so it cannot serve a document request.
+  const docProviders: ProviderId[] = ['anthropic', 'google']
+  const capable = MODEL_REGISTRY.filter(
+    (m) =>
+      m.tier === 'hosted' &&
+      m.supportsVision &&
+      configured.includes(m.provider) &&
+      (!opts.needsDocuments || docProviders.includes(m.provider)),
+  )
+  if (capable.length === 0) return null
+
+  const hinted = opts.hint ? capable.find((m) => m.id === opts.hint) : undefined
+  const chosen =
+    hinted ??
+    // Cheapest capable model first — extraction runs per document.
+    [...capable].sort((a, b) => a.inputCostCentsPer1M - b.inputCostCentsPer1M)[0]
+
+  return {
+    modelId: chosen.id,
+    supportsDocuments: docProviders.includes(chosen.provider),
+  }
 }
 
 async function buildDefaultResolvedForUser(
